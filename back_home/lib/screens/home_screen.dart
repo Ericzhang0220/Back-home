@@ -67,77 +67,65 @@ class HomeScreen extends StatelessWidget {
     ];
 
     return AppPage(
-      eyebrow: 'Evening Reset',
-      title: 'Back Home',
-      subtitle:
-          'A softer landing after a long day at school, work, or everywhere in between.',
+      title: 'Welcome Back',
+      subtitle: 'Username',
       trailing: const InfoPill(
         icon: Icons.favorite_rounded,
         label: 'Likes',
         value: '238',
       ),
+      padding: const EdgeInsets.only(top: 30, left: 23, right: 20, bottom: 140),
       children: [
-        SoftCard(
-          gradient: const LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFFFFF8F1), Color(0xFFF4D8C7)],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        Container(
+          height: 500,
+          child: Stack(
             children: [
-              Row(
+              Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Your comfort room is glowing.',
-                          style: Theme.of(context).textTheme.headlineMedium,
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          'The window is open, the music is low, and your next gentle check-in is ready.',
-                          style: Theme.of(context).textTheme.bodyLarge,
-                        ),
-                        const SizedBox(height: 18),
-                        Wrap(
-                          spacing: 10,
-                          runSpacing: 10,
-                          children: const [
-                            InfoPill(
-                              icon: Icons.local_fire_department_rounded,
-                              label: 'Streak',
-                              value: '11 days',
-                              tint: Color(0xFFF7DFC8),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Your comfort room is glowing.',
+                              style: Theme.of(context).textTheme.headlineMedium,
                             ),
-                            InfoPill(
-                              icon: Icons.self_improvement_rounded,
-                              label: 'Mood',
-                              value: '82%',
-                              tint: Color(0xFFDDE8DD),
+                            const SizedBox(height: 10),
+                            Text(
+                              'The window is open, the music is low, and your next gentle check-in is ready.',
+                              style: Theme.of(context).textTheme.bodyLarge,
+                            ),
+                            const SizedBox(height: 18),
+                            Wrap(
+                              spacing: 10,
+                              runSpacing: 10,
+                              children: const [
+                                InfoPill(
+                                  icon: Icons.local_fire_department_rounded,
+                                  label: 'Streak',
+                                  value: '11 days',
+                                  tint: Color(0xFFF7DFC8),
+                                ),
+                                InfoPill(
+                                  icon: Icons.self_improvement_rounded,
+                                  label: 'Mood',
+                                  value: '82%',
+                                  tint: Color(0xFFDDE8DD),
+                                ),
+                              ],
                             ),
                           ],
                         ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(width: 16),
+                      const _HomeIllustration(),
+                    ],
                   ),
-                  const SizedBox(width: 16),
-                  const _HomeIllustration(),
-                ],
-              ),
-              const SizedBox(height: 20),
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: [
-                  FilledButton.icon(
-                    onPressed: onOpenRoom,
-                    icon: const Icon(Icons.arrow_outward_rounded),
-                    label: const Text('Open room'),
-                  ),
+                  const SizedBox(height: 20),
                   OutlinedButton.icon(
                     onPressed: onOpenAchievements,
                     icon: const Icon(Icons.workspace_premium_rounded),
@@ -145,84 +133,97 @@ class HomeScreen extends StatelessWidget {
                   ),
                 ],
               ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 28),
-        const SectionHeader(
-          title: 'Quick doors',
-          subtitle: 'Jump into the core spaces of the app.',
-        ),
-        const SizedBox(height: 14),
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: quickActions.length,
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            mainAxisSpacing: 12,
-            crossAxisSpacing: 12,
-            childAspectRatio: 0.98,
-          ),
-          itemBuilder: (context, index) {
-            final item = quickActions[index];
-            return ActionTile(
-              icon: item.icon,
-              title: item.title,
-              subtitle: item.subtitle,
-              tint: item.tint,
-              onTap: item.action,
-            );
-          },
-        ),
-        const SizedBox(height: 28),
-        const SectionHeader(
-          title: 'Tonight\'s plan',
-          subtitle: 'A calm, guided rhythm for the rest of the evening.',
-        ),
-        const SizedBox(height: 14),
-        SoftCard(
-          child: Column(
-            children: const [
-              _PlanStep(
-                time: '7:30 PM',
-                title: 'Bedtime message',
-                detail:
-                    'Tap the bed for a short reflection and a gentle prompt to exhale.',
-              ),
-              Divider(),
-              _PlanStep(
-                time: '8:00 PM',
-                title: 'Table view + radio',
-                detail:
-                    'Open the table, tune the radio, and swap to your own playlist if you want.',
-              ),
-              Divider(),
-              _PlanStep(
-                time: '8:30 PM',
-                title: 'Bottle request',
-                detail:
-                    'Send a message in a bottle or answer someone else\'s request for extra likes.',
+              Positioned(
+                bottom: 0,
+                right: 0,
+                child: SizedBox(
+                  width: 150,
+                  height: 55,
+                  child: FilledButton.icon(
+                    onPressed: onOpenRoom,
+                    icon: const Icon(Icons.arrow_outward_rounded),
+                    label: const Text('Open room'),
+                  ),
+                ),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 28),
-        SectionHeader(
-          title: 'Warm notes from the hall',
-          subtitle: 'Community encouragement worth saving for later.',
-          actionLabel: 'Open hall',
-          onAction: onOpenHall,
-        ),
-        const SizedBox(height: 14),
-        for (final note in notes) ...[
-          _NoteCard(
-            author: note.author,
-            message: note.message,
-            likes: note.likes,
-          ),
-          const SizedBox(height: 12),
-        ],
+        // const SizedBox(height: 28),
+        // const SectionHeader(
+        //   title: 'Quick doors',
+        //   subtitle: 'Jump into the core spaces of the app.',
+        // ),
+        // const SizedBox(height: 14),
+        // GridView.builder(
+        //   shrinkWrap: true,
+        //   physics: const NeverScrollableScrollPhysics(),
+        //   itemCount: quickActions.length,
+        //   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        //     crossAxisCount: 2,
+        //     mainAxisSpacing: 12,
+        //     crossAxisSpacing: 12,
+        //     childAspectRatio: 0.98,
+        //   ),
+        //   itemBuilder: (context, index) {
+        //     final item = quickActions[index];
+        //     return ActionTile(
+        //       icon: item.icon,
+        //       title: item.title,
+        //       subtitle: item.subtitle,
+        //       tint: item.tint,
+        //       onTap: item.action,
+        //     );
+        //   },
+        // ),
+        // const SizedBox(height: 28),
+        // const SectionHeader(
+        //   title: 'Tonight\'s plan',
+        //   subtitle: 'A calm, guided rhythm for the rest of the evening.',
+        // ),
+        // const SizedBox(height: 14),
+        // SoftCard(
+        //   child: Column(
+        //     children: const [
+        //       _PlanStep(
+        //         time: '7:30 PM',
+        //         title: 'Bedtime message',
+        //         detail:
+        //             'Tap the bed for a short reflection and a gentle prompt to exhale.',
+        //       ),
+        //       Divider(),
+        //       _PlanStep(
+        //         time: '8:00 PM',
+        //         title: 'Table view + radio',
+        //         detail:
+        //             'Open the table, tune the radio, and swap to your own playlist if you want.',
+        //       ),
+        //       Divider(),
+        //       _PlanStep(
+        //         time: '8:30 PM',
+        //         title: 'Bottle request',
+        //         detail:
+        //             'Send a message in a bottle or answer someone else\'s request for extra likes.',
+        //       ),
+        //     ],
+        //   ),
+        // ),
+        // const SizedBox(height: 28),
+        // SectionHeader(
+        //   title: 'Warm notes from the hall',
+        //   subtitle: 'Community encouragement worth saving for later.',
+        //   actionLabel: 'Open hall',
+        //   onAction: onOpenHall,
+        // ),
+        // const SizedBox(height: 14),
+        // for (final note in notes) ...[
+        //   _NoteCard(
+        //     author: note.author,
+        //     message: note.message,
+        //     likes: note.likes,
+        //   ),
+        //   const SizedBox(height: 12),
+        // ],
       ],
     );
   }

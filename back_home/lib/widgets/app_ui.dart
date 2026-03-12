@@ -25,7 +25,11 @@ class AmbientBackground extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [Color(0xFFFFFBF6), Color(0xFFF7E3D4), Color(0xFFF0CDB6)],
+          colors: [
+            Color(0xFFFFFBF6),
+            Color.fromARGB(255, 255, 237, 224),
+            Color.fromARGB(255, 255, 221, 198),
+          ],
         ),
       ),
       child: Stack(
@@ -57,7 +61,7 @@ class AmbientBackground extends StatelessWidget {
 class AppPage extends StatelessWidget {
   const AppPage({
     super.key,
-    required this.eyebrow,
+    this.eyebrow,
     required this.title,
     required this.subtitle,
     required this.children,
@@ -65,7 +69,7 @@ class AppPage extends StatelessWidget {
     this.padding = const EdgeInsets.fromLTRB(20, 18, 20, 140),
   });
 
-  final String eyebrow;
+  final String? eyebrow;
   final String title;
   final String subtitle;
   final List<Widget> children;
@@ -81,14 +85,15 @@ class AppPage extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            eyebrow.toUpperCase(),
-            style: theme.textTheme.labelLarge?.copyWith(
-              color: AppColors.clay,
-              letterSpacing: 1.6,
+          if (eyebrow != null)
+            Text(
+              eyebrow!.toUpperCase(),
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: AppColors.clay,
+                letterSpacing: 1.6,
+              ),
             ),
-          ),
-          const SizedBox(height: 10),
+          if (eyebrow != null) const SizedBox(height: 10),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -96,9 +101,23 @@ class AppPage extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title, style: theme.textTheme.headlineLarge),
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 29,
+                        fontWeight: FontWeight.bold,
+                        color: const Color.fromARGB(255, 0, 0, 0),
+                      ),
+                    ),
                     const SizedBox(height: 8),
-                    Text(subtitle, style: theme.textTheme.bodyMedium),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        color: const Color.fromARGB(255, 0, 0, 0),
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ],
                 ),
               ),
