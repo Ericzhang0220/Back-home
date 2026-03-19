@@ -46,12 +46,6 @@ class AmbientBackground extends StatelessWidget {
             size: 220,
             offset: Offset(-90, -20),
           ),
-          _GlowOrb(
-            alignment: Alignment.bottomRight,
-            color: Color(0x45F8EFE4),
-            size: 280,
-            offset: Offset(40, 120),
-          ),
         ],
       ),
     );
@@ -101,23 +95,25 @@ class AppPage extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      title,
-                      style: TextStyle(
-                        fontSize: 29,
-                        fontWeight: FontWeight.bold,
-                        color: const Color.fromARGB(255, 0, 0, 0),
+                    if (title.isNotEmpty)
+                      Text(
+                        title,
+                        style: TextStyle(
+                          fontSize: 29,
+                          fontWeight: FontWeight.bold,
+                          color: const Color.fromARGB(255, 0, 0, 0),
+                        ),
                       ),
-                    ),
                     const SizedBox(height: 8),
-                    Text(
-                      subtitle,
-                      style: TextStyle(
-                        color: const Color.fromARGB(255, 0, 0, 0),
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
+                    if (subtitle.isNotEmpty)
+                      Text(
+                        subtitle,
+                        style: TextStyle(
+                          color: const Color.fromARGB(255, 0, 0, 0),
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                    ),
                   ],
                 ),
               ),

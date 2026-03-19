@@ -77,7 +77,7 @@ class HomeScreen extends StatelessWidget {
       padding: const EdgeInsets.only(top: 30, left: 23, right: 20, bottom: 140),
       children: [
         Container(
-          height: 500,
+          height: MediaQuery.sizeOf(context).height * 0.72,
           child: Stack(
             children: [
               Column(
@@ -137,12 +137,44 @@ class HomeScreen extends StatelessWidget {
                 bottom: 0,
                 right: 0,
                 child: SizedBox(
-                  width: 150,
-                  height: 55,
+                  width: 165,
+                  height: 60,
                   child: FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      backgroundColor: const Color.fromARGB(255, 255, 210, 75),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      // shadowColor: const Color.fromARGB(
+                      //   255,
+                      //   22,
+                      //   22,
+                      //   22,
+                      // ).withValues(alpha: 0.5),
+                      // elevation: 7,
+                    ),
                     onPressed: onOpenRoom,
-                    icon: const Icon(Icons.arrow_outward_rounded),
-                    label: const Text('Open room'),
+                    icon: Image.asset(
+                      'assets/Arrow 2.png',
+                      color: Color.fromARGB(255, 0, 0, 0),
+                      width: 28,
+                    ),
+                    label: const Text(
+                      'Open room',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                        color: Color.fromARGB(255, 0, 0, 0),
+                        shadows: [
+                          //Shadow(
+                          //   color: Color.fromARGB(255, 255, 255, 255),
+                          //   offset: Offset(0, 1),
+                          //   blurRadius: 0,
+                          // ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ),

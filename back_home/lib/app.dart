@@ -73,7 +73,7 @@ class _AppShellState extends State<AppShell> {
     ];
 
     return Scaffold(
-      backgroundColor: Colors.transparent,
+      backgroundColor: const Color.fromARGB(0, 212, 255, 18),
       body: Stack(
         children: [
           const AmbientBackground(),
@@ -82,49 +82,54 @@ class _AppShellState extends State<AppShell> {
           ),
         ],
       ),
-      bottomNavigationBar: SafeArea(
-        top: false,
-        minimum: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(28),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-            child: NavigationBar(
-              selectedIndex: _currentTab.index,
-              onDestinationSelected: (index) {
-                _selectTab(AppTab.values[index]);
-              },
-              destinations: const [
-                NavigationDestination(
-                  icon: Icon(Icons.home_outlined),
-                  selectedIcon: Icon(Icons.home_rounded),
-                  label: 'Home',
+      bottomNavigationBar: (_currentTab != AppTab.home)
+          ? Container(
+              color: Color.fromARGB(255, 255, 221, 198),
+              child: SafeArea(
+                top: false,
+                minimum: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(28),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                    child: NavigationBar(
+                      selectedIndex: _currentTab.index - 1,
+                      onDestinationSelected: (index) {
+                        _selectTab(AppTab.values[index + 1]);
+                      },
+                      destinations: const [
+                        // NavigationDestination(
+                        //   icon: Icon(Icons.home_outlined),
+                        //   selectedIcon: Icon(Icons.home_rounded),
+                        //   label: 'Home',
+                        // ),
+                        NavigationDestination(
+                          icon: Icon(Icons.weekend_outlined),
+                          selectedIcon: Icon(Icons.weekend_rounded),
+                          label: 'Room',
+                        ),
+                        NavigationDestination(
+                          icon: Icon(Icons.forum_outlined),
+                          selectedIcon: Icon(Icons.forum_rounded),
+                          label: 'Hall',
+                        ),
+                        NavigationDestination(
+                          icon: Icon(Icons.chat_bubble_outline_rounded),
+                          selectedIcon: Icon(Icons.chat_bubble_rounded),
+                          label: 'Chat',
+                        ),
+                        NavigationDestination(
+                          icon: Icon(Icons.person_outline_rounded),
+                          selectedIcon: Icon(Icons.person_rounded),
+                          label: 'Profile',
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-                NavigationDestination(
-                  icon: Icon(Icons.weekend_outlined),
-                  selectedIcon: Icon(Icons.weekend_rounded),
-                  label: 'Room',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.forum_outlined),
-                  selectedIcon: Icon(Icons.forum_rounded),
-                  label: 'Hall',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.chat_bubble_outline_rounded),
-                  selectedIcon: Icon(Icons.chat_bubble_rounded),
-                  label: 'Chat',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.person_outline_rounded),
-                  selectedIcon: Icon(Icons.person_rounded),
-                  label: 'Profile',
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+              ),
+            )
+          : null,
     );
   }
 }

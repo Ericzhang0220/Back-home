@@ -43,10 +43,9 @@ class RoomScreen extends StatelessWidget {
     ];
 
     return AppPage(
-      eyebrow: 'Personal Space',
-      title: 'Your room',
-      subtitle:
-          'Build a soft, interactive environment that changes with time, weather, and the things you collect.',
+      // eyebrow: 'Personal Space',
+      title: '',
+      subtitle: '',
       trailing: IconButton.filledTonal(
         onPressed: onOpenShop,
         icon: const Icon(Icons.shopping_bag_rounded),
