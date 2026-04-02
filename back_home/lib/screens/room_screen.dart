@@ -1,385 +1,690 @@
+import 'dart:math' as math;
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 
+import '../rooms/isometric_room_view.dart';
+import '../rooms/room_state.dart';
+import '../rooms/room_visuals.dart';
 import '../widgets/app_ui.dart';
 
-class RoomScreen extends StatelessWidget {
-  const RoomScreen({super.key, required this.onOpenShop});
+class RoomScreen extends StatefulWidget {
+  const RoomScreen({
+    super.key,
+    required this.controller,
+    required this.onOpenShop,
+  });
 
+  final RoomEditorController controller;
   final VoidCallback onOpenShop;
 
   @override
-  Widget build(BuildContext context) {
-    final objects = [
-      (
-        icon: Icons.bed_rounded,
-        title: 'Bed',
-        detail: 'Shows a bedtime message and reflection prompt.',
-      ),
-      (
-        icon: Icons.table_restaurant_rounded,
-        title: 'Table',
-        detail: 'Opens table view for music and objects.',
-      ),
-      (
-        icon: Icons.radio_rounded,
-        title: 'Radio',
-        detail: 'Swap between built-in tracks and your own library.',
-      ),
-      (
-        icon: Icons.window_rounded,
-        title: 'Window',
-        detail: 'Open, close, and change how light falls into the room.',
-      ),
-      (
-        icon: Icons.pets_rounded,
-        title: 'Pet',
-        detail: 'Tap to trigger a small animation and comfort reaction.',
-      ),
-      (
-        icon: Icons.local_florist_rounded,
-        title: 'Plant',
-        detail: 'Animated leaves make the space feel alive.',
-      ),
-    ];
+  State<RoomScreen> createState() => _RoomScreenState();
+}
 
-    return AppPage(
-      // eyebrow: 'Personal Space',
-      title: '',
-      subtitle: '',
-      trailing: IconButton.filledTonal(
-        onPressed: onOpenShop,
-        icon: const Icon(Icons.shopping_bag_rounded),
-      ),
-      children: [
-        SoftCard(
-          gradient: const LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFFFFF8EE), Color(0xFFF0D2BF)],
+class _RoomScreenState extends State<RoomScreen> {
+  bool _panelOpen = false;
+
+  void _togglePanel() {
+    setState(() {
+      _panelOpen = !_panelOpen;
+    });
+  }
+
+  void _closePanel() {
+    if (!_panelOpen) {
+      return;
+    }
+    setState(() {
+      _panelOpen = false;
+    });
+  }
+
+  void _showResult(RoomActionResult result) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(result.message)));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final media = MediaQuery.of(context);
+    final panelHeight = math.min(media.size.height * 0.62, 520.0);
+
+    return AnimatedBuilder(
+      animation: widget.controller,
+      builder: (context, _) {
+        final selectedItem = widget.controller.selectedItemId == null
+            ? null
+            : widget.controller.placedItemById(
+                widget.controller.selectedItemId!,
+              );
+        final selectedDefinition = selectedItem == null
+            ? null
+            : widget.controller.definitionFor(selectedItem.definitionId);
+
+        return Stack(
+          children: [
+            Positioned.fill(
+              child: IsometricRoomView(controller: widget.controller),
+            ),
+            Positioned.fill(
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.black.withValues(alpha: 0.48),
+                        Colors.transparent,
+                        Colors.black.withValues(alpha: 0.18),
+                      ],
+                      stops: const [0, 0.36, 1],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              top: media.padding.top + 16,
+              left: 20,
+              right: 20,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Container(),
+                    // child: _FloatingTitle(
+                    //   title: 'Bedroom editor',
+                    //   subtitle: selectedDefinition?.title ?? 'Direct room view',
+                    // ),
+                  ),
+                  // const SizedBox(width: 12),
+                  _SceneButton(
+                    icon: Icons.shopping_bag_rounded,
+                    onTap: widget.onOpenShop,
+                  ),
+                  // const SizedBox(width: 12),
+                  // _SceneButton(
+                  //   icon: _panelOpen ? Icons.close_rounded : Icons.tune_rounded,
+                  //   onTap: _togglePanel,
+                  //   highlighted: true,
+                  // ),
+                ],
+              ),
+            ),
+            Positioned(
+              left: 20,
+              right: 20,
+              bottom: 20,
+              child: _SceneHintBar(
+                selectedDefinition: selectedDefinition,
+                onOpenPanel: _togglePanel,
+              ),
+            ),
+            if (_panelOpen)
+              Positioned.fill(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _closePanel,
+                  child: ColoredBox(
+                    color: Colors.black.withValues(alpha: 0.18),
+                  ),
+                ),
+              ),
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: SafeArea(
+                top: false,
+                child: IgnorePointer(
+                  ignoring: !_panelOpen,
+                  child: AnimatedSlide(
+                    duration: const Duration(milliseconds: 240),
+                    curve: Curves.easeOutCubic,
+                    offset: _panelOpen ? Offset.zero : const Offset(0, 1.08),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                      child: _SettingsPanel(
+                        height: panelHeight,
+                        controller: widget.controller,
+                        selectedItem: selectedItem,
+                        selectedDefinition: selectedDefinition,
+                        onClose: _closePanel,
+                        onOpenShop: widget.onOpenShop,
+                        onAddOwnedItem: (definitionId) => _showResult(
+                          widget.controller.addOwnedItem(definitionId),
+                        ),
+                        onRotateSelected: selectedItem == null
+                            ? null
+                            : () => _showResult(
+                                widget.controller.rotatePlacedItem(
+                                  selectedItem.instanceId,
+                                ),
+                              ),
+                        onStoreSelected: selectedItem == null
+                            ? null
+                            : () => _showResult(
+                                widget.controller.storePlacedItem(
+                                  selectedItem.instanceId,
+                                ),
+                              ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _SettingsPanel extends StatelessWidget {
+  const _SettingsPanel({
+    required this.height,
+    required this.controller,
+    required this.selectedItem,
+    required this.selectedDefinition,
+    required this.onClose,
+    required this.onOpenShop,
+    required this.onAddOwnedItem,
+    required this.onRotateSelected,
+    required this.onStoreSelected,
+  });
+
+  final double height;
+  final RoomEditorController controller;
+  final PlacedRoomItem? selectedItem;
+  final RoomItemDefinition? selectedDefinition;
+  final VoidCallback onClose;
+  final VoidCallback onOpenShop;
+  final ValueChanged<String> onAddOwnedItem;
+  final VoidCallback? onRotateSelected;
+  final VoidCallback? onStoreSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(30),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 26, sigmaY: 26),
+        child: Container(
+          height: height,
+          padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF8EFE4).withValues(alpha: 0.92),
+            borderRadius: BorderRadius.circular(30),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.32)),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x2A000000),
+                blurRadius: 32,
+                offset: Offset(0, -8),
+              ),
+            ],
           ),
-          padding: const EdgeInsets.all(18),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const _RoomPreview(),
-              const SizedBox(height: 18),
+              Center(
+                child: Container(
+                  width: 44,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFD3BAA9),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Room settings',
+                          style: TextStyle(
+                            fontSize: 21,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.ink,
+                          ),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          'Inventory, placement controls, and quick actions.',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: AppColors.muted,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton.filledTonal(
+                    onPressed: onOpenShop,
+                    icon: const Icon(Icons.shopping_bag_rounded),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton.filledTonal(
+                    onPressed: onClose,
+                    icon: const Icon(Icons.keyboard_arrow_down_rounded),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
               Wrap(
                 spacing: 10,
                 runSpacing: 10,
-                children: const [
-                  TagChip(
-                    label: 'Evening light',
-                    icon: Icons.wb_twilight_rounded,
+                children: [
+                  InfoPill(
+                    icon: Icons.favorite_rounded,
+                    label: 'Likes',
+                    value: '${controller.likesBalance}',
+                    tint: const Color(0xFFF6E2CF),
                   ),
-                  TagChip(label: 'Soft rain', icon: Icons.water_drop_rounded),
-                  TagChip(
-                    label: 'Window open',
-                    icon: Icons.air_rounded,
-                    highlight: true,
+                  const InfoPill(
+                    icon: Icons.grid_4x4_rounded,
+                    label: 'Layout',
+                    value: '10 x 8',
+                    tint: Color(0xFFF1E9DC),
+                  ),
+                  InfoPill(
+                    icon: Icons.chair_alt_rounded,
+                    label: 'Placed',
+                    value: '${controller.placedItems.length}',
+                    tint: const Color(0xFFE7E1D6),
                   ),
                 ],
+              ),
+              const SizedBox(height: 18),
+              Text(
+                selectedDefinition == null
+                    ? 'Selection'
+                    : selectedDefinition!.title,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 8),
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SoftCard(
+                        color: const Color(0xFFFFF7EF),
+                        padding: const EdgeInsets.all(16),
+                        child: selectedItem == null
+                            ? const _EmptySelection()
+                            : _SelectionPanel(
+                                item: selectedItem!,
+                                definition: selectedDefinition!,
+                                onRotate: onRotateSelected!,
+                                onStore: onStoreSelected!,
+                              ),
+                      ),
+                      const SizedBox(height: 20),
+                      const Text(
+                        'Owned pieces',
+                        style: TextStyle(
+                          fontSize: 19,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.ink,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Add owned items directly into the room from here.',
+                        style: TextStyle(fontSize: 13, color: AppColors.muted),
+                      ),
+                      const SizedBox(height: 14),
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            for (final definition
+                                in controller.ownedCatalog) ...[
+                              SizedBox(
+                                width: 168,
+                                child: _InventoryCard(
+                                  definition: definition,
+                                  availableCount: controller.availableToPlace(
+                                    definition.id,
+                                  ),
+                                  ownedCount: controller.ownedCount(
+                                    definition.id,
+                                  ),
+                                  onAdd:
+                                      controller.availableToPlace(
+                                            definition.id,
+                                          ) >
+                                          0
+                                      ? () => onAddOwnedItem(definition.id)
+                                      : null,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 28),
-        const SectionHeader(
-          title: 'Ambience controls',
-          subtitle: 'Weather and room state should feel easy to tune.',
-        ),
-        const SizedBox(height: 14),
-        SoftCard(
+      ),
+    );
+  }
+}
+
+class _FloatingTitle extends StatelessWidget {
+  const _FloatingTitle({required this.title, required this.subtitle});
+
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(24),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.32),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: const [
+            children: [
               Text(
-                'Weather',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.ink,
+                title,
+                style: const TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white,
                 ),
               ),
-              SizedBox(height: 12),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  TagChip(label: 'Sunny', icon: Icons.wb_sunny_rounded),
-                  TagChip(
-                    label: 'Rainy',
-                    icon: Icons.umbrella_rounded,
-                    highlight: true,
-                  ),
-                  TagChip(label: 'Snowy', icon: Icons.ac_unit_rounded),
-                ],
-              ),
-              SizedBox(height: 20),
+              const SizedBox(height: 4),
               Text(
-                'Time mood',
+                subtitle,
                 style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.ink,
+                  fontSize: 13,
+                  color: Colors.white.withValues(alpha: 0.8),
                 ),
-              ),
-              SizedBox(height: 12),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  TagChip(label: 'Morning'),
-                  TagChip(label: 'Afternoon'),
-                  TagChip(label: 'Evening', highlight: true),
-                  TagChip(label: 'Night'),
-                ],
               ),
             ],
           ),
         ),
-        const SizedBox(height: 28),
-        SectionHeader(
-          title: 'Interactive corners',
-          subtitle:
-              'Every major object should do something meaningful when tapped.',
-          actionLabel: 'Open shop',
-          onAction: onOpenShop,
-        ),
-        const SizedBox(height: 14),
-        for (final object in objects) ...[
-          _ObjectCard(
-            icon: object.icon,
-            title: object.title,
-            detail: object.detail,
+      ),
+    );
+  }
+}
+
+class _SceneButton extends StatelessWidget {
+  const _SceneButton({
+    required this.icon,
+    required this.onTap,
+    this.highlighted = false,
+  });
+
+  final IconData icon;
+  final VoidCallback onTap;
+  final bool highlighted;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipOval(
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: Material(
+          color: highlighted
+              ? const Color(0xFFF5D7C8).withValues(alpha: 0.92)
+              : Colors.black.withValues(alpha: 0.28),
+          child: InkWell(
+            onTap: onTap,
+            child: SizedBox(
+              width: 54,
+              height: 54,
+              child: Icon(
+                icon,
+                color: highlighted ? AppColors.clay : Colors.white,
+              ),
+            ),
           ),
-          const SizedBox(height: 12),
-        ],
-        const SizedBox(height: 16),
-        SoftCard(
-          gradient: const LinearGradient(
-            colors: [Color(0xFFF4E8D8), Color(0xFFEAD3BB)],
+        ),
+      ),
+    );
+  }
+}
+
+class _SceneHintBar extends StatelessWidget {
+  const _SceneHintBar({
+    required this.selectedDefinition,
+    required this.onOpenPanel,
+  });
+
+  final RoomItemDefinition? selectedDefinition;
+  final VoidCallback onOpenPanel;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(24),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.26),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
           ),
           child: Row(
             children: [
-              const Expanded(
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Decorate with intention',
-                      style: TextStyle(
-                        fontSize: 19,
+                      selectedDefinition?.title ??
+                          'Long press furniture to move it',
+                      style: const TextStyle(
+                        fontSize: 14,
                         fontWeight: FontWeight.w700,
-                        color: AppColors.ink,
+                        color: Colors.white,
                       ),
                     ),
-                    SizedBox(height: 8),
+                    const SizedBox(height: 4),
                     Text(
-                      'Furniture, pets, plants, and small keepsakes should all feel like emotional rewards.',
+                      selectedDefinition == null
+                          ? 'Open settings for inventory, rotate, and store controls.'
+                          : selectedDefinition!.description,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontSize: 14,
-                        height: 1.45,
-                        color: AppColors.muted,
+                        fontSize: 12,
+                        color: Colors.white.withValues(alpha: 0.78),
                       ),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(width: 14),
-              FilledButton(onPressed: onOpenShop, child: const Text('Browse')),
+              const SizedBox(width: 12),
+              FilledButton.tonalIcon(
+                onPressed: onOpenPanel,
+                icon: const Icon(Icons.tune_rounded),
+                label: const Text('Settings'),
+              ),
             ],
           ),
-        ),
-      ],
-    );
-  }
-}
-
-class _RoomPreview extends StatelessWidget {
-  const _RoomPreview();
-
-  @override
-  Widget build(BuildContext context) {
-    return AspectRatio(
-      aspectRatio: 1.1,
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(26),
-          gradient: const LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFFFFF4E7), Color(0xFFDDB9A3)],
-          ),
-        ),
-        child: Stack(
-          children: [
-            Positioned(
-              top: 18,
-              right: 22,
-              child: Container(
-                width: 88,
-                height: 96,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFF2C4),
-                  borderRadius: BorderRadius.circular(22),
-                  border: Border.all(color: AppColors.stroke),
-                ),
-              ),
-            ),
-            Positioned(
-              top: 32,
-              right: 36,
-              child: Container(
-                width: 24,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.7),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-            ),
-            Positioned(
-              top: 32,
-              right: 64,
-              child: Container(
-                width: 24,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.7),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-            ),
-            Positioned(
-              left: 28,
-              bottom: 36,
-              child: Container(
-                width: 150,
-                height: 78,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFC28162),
-                  borderRadius: BorderRadius.circular(28),
-                ),
-              ),
-            ),
-            Positioned(
-              left: 42,
-              bottom: 64,
-              child: Container(
-                width: 66,
-                height: 26,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFDF2E4),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-              ),
-            ),
-            Positioned(
-              left: 176,
-              bottom: 58,
-              child: Container(
-                width: 42,
-                height: 52,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF7D5A4C),
-                  borderRadius: BorderRadius.circular(18),
-                ),
-              ),
-            ),
-            Positioned(
-              left: 182,
-              bottom: 94,
-              child: Container(
-                width: 28,
-                height: 18,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF7E78E),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-            Positioned(
-              right: 36,
-              bottom: 28,
-              child: Column(
-                children: [
-                  Container(
-                    width: 34,
-                    height: 38,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF89A284),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                  ),
-                  Container(
-                    width: 10,
-                    height: 22,
-                    color: const Color(0xFF8F6E5D),
-                  ),
-                ],
-              ),
-            ),
-            Positioned(
-              left: 22,
-              right: 22,
-              bottom: 14,
-              child: Container(
-                height: 10,
-                decoration: BoxDecoration(
-                  color: const Color(0x4DFFFFFF),
-                  borderRadius: BorderRadius.circular(100),
-                ),
-              ),
-            ),
-          ],
         ),
       ),
     );
   }
 }
 
-class _ObjectCard extends StatelessWidget {
-  const _ObjectCard({
-    required this.icon,
-    required this.title,
-    required this.detail,
+class _InventoryCard extends StatelessWidget {
+  const _InventoryCard({
+    required this.definition,
+    required this.availableCount,
+    required this.ownedCount,
+    this.onAdd,
   });
 
-  final IconData icon;
-  final String title;
-  final String detail;
+  final RoomItemDefinition definition;
+  final int availableCount;
+  final int ownedCount;
+  final VoidCallback? onAdd;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
     return SoftCard(
-      padding: const EdgeInsets.all(18),
-      child: Row(
+      padding: const EdgeInsets.all(14),
+      color: Colors.white.withValues(alpha: 0.9),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            height: 48,
-            width: 48,
+            height: 72,
+            width: double.infinity,
             decoration: BoxDecoration(
-              color: AppColors.blush.withValues(alpha: 0.75),
-              borderRadius: BorderRadius.circular(16),
+              color: definition.tint.withValues(alpha: 0.92),
+              borderRadius: BorderRadius.circular(18),
             ),
-            child: Icon(icon, color: AppColors.clay),
+            child: Center(
+              child: RoomSpriteThumbnail(definition: definition, size: 68),
+            ),
           ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: theme.textTheme.titleMedium),
-                const SizedBox(height: 6),
-                Text(detail, style: theme.textTheme.bodyMedium),
-              ],
+          const SizedBox(height: 12),
+          Text(definition.title, style: theme.textTheme.titleSmall),
+          const SizedBox(height: 4),
+          Text(
+            '$ownedCount owned • $availableCount ready',
+            style: theme.textTheme.bodySmall,
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.tonal(
+              onPressed: onAdd,
+              child: Text(availableCount > 0 ? 'Add' : 'All placed'),
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _SelectionPanel extends StatelessWidget {
+  const _SelectionPanel({
+    required this.item,
+    required this.definition,
+    required this.onRotate,
+    required this.onStore,
+  });
+
+  final PlacedRoomItem item;
+  final RoomItemDefinition definition;
+  final VoidCallback onRotate;
+  final VoidCallback onStore;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              height: 88,
+              width: 88,
+              decoration: BoxDecoration(
+                color: definition.tint.withValues(alpha: 0.88),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Center(
+                child: RoomSpriteThumbnail(
+                  definition: definition,
+                  quarterTurns: item.rotationQuarterTurns,
+                  size: 80,
+                ),
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  TagChip(
+                    label: 'Grid ${item.origin.x + 1}, ${item.origin.z + 1}',
+                    icon: Icons.place_rounded,
+                    highlight: true,
+                  ),
+                  TagChip(
+                    label: 'Rotation ${item.rotationQuarterTurns * 90}°',
+                    icon: Icons.rotate_90_degrees_ccw_rounded,
+                  ),
+                  TagChip(label: definition.typeLabel, icon: definition.icon),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: onRotate,
+                icon: const Icon(Icons.rotate_90_degrees_ccw_rounded),
+                label: const Text('Rotate'),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: onStore,
+                icon: const Icon(Icons.inventory_2_rounded),
+                label: const Text('Store'),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _EmptySelection extends StatelessWidget {
+  const _EmptySelection();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Row(
+      children: [
+        Icon(Icons.touch_app_rounded, color: AppColors.clay),
+        SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            'Select a furniture piece in the room to rotate it or return it to inventory.',
+            style: TextStyle(fontSize: 14, height: 1.5, color: AppColors.muted),
+          ),
+        ),
+      ],
     );
   }
 }

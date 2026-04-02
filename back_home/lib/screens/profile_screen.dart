@@ -1,178 +1,217 @@
 import 'package:flutter/material.dart';
 
+import 'mood_calendar_screen.dart';
+import '../settings/app_settings_controller.dart';
 import '../widgets/app_ui.dart';
 
-class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+class ProfileScreen extends StatelessWidget {
+  const ProfileScreen({required this.settingsController, super.key});
 
-  @override
-  State<ProfileScreen> createState() => _ProfileScreenState();
-}
-
-class _ProfileScreenState extends State<ProfileScreen> {
-  double _musicVolume = 0.65;
-  String _textSize = 'Medium';
+  final AppSettingsController settingsController;
 
   @override
   Widget build(BuildContext context) {
-    return AppPage(
-      eyebrow: 'Profile + Settings',
-      title: 'Your comfort profile',
-      subtitle:
-          'Personal info, mood history, accessibility controls, and account settings live together here.',
-      trailing: const InfoPill(
-        icon: Icons.local_fire_department_rounded,
-        label: 'Streak',
-        value: '11 days',
-        tint: Color(0xFFF7DFC8),
-      ),
-      children: [
-        SoftCard(
-          gradient: const LinearGradient(
-            colors: [Color(0xFFFFF8F2), Color(0xFFEEDCCD)],
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 74,
-                height: 74,
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.72),
-                  borderRadius: BorderRadius.circular(24),
-                ),
-                child: const Icon(
-                  Icons.nightlight_round,
-                  color: AppColors.clay,
-                  size: 34,
+    return AnimatedBuilder(
+      animation: settingsController,
+      builder: (context, _) {
+        final selectedTextSize = settingsController.readingComfort;
+        final musicVolume = settingsController.musicVolume;
+
+        return AppPage(
+          title: '',
+          subtitle: '',
+          children: [
+            Center(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(24),
+                child: Image.asset(
+                  'assets/default.png',
+                  width: 92,
+                  height: 92,
+                  fit: BoxFit.cover,
                 ),
               ),
-              const SizedBox(width: 16),
-              Expanded(
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                SizedBox(
+                  width: MediaQuery.of(context).size.width * 0.28,
+                  child: const InfoPill(
+                    icon: Icons.favorite_rounded,
+                    label: 'Likes',
+                    value: '100',
+                    tint: Color(0xFFF7DFC8),
+                  ),
+                ),
+                SizedBox(
+                  width: MediaQuery.of(context).size.width * 0.28,
+                  child: const InfoPill(
+                    icon: Icons.person_rounded,
+                    label: 'Friends',
+                    value: '100',
+                    tint: Color(0xFFF7DFC8),
+                  ),
+                ),
+                SizedBox(
+                  width: MediaQuery.of(context).size.width * 0.28,
+                  child: const InfoPill(
+                    icon: Icons.local_fire_department_rounded,
+                    label: 'Active',
+                    value: '11 days',
+                    tint: Color(0xFFF7DFC8),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 28),
+            const SectionHeader(
+              title: 'Your happiness index for the past week:',
+              titleSize: 20,
+              subtitle: '',
+            ),
+            GestureDetector(
+              onTap: () async {
+                await Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const MoodCalendarScreen(),
+                  ),
+                );
+              },
+              child: SoftCard(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Eric\'s room card',
-                      style: Theme.of(context).textTheme.titleLarge,
+                    Row(
+                      children: [
+                        Text(
+                          'Tap to open monthly mood calendar',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                        const Spacer(),
+                        const Icon(
+                          Icons.arrow_forward_ios_rounded,
+                          size: 16,
+                          color: AppColors.clay,
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 14),
+                    MoodBarChart(
+                      values: [0.55, 0.72, 0.46, 0.82, 0.68, 0.76, 0.88],
+                      labels: ['M', 'T', 'W', 'T', 'F', 'S', 'S'],
+                      emoji: ['🙂', '😊', '😐', '😄', '🙂', '😌', '😁'],
+                    ),
+                    const SizedBox(height: 18),
                     Text(
-                      'Level 8 listener • 238 likes earned • 4 achievements this month',
-                      style: Theme.of(context).textTheme.bodyMedium,
+                      'Average happiness level: 74%',
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.ink,
+                      ),
                     ),
                   ],
                 ),
               ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 28),
-        const SectionHeader(
-          title: 'Last month activity',
-          subtitle: 'Mood and happiness should be readable at a glance.',
-        ),
-        const SizedBox(height: 14),
-        SoftCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              MoodBarChart(
-                values: [0.55, 0.72, 0.46, 0.82, 0.68, 0.76, 0.88],
-                labels: ['M', 'T', 'W', 'T', 'F', 'S', 'S'],
-                emoji: ['🙂', '😊', '😐', '😄', '🙂', '😌', '😁'],
-              ),
-              SizedBox(height: 18),
-              Text(
-                'Average happiness level: 74%',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.ink,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 28),
-        const SectionHeader(
-          title: 'Reading comfort',
-          subtitle:
-              'Text size should be easy to switch without leaving the page.',
-        ),
-        const SizedBox(height: 14),
-        SoftCard(
-          child: Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              for (final option in const ['Small', 'Medium', 'Large'])
-                ChoiceChip(
-                  label: Text(option),
-                  selected: _textSize == option,
-                  onSelected: (_) {
-                    setState(() {
-                      _textSize = option;
-                    });
-                  },
-                ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 28),
-        const SectionHeader(
-          title: 'Audio settings',
-          subtitle: 'Background music should feel adjustable, not buried.',
-        ),
-        const SizedBox(height: 14),
-        SoftCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
+            ),
+            const SizedBox(height: 28),
+            const SectionHeader(
+              title: 'Reading comfort',
+              subtitle:
+                  'Text size should be easy to switch without leaving the page.',
+            ),
+            const SizedBox(height: 14),
+            SoftCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.music_note_rounded, color: AppColors.clay),
-                  const SizedBox(width: 10),
-                  Text(
-                    'Background music volume',
-                    style: Theme.of(context).textTheme.titleMedium,
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      for (final option in ReadingComfort.values)
+                        ChoiceChip(
+                          label: Text(option.label),
+                          selected: selectedTextSize == option,
+                          onSelected: (_) {
+                            settingsController.setReadingComfort(option);
+                          },
+                        ),
+                    ],
                   ),
-                  const Spacer(),
+                  const SizedBox(height: 14),
                   Text(
-                    '${(_musicVolume * 100).round()}%',
-                    style: Theme.of(context).textTheme.labelLarge,
+                    'Applies across the app and stays saved for next time.',
+                    style: Theme.of(context).textTheme.bodyMedium,
                   ),
                 ],
               ),
-              Slider(
-                value: _musicVolume,
-                onChanged: (value) {
-                  setState(() {
-                    _musicVolume = value;
-                  });
-                },
+            ),
+            const SizedBox(height: 28),
+            const SectionHeader(
+              title: 'Audio settings',
+              subtitle: 'Background music should feel adjustable, not buried.',
+            ),
+            const SizedBox(height: 14),
+            SoftCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.music_note_rounded,
+                        color: AppColors.clay,
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        'Music volume',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const Spacer(),
+                      Text(
+                        '${(musicVolume * 100).round()}%',
+                        style: Theme.of(context).textTheme.labelLarge,
+                      ),
+                    ],
+                  ),
+                  Slider(
+                    value: musicVolume,
+                    onChanged: settingsController.setMusicVolume,
+                  ),
+                  Text(
+                    musicVolume <= 0
+                        ? 'Muted. Raise the slider to resume your playlist.'
+                        : 'Now rotating softly through tracks 1, 2, and 3.',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ],
               ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 28),
-        const SectionHeader(
-          title: 'Account actions',
-          subtitle: 'Keep sensitive actions separated from everyday controls.',
-        ),
-        const SizedBox(height: 14),
-        const _SettingsAction(
-          icon: Icons.logout_rounded,
-          title: 'Log out',
-          detail: 'Sign out from this device.',
-        ),
-        const SizedBox(height: 12),
-        const _SettingsAction(
-          icon: Icons.delete_outline_rounded,
-          title: 'Delete account',
-          detail: 'Permanently remove profile data and room progress.',
-          destructive: true,
-        ),
-      ],
+            ),
+            const SizedBox(height: 28),
+            const SectionHeader(
+              title: 'Account actions',
+              subtitle:
+                  'Keep sensitive actions separated from everyday controls.',
+            ),
+            const SizedBox(height: 14),
+            const _SettingsAction(
+              icon: Icons.logout_rounded,
+              title: 'Log out',
+              detail: 'Sign out from this device.',
+            ),
+            const SizedBox(height: 12),
+            const _SettingsAction(
+              icon: Icons.delete_outline_rounded,
+              title: 'Delete account',
+              detail: 'Permanently remove profile data and room progress.',
+              destructive: true,
+            ),
+          ],
+        );
+      },
     );
   }
 }

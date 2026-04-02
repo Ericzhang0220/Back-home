@@ -170,12 +170,14 @@ class SectionHeader extends StatelessWidget {
   const SectionHeader({
     super.key,
     required this.title,
+    this.titleSize = 20,
     required this.subtitle,
     this.actionLabel,
     this.onAction,
   });
 
   final String title;
+  final double titleSize;
   final String subtitle;
   final String? actionLabel;
   final VoidCallback? onAction;
@@ -191,7 +193,12 @@ class SectionHeader extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: theme.textTheme.titleLarge),
+              Text(
+                title,
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontSize: titleSize,
+                ),
+              ),
               const SizedBox(height: 4),
               Text(subtitle, style: theme.textTheme.bodyMedium),
             ],
@@ -223,7 +230,7 @@ class InfoPill extends StatelessWidget {
     final theme = Theme.of(context);
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
       decoration: BoxDecoration(
         color: tint.withValues(alpha: 0.65),
         borderRadius: BorderRadius.circular(18),

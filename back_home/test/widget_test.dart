@@ -1,25 +1,51 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:back_home/app.dart';
+import 'package:back_home/widgets/app_ui.dart';
 
 void main() {
   testWidgets('renders the Back Home shell and switches tabs', (
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(const BackHomeApp());
-    expect(find.text('Back Home'), findsOneWidget);
-    expect(find.text('Quick doors'), findsOneWidget);
+    expect(find.text('Welcome Back'), findsOneWidget);
+    expect(find.text('Open room'), findsOneWidget);
+
+    await tester.tap(find.text('Open room'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(
+      find.text('Open settings for inventory, rotate, and store controls.'),
+      findsOneWidget,
+    );
 
     await tester.tap(find.text('Chat').last);
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
 
     expect(find.text('Recent conversations'), findsOneWidget);
+  });
+
+  testWidgets('opens the monthly mood calendar from the profile chart', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const BackHomeApp());
+
+    await tester.tap(find.text('Open room'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    await tester.tap(find.text('Profile').last);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.byType(MoodBarChart), findsOneWidget);
+
+    await tester.tap(find.text('Tap to open monthly mood calendar'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.text('Mood Calendar'), findsOneWidget);
   });
 }
