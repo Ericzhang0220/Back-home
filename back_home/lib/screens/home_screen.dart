@@ -29,7 +29,7 @@ class _HomeScreenState extends State<HomeScreen> {
   static const List<_MoodChoice> _moodChoices = [
     _MoodChoice(
       id: 'very_happy',
-      emoji: '😁',
+      emoji: '😄',
       label: 'Very happy',
       tint: Color(0xFF2E7D32),
     ),
@@ -48,7 +48,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _MoodChoice(id: 'sad', emoji: '☹️', label: 'Low', tint: Color(0xFFF39C3D)),
     _MoodChoice(
       id: 'crying',
-      emoji: '😢',
+      emoji: '😭',
       label: 'Bad',
       tint: Color(0xFFE45757),
     ),
