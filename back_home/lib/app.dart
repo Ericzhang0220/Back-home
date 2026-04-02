@@ -148,7 +148,7 @@ class _AppShellState extends State<AppShell> {
           ? _buildCurrentPage()
           : Stack(
               children: [
-                const AmbientBackground(),
+                AmbientBackground(showSideGlow: _currentTab != AppTab.home),
                 SafeArea(child: _buildCurrentPage()),
               ],
             ),

@@ -183,10 +183,11 @@ class _MoodCalendarScreenState extends State<MoodCalendarScreen> {
 
     final seed = (date.year * 13 + date.month * 7 + date.day * 17) % 11;
     return switch (seed) {
-      0 || 1 => _MoodType.great,
-      2 || 3 || 4 => _MoodType.good,
-      5 || 6 || 7 => _MoodType.okay,
-      _ => _MoodType.low,
+      0 || 1 => _MoodType.veryHappy,
+      2 || 3 => _MoodType.happy,
+      4 || 5 || 6 => _MoodType.neutral,
+      7 || 8 => _MoodType.sad,
+      _ => _MoodType.crying,
     };
   }
 }
@@ -303,10 +304,11 @@ class _MoodDay {
 }
 
 enum _MoodType {
-  great('😁'),
-  good('🙂'),
-  okay('😐'),
-  low('😟');
+  veryHappy('😄'),
+  happy('🙂'),
+  neutral('😐'),
+  sad('☹️'),
+  crying('😭');
 
   const _MoodType(this.emoji);
 
@@ -355,9 +357,15 @@ class _MoodDayCell extends StatelessWidget {
               width: 1.5,
             ),
           ),
-          child: Text(
-            hasMood ? mood!.emoji : '',
-            style: const TextStyle(fontSize: 15),
+          child: Padding(
+            padding: const EdgeInsets.only(
+              left: 1.24,
+            ), // slight nudge to better center the emoji
+            child: Text(
+              hasMood ? mood!.emoji : '',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 23, height: 1.1),
+            ),
           ),
         ),
       ],
@@ -366,10 +374,11 @@ class _MoodDayCell extends StatelessWidget {
 
   Color _backgroundColorForMood(_MoodType mood) {
     return switch (mood) {
-      _MoodType.great => const Color(0xFFFFD36C),
-      _MoodType.good => const Color(0xFF8FD35F),
-      _MoodType.okay => const Color(0xFFF3C75F),
-      _MoodType.low => const Color(0xFFE86E73),
+      _MoodType.veryHappy => const Color.fromARGB(255, 0, 203, 10),
+      _MoodType.happy => const Color.fromARGB(255, 170, 255, 73),
+      _MoodType.neutral => const Color.fromARGB(255, 255, 213, 97),
+      _MoodType.sad => const Color.fromARGB(255, 251, 130, 0),
+      _MoodType.crying => const Color.fromARGB(255, 245, 67, 67),
     };
   }
 }

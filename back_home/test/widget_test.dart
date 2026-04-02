@@ -11,6 +11,7 @@ void main() {
     expect(find.text('Welcome Back'), findsOneWidget);
     expect(find.text('Open room'), findsOneWidget);
 
+    await tester.ensureVisible(find.text('Open room'));
     await tester.tap(find.text('Open room'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
@@ -32,6 +33,7 @@ void main() {
   ) async {
     await tester.pumpWidget(const BackHomeApp());
 
+    await tester.ensureVisible(find.text('Open room'));
     await tester.tap(find.text('Open room'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));

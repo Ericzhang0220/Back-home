@@ -16,7 +16,14 @@ class AppColors {
 }
 
 class AmbientBackground extends StatelessWidget {
-  const AmbientBackground({super.key});
+  const AmbientBackground({
+    super.key,
+    this.showTopGlow = true,
+    this.showSideGlow = true,
+  });
+
+  final bool showTopGlow;
+  final bool showSideGlow;
 
   @override
   Widget build(BuildContext context) {
@@ -33,19 +40,21 @@ class AmbientBackground extends StatelessWidget {
         ),
       ),
       child: Stack(
-        children: const [
-          _GlowOrb(
-            alignment: Alignment.topRight,
-            color: Color(0x55FFFFFF),
-            size: 240,
-            offset: Offset(60, -40),
-          ),
-          _GlowOrb(
-            alignment: Alignment.centerLeft,
-            color: Color(0x40F4D7C5),
-            size: 220,
-            offset: Offset(-90, -20),
-          ),
+        children: [
+          if (showTopGlow)
+            const _GlowOrb(
+              alignment: Alignment.topRight,
+              color: Color(0x55FFFFFF),
+              size: 240,
+              offset: Offset(60, -40),
+            ),
+          if (showSideGlow)
+            const _GlowOrb(
+              alignment: Alignment.centerLeft,
+              color: Color(0x40F4D7C5),
+              size: 220,
+              offset: Offset(-90, -20),
+            ),
         ],
       ),
     );

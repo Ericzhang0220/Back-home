@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../widgets/app_ui.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({
     super.key,
     required this.onOpenRoom,
@@ -19,244 +19,336 @@ class HomeScreen extends StatelessWidget {
   final VoidCallback onOpenAchievements;
 
   @override
-  Widget build(BuildContext context) {
-    final quickActions = [
-      (
-        icon: Icons.weekend_rounded,
-        title: 'Room',
-        subtitle: 'Edit furniture, weather, and cozy details.',
-        tint: AppColors.peach,
-        action: onOpenRoom,
-      ),
-      (
-        icon: Icons.chat_bubble_rounded,
-        title: 'Chat',
-        subtitle: 'Talk with AI companions or real people.',
-        tint: AppColors.blush,
-        action: onOpenChat,
-      ),
-      (
-        icon: Icons.forum_rounded,
-        title: 'Hall',
-        subtitle: 'Read supportive posts from the community.',
-        tint: const Color(0xFFD7E4D7),
-        action: onOpenHall,
-      ),
-      (
-        icon: Icons.shopping_bag_rounded,
-        title: 'Shop',
-        subtitle: 'Spend likes on decor, pets, and plants.',
-        tint: const Color(0xFFF2DFC0),
-        action: onOpenShop,
-      ),
-    ];
+  State<HomeScreen> createState() => _HomeScreenState();
+}
 
-    final notes = [
-      (
-        author: 'Mina',
-        message:
-            'Your room looks calmer every day. Keep building the space you want to come back to.',
-        likes: '18',
-      ),
-      (
-        author: 'Theo',
-        message:
-            'I left a new playlist idea for rainy nights in the hall. It might fit your room mood.',
-        likes: '12',
-      ),
-    ];
+class _HomeScreenState extends State<HomeScreen> {
+  String _selectedMoodId = 'happy';
+  String _selectedNeedId = 'comfort';
+
+  static const List<_MoodChoice> _moodChoices = [
+    _MoodChoice(
+      id: 'very_happy',
+      emoji: '😁',
+      label: 'Very happy',
+      tint: Color(0xFF2E7D32),
+    ),
+    _MoodChoice(
+      id: 'happy',
+      emoji: '🙂',
+      label: 'Good',
+      tint: Color(0xFF8BC34A),
+    ),
+    _MoodChoice(
+      id: 'neutral',
+      emoji: '😐',
+      label: 'Neutral',
+      tint: Color(0xFFF3C75F),
+    ),
+    _MoodChoice(id: 'sad', emoji: '☹️', label: 'Low', tint: Color(0xFFF39C3D)),
+    _MoodChoice(
+      id: 'crying',
+      emoji: '😢',
+      label: 'Bad',
+      tint: Color(0xFFE45757),
+    ),
+  ];
+
+  static const List<_NeedChoice> _needChoices = [
+    _NeedChoice(id: 'comfort', label: 'Comfort'),
+    _NeedChoice(id: 'rest', label: 'Rest'),
+    _NeedChoice(id: 'company', label: 'Company'),
+    _NeedChoice(id: 'focus', label: 'Focus'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final selectedMood = _moodChoices.firstWhere(
+      (choice) => choice.id == _selectedMoodId,
+    );
 
     return AppPage(
       title: 'Welcome Back',
       subtitle: 'Username',
-      trailing: const InfoPill(
-        icon: Icons.favorite_rounded,
-        label: 'Likes',
-        value: '238',
-      ),
+      trailing: const _HomeIllustration(),
       padding: const EdgeInsets.only(top: 30, left: 23, right: 20, bottom: 140),
       children: [
-        Container(
-          height: MediaQuery.sizeOf(context).height * 0.72,
-          child: Stack(
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Your comfort room is glowing.',
-                              style: Theme.of(context).textTheme.headlineMedium,
-                            ),
-                            const SizedBox(height: 10),
-                            Text(
-                              'The window is open, the music is low, and your next gentle check-in is ready.',
-                              style: Theme.of(context).textTheme.bodyLarge,
-                            ),
-                            const SizedBox(height: 18),
-                            Wrap(
-                              spacing: 10,
-                              runSpacing: 10,
-                              children: const [
-                                InfoPill(
-                                  icon: Icons.local_fire_department_rounded,
-                                  label: 'Streak',
-                                  value: '11 days',
-                                  tint: Color(0xFFF7DFC8),
-                                ),
-                                InfoPill(
-                                  icon: Icons.self_improvement_rounded,
-                                  label: 'Mood',
-                                  value: '82%',
-                                  tint: Color(0xFFDDE8DD),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      const _HomeIllustration(),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  OutlinedButton.icon(
-                    onPressed: onOpenAchievements,
-                    icon: const Icon(Icons.workspace_premium_rounded),
-                    label: const Text('Achievements'),
-                  ),
-                ],
+        const SizedBox(height: 18),
+        _DailyCheckInCard(
+          moodChoices: _moodChoices,
+          needChoices: _needChoices,
+          selectedMoodId: _selectedMoodId,
+          selectedNeedId: _selectedNeedId,
+          onMoodSelected: (id) {
+            setState(() {
+              _selectedMoodId = id;
+            });
+          },
+          onNeedSelected: (id) {
+            setState(() {
+              _selectedNeedId = id;
+            });
+          },
+          summary:
+              'You marked ${selectedMood.label.toLowerCase()}. We can use this later for your calendar and weekly mood chart.',
+        ),
+        const SizedBox(height: 28),
+        Align(
+          alignment: Alignment.centerRight,
+          child: SizedBox(
+            width: 165,
+            height: 60,
+            child: FilledButton.icon(
+              style: FilledButton.styleFrom(
+                padding: EdgeInsets.zero,
+                backgroundColor: const Color.fromARGB(255, 255, 210, 75),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                ),
               ),
-              Positioned(
-                bottom: 0,
-                right: 0,
-                child: SizedBox(
-                  width: 165,
-                  height: 60,
-                  child: FilledButton.icon(
-                    style: FilledButton.styleFrom(
-                      padding: EdgeInsets.zero,
-                      backgroundColor: const Color.fromARGB(255, 255, 210, 75),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                      // shadowColor: const Color.fromARGB(
-                      //   255,
-                      //   22,
-                      //   22,
-                      //   22,
-                      // ).withValues(alpha: 0.5),
-                      // elevation: 7,
-                    ),
-                    onPressed: onOpenRoom,
-                    icon: Image.asset(
-                      'assets/Arrow 2.png',
-                      color: Color.fromARGB(255, 0, 0, 0),
-                      width: 28,
-                    ),
-                    label: const Text(
-                      'Open room',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 15,
-                        color: Color.fromARGB(255, 0, 0, 0),
-                        shadows: [
-                          //Shadow(
-                          //   color: Color.fromARGB(255, 255, 255, 255),
-                          //   offset: Offset(0, 1),
-                          //   blurRadius: 0,
-                          // ),
-                        ],
-                      ),
-                    ),
-                  ),
+              onPressed: widget.onOpenRoom,
+              icon: Image.asset(
+                'assets/Arrow 2.png',
+                color: const Color.fromARGB(255, 0, 0, 0),
+                width: 28,
+              ),
+              label: const Text(
+                'Open room',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 15,
+                  color: Color.fromARGB(255, 0, 0, 0),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DailyCheckInCard extends StatelessWidget {
+  const _DailyCheckInCard({
+    required this.moodChoices,
+    required this.needChoices,
+    required this.selectedMoodId,
+    required this.selectedNeedId,
+    required this.onMoodSelected,
+    required this.onNeedSelected,
+    required this.summary,
+  });
+
+  final List<_MoodChoice> moodChoices;
+  final List<_NeedChoice> needChoices;
+  final String selectedMoodId;
+  final String selectedNeedId;
+  final ValueChanged<String> onMoodSelected;
+  final ValueChanged<String> onNeedSelected;
+  final String summary;
+
+  @override
+  Widget build(BuildContext context) {
+    return SoftCard(
+      gradient: const LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [Color(0xFFFFF8F1), Color(0xFFF9E8D9)],
+      ),
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+      radius: 30,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'Daily check-in',
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+              color: AppColors.clay,
+              letterSpacing: 1.2,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'How are you feeling today?',
+            style: Theme.of(
+              context,
+            ).textTheme.headlineMedium?.copyWith(fontSize: 25),
+          ),
+          const SizedBox(height: 10),
+          // Text(
+          //   'A quick mood entry here can later feed your monthly calendar and profile charts.',
+          //   style: Theme.of(context).textTheme.bodyMedium,
+          // ),
+          // const SizedBox(height: 18),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              for (final mood in moodChoices)
+                _MoodChoiceChip(
+                  mood: mood,
+                  selected: selectedMoodId == mood.id,
+                  onTap: () => onMoodSelected(mood.id),
+                ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          // Text(
+          //   'What would help most tonight?',
+          //   style: Theme.of(context).textTheme.titleMedium,
+          // ),
+          // const SizedBox(height: 12),
+          // Wrap(
+          //   spacing: 10,
+          //   runSpacing: 10,
+          //   children: [
+          //     for (final need in needChoices)
+          //       _NeedChip(
+          //         label: need.label,
+          //         selected: selectedNeedId == need.id,
+          //         onTap: () => onNeedSelected(need.id),
+          //       ),
+          //   ],
+          // ),
+          // const SizedBox(height: 18),
+          // Container(
+          //   padding: const EdgeInsets.all(14),
+          //   decoration: BoxDecoration(
+          //     color: Colors.white.withValues(alpha: 0.74),
+          //     borderRadius: BorderRadius.circular(20),
+          //     border: Border.all(color: AppColors.stroke),
+          //   ),
+          //   child: Row(
+          //     crossAxisAlignment: CrossAxisAlignment.start,
+          //     children: [
+          //       Container(
+          //         width: 38,
+          //         height: 38,
+          //         decoration: BoxDecoration(
+          //           color: AppColors.blush.withValues(alpha: 0.8),
+          //           borderRadius: BorderRadius.circular(14),
+          //         ),
+          //         child: const Icon(
+          //           Icons.favorite_rounded,
+          //           color: AppColors.clay,
+          //           size: 20,
+          //         ),
+          //       ),
+          //       const SizedBox(width: 12),
+          //       Expanded(
+          //         child: Text(
+          //           summary,
+          //           style: Theme.of(context).textTheme.bodyMedium,
+          //         ),
+          //       ),
+          //     ],
+          //   ),
+          // ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MoodChoice {
+  const _MoodChoice({
+    required this.id,
+    required this.emoji,
+    required this.label,
+    required this.tint,
+  });
+
+  final String id;
+  final String emoji;
+  final String label;
+  final Color tint;
+}
+
+class _NeedChoice {
+  const _NeedChoice({required this.id, required this.label});
+
+  final String id;
+  final String label;
+}
+
+class _MoodChoiceChip extends StatelessWidget {
+  const _MoodChoiceChip({
+    required this.mood,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final _MoodChoice mood;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(22),
+        onTap: onTap,
+        child: Ink(
+          width: 94,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+          decoration: BoxDecoration(
+            color: selected
+                ? mood.tint.withValues(alpha: 0.2)
+                : Colors.white.withValues(alpha: 0.6),
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(
+              color: selected ? mood.tint : AppColors.stroke,
+              width: selected ? 1.8 : 1,
+            ),
+          ),
+          child: Column(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: selected ? mood.tint : mood.tint.withValues(alpha: 1),
+                  shape: BoxShape.circle,
+                ),
+                alignment: Alignment.center,
+                child: Text(mood.emoji, style: const TextStyle(fontSize: 22)),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                mood.label,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AppColors.ink,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ],
           ),
         ),
-        // const SizedBox(height: 28),
-        // const SectionHeader(
-        //   title: 'Quick doors',
-        //   subtitle: 'Jump into the core spaces of the app.',
-        // ),
-        // const SizedBox(height: 14),
-        // GridView.builder(
-        //   shrinkWrap: true,
-        //   physics: const NeverScrollableScrollPhysics(),
-        //   itemCount: quickActions.length,
-        //   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        //     crossAxisCount: 2,
-        //     mainAxisSpacing: 12,
-        //     crossAxisSpacing: 12,
-        //     childAspectRatio: 0.98,
-        //   ),
-        //   itemBuilder: (context, index) {
-        //     final item = quickActions[index];
-        //     return ActionTile(
-        //       icon: item.icon,
-        //       title: item.title,
-        //       subtitle: item.subtitle,
-        //       tint: item.tint,
-        //       onTap: item.action,
-        //     );
-        //   },
-        // ),
-        // const SizedBox(height: 28),
-        // const SectionHeader(
-        //   title: 'Tonight\'s plan',
-        //   subtitle: 'A calm, guided rhythm for the rest of the evening.',
-        // ),
-        // const SizedBox(height: 14),
-        // SoftCard(
-        //   child: Column(
-        //     children: const [
-        //       _PlanStep(
-        //         time: '7:30 PM',
-        //         title: 'Bedtime message',
-        //         detail:
-        //             'Tap the bed for a short reflection and a gentle prompt to exhale.',
-        //       ),
-        //       Divider(),
-        //       _PlanStep(
-        //         time: '8:00 PM',
-        //         title: 'Table view + radio',
-        //         detail:
-        //             'Open the table, tune the radio, and swap to your own playlist if you want.',
-        //       ),
-        //       Divider(),
-        //       _PlanStep(
-        //         time: '8:30 PM',
-        //         title: 'Bottle request',
-        //         detail:
-        //             'Send a message in a bottle or answer someone else\'s request for extra likes.',
-        //       ),
-        //     ],
-        //   ),
-        // ),
-        // const SizedBox(height: 28),
-        // SectionHeader(
-        //   title: 'Warm notes from the hall',
-        //   subtitle: 'Community encouragement worth saving for later.',
-        //   actionLabel: 'Open hall',
-        //   onAction: onOpenHall,
-        // ),
-        // const SizedBox(height: 14),
-        // for (final note in notes) ...[
-        //   _NoteCard(
-        //     author: note.author,
-        //     message: note.message,
-        //     likes: note.likes,
-        //   ),
-        //   const SizedBox(height: 12),
-        // ],
-      ],
+      ),
+    );
+  }
+}
+
+class _NeedChip extends StatelessWidget {
+  const _NeedChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return ChoiceChip(
+      label: Text(label),
+      selected: selected,
+      onSelected: (_) => onTap(),
     );
   }
 }
@@ -347,106 +439,6 @@ class _HomeIllustration extends StatelessWidget {
                 borderRadius: BorderRadius.circular(12),
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PlanStep extends StatelessWidget {
-  const _PlanStep({
-    required this.time,
-    required this.title,
-    required this.detail,
-  });
-
-  final String time;
-  final String title;
-  final String detail;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: AppColors.blush.withValues(alpha: 0.7),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Text(time, style: theme.textTheme.labelLarge),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: theme.textTheme.titleMedium),
-                const SizedBox(height: 6),
-                Text(detail, style: theme.textTheme.bodyMedium),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _NoteCard extends StatelessWidget {
-  const _NoteCard({
-    required this.author,
-    required this.message,
-    required this.likes,
-  });
-
-  final String author;
-  final String message;
-  final String likes;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return SoftCard(
-      padding: const EdgeInsets.all(18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              CircleAvatar(
-                radius: 20,
-                backgroundColor: AppColors.blush,
-                child: Text(
-                  author.characters.first,
-                  style: theme.textTheme.titleMedium,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(child: Text(author, style: theme.textTheme.titleMedium)),
-              const TagChip(label: 'Kind note', icon: Icons.favorite_rounded),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Text(message, style: theme.textTheme.bodyLarge),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              const Icon(
-                Icons.favorite_rounded,
-                color: AppColors.clay,
-                size: 18,
-              ),
-              const SizedBox(width: 6),
-              Text('$likes likes', style: theme.textTheme.bodyMedium),
-            ],
           ),
         ],
       ),
