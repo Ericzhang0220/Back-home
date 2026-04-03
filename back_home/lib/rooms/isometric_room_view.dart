@@ -75,9 +75,11 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   }
 
   Future<void> _setupScene() async {
+    final initialWidth = _threeJs.width <= 0 ? 1.0 : _threeJs.width;
+    final initialHeight = _threeJs.height <= 0 ? 1.0 : _threeJs.height;
     _camera = three.PerspectiveCamera(
       42,
-      _threeJs.width / _threeJs.height,
+      initialWidth / initialHeight,
       0.1,
       80,
     );
@@ -90,7 +92,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       three.Vector3.zero(),
     );
 
-    _configureCamera(Size(_threeJs.width, _threeJs.height));
+    _configureCamera(Size(initialWidth, initialHeight));
     _buildRoomShell();
     _attachPointerEvents();
     _syncSceneWithController();
@@ -114,11 +116,17 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   }
 
   void _handleResize(Size size) {
+    if (size.width <= 0 || size.height <= 0) {
+      return;
+    }
     _configureCamera(size);
   }
 
   void _configureCamera(Size size) {
-    _camera.aspect = size.width / size.height;
+    final safeWidth = size.width <= 0 ? 1.0 : size.width;
+    final safeHeight = size.height <= 0 ? 1.0 : size.height;
+
+    _camera.aspect = safeWidth / safeHeight;
     _camera.near = 0.1;
     _camera.far = 80;
     _camera.position.setValues(0.0, 2.55, 8.8);
@@ -331,7 +339,11 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       return;
     }
 
-    final dom = _threeJs.domElement;
+    final dom = _threeJs.globalKey.currentState;
+    if (dom == null) {
+      return;
+    }
+
     dom.addEventListener(three.PeripheralType.pointerdown, _onPointerDown);
     dom.addEventListener(three.PeripheralType.pointermove, _onPointerMove);
     dom.addEventListener(three.PeripheralType.pointerup, _onPointerUp);
@@ -341,11 +353,16 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   }
 
   void _detachPointerEvents() {
-    if (!_pointerEventsAttached || !_sceneReady) {
+    if (!_pointerEventsAttached) {
       return;
     }
 
-    final dom = _threeJs.domElement;
+    final dom = _threeJs.globalKey.currentState;
+    if (dom == null) {
+      _pointerEventsAttached = false;
+      return;
+    }
+
     dom.removeEventListener(three.PeripheralType.pointerdown, _onPointerDown);
     dom.removeEventListener(three.PeripheralType.pointermove, _onPointerMove);
     dom.removeEventListener(three.PeripheralType.pointerup, _onPointerUp);

@@ -92,9 +92,9 @@ class _HomeScreenState extends State<HomeScreen> {
           summary:
               'You marked ${selectedMood.label.toLowerCase()}. We can use this later for your calendar and weekly mood chart.',
         ),
-        const SizedBox(height: 28),
+        const SizedBox(height: 128),
         Align(
-          alignment: Alignment.centerRight,
+          alignment: Alignment.bottomRight,
           child: SizedBox(
             width: 165,
             height: 60,

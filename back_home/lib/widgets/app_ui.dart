@@ -68,22 +68,27 @@ class AppPage extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.children,
+    this.leading,
     this.trailing,
     this.padding = const EdgeInsets.fromLTRB(20, 18, 20, 140),
+    this.physics,
   });
 
   final String? eyebrow;
   final String title;
   final String subtitle;
   final List<Widget> children;
+  final Widget? leading;
   final Widget? trailing;
   final EdgeInsetsGeometry padding;
+  final ScrollPhysics? physics;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
     return SingleChildScrollView(
+      physics: physics,
       padding: padding,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -100,6 +105,7 @@ class AppPage extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (leading != null) ...[leading!, const SizedBox(width: 16)],
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -129,7 +135,8 @@ class AppPage extends StatelessWidget {
               if (trailing != null) ...[const SizedBox(width: 16), trailing!],
             ],
           ),
-          const SizedBox(height: 28),
+          if (title.isNotEmpty || subtitle.isNotEmpty)
+            const SizedBox(height: 28),
           ...children,
         ],
       ),
