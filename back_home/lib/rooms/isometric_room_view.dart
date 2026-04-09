@@ -7,9 +7,14 @@ import 'package:three_js/three_js.dart' as three;
 import 'room_state.dart';
 
 class IsometricRoomView extends StatefulWidget {
-  const IsometricRoomView({super.key, required this.controller});
+  const IsometricRoomView({
+    super.key,
+    required this.controller,
+    required this.isActive,
+  });
 
   final RoomEditorController controller;
+  final bool isActive;
 
   @override
   State<IsometricRoomView> createState() => _IsometricRoomViewState();
@@ -41,12 +46,37 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   void initState() {
     super.initState();
     widget.controller.addListener(_handleControllerChanged);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) {
-        return;
+    if (widget.isActive) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        _scheduleSceneBootstrap();
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant IsometricRoomView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (widget.isActive == oldWidget.isActive) {
+      return;
+    }
+
+    _syncSceneVisibility();
+
+    if (widget.isActive) {
+      if (!_sceneRequested) {
+        _scheduleSceneBootstrap();
       }
-      _scheduleSceneBootstrap();
-    });
+      return;
+    }
+
+    if (!_sceneReady) {
+      _sceneStartTimer?.cancel();
+      _sceneStartTimer = null;
+    }
   }
 
   @override
@@ -157,7 +187,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   }
 
   void _scheduleSceneBootstrap() {
-    if (_sceneRequested || _sceneStartTimer != null) {
+    if (!widget.isActive || _sceneRequested || _sceneStartTimer != null) {
       return;
     }
 
@@ -167,7 +197,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         return;
       }
 
-      _threeJs = three.ThreeJS(
+      final threeJs = three.ThreeJS(
         settings: three.Settings(
           useSourceTexture: true,
           antialias: true,
@@ -180,6 +210,8 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         windowResizeUpdate: _handleResize,
         loadingWidget: const SizedBox.shrink(),
       );
+      threeJs.visible = widget.isActive;
+      _threeJs = threeJs;
 
       setState(() {
         _sceneRequested = true;
@@ -1020,6 +1052,15 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   int _hex(Color color) => color.toARGB32() & 0x00ffffff;
 
   Future<void> _yieldSceneStep() => Future<void>.delayed(Duration.zero);
+
+  void _syncSceneVisibility() {
+    final threeJs = _threeJs;
+    if (threeJs == null) {
+      return;
+    }
+
+    threeJs.visible = widget.isActive;
+  }
 }
 
 class _SceneFurniture {

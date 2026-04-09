@@ -13,10 +13,12 @@ class RoomScreen extends StatefulWidget {
     super.key,
     required this.controller,
     required this.onOpenShop,
+    required this.isActive,
   });
 
   final RoomEditorController controller;
   final VoidCallback onOpenShop;
+  final bool isActive;
 
   @override
   State<RoomScreen> createState() => _RoomScreenState();
@@ -66,7 +68,10 @@ class _RoomScreenState extends State<RoomScreen> {
         return Stack(
           children: [
             Positioned.fill(
-              child: IsometricRoomView(controller: widget.controller),
+              child: IsometricRoomView(
+                controller: widget.controller,
+                isActive: widget.isActive,
+              ),
             ),
             Positioned.fill(
               child: IgnorePointer(
