@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -15,7 +16,9 @@ class IsometricRoomView extends StatefulWidget {
 }
 
 class _IsometricRoomViewState extends State<IsometricRoomView> {
-  late final three.ThreeJS _threeJs;
+  static const Duration _sceneWarmupDelay = Duration(milliseconds: 350);
+
+  three.ThreeJS? _threeJs;
   late final three.PerspectiveCamera _camera;
 
   final Map<String, _SceneFurniture> _sceneFurniture = {};
@@ -25,7 +28,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   final three.Vector3 _dragIntersection = three.Vector3.zero();
   final three.Vector3 _dragOffset = three.Vector3.zero();
 
+  Timer? _sceneStartTimer;
   bool _sceneReady = false;
+  bool _sceneRequested = false;
   bool _threeConfigured = false;
   bool _pointerEventsAttached = false;
   String? _activeDragItemId;
@@ -36,26 +41,21 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   void initState() {
     super.initState();
     widget.controller.addListener(_handleControllerChanged);
-    _threeJs = three.ThreeJS(
-      settings: three.Settings(
-        useSourceTexture: true,
-        antialias: true,
-        alpha: true,
-        clearColor: 0x090807,
-        clearAlpha: 1,
-      ),
-      setup: _setupScene,
-      onSetupComplete: _handleSetupComplete,
-      windowResizeUpdate: _handleResize,
-    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      _scheduleSceneBootstrap();
+    });
   }
 
   @override
   void dispose() {
+    _sceneStartTimer?.cancel();
     widget.controller.removeListener(_handleControllerChanged);
-    if (_threeConfigured) {
+    if (_threeConfigured && _threeJs != null) {
       _detachPointerEvents();
-      _threeJs.dispose();
+      _threeJs!.dispose();
     }
     super.dispose();
   }
@@ -70,21 +70,40 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
           colors: [Color(0xFF191513), Color(0xFF0D0B0A)],
         ),
       ),
-      child: _threeJs.build(),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (_sceneRequested && _threeJs != null) _threeJs!.build(),
+          IgnorePointer(
+            ignoring: _sceneReady,
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOut,
+              opacity: _sceneReady ? 0 : 1,
+              child: const _RoomScenePlaceholder(),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
   Future<void> _setupScene() async {
-    final initialWidth = _threeJs.width <= 0 ? 1.0 : _threeJs.width;
-    final initialHeight = _threeJs.height <= 0 ? 1.0 : _threeJs.height;
+    final threeJs = _threeJs;
+    if (threeJs == null) {
+      return;
+    }
+
+    final initialWidth = threeJs.width <= 0 ? 1.0 : threeJs.width;
+    final initialHeight = threeJs.height <= 0 ? 1.0 : threeJs.height;
     _camera = three.PerspectiveCamera(
       42,
       initialWidth / initialHeight,
       0.1,
       80,
     );
-    _threeJs.camera = _camera;
-    _threeJs.scene = three.Scene();
+    threeJs.camera = _camera;
+    threeJs.scene = three.Scene();
     _threeConfigured = true;
 
     _dragPlane.setFromNormalAndCoplanarPoint(
@@ -93,7 +112,10 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     );
 
     _configureCamera(Size(initialWidth, initialHeight));
-    _buildRoomShell();
+    await _buildRoomShell();
+    if (!mounted) {
+      return;
+    }
     _attachPointerEvents();
     _syncSceneWithController();
   }
@@ -134,26 +156,58 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _camera.updateProjectionMatrix();
   }
 
-  void _buildRoomShell() {
+  void _scheduleSceneBootstrap() {
+    if (_sceneRequested || _sceneStartTimer != null) {
+      return;
+    }
+
+    _sceneStartTimer = Timer(_sceneWarmupDelay, () {
+      _sceneStartTimer = null;
+      if (!mounted || _sceneRequested) {
+        return;
+      }
+
+      _threeJs = three.ThreeJS(
+        settings: three.Settings(
+          useSourceTexture: true,
+          antialias: true,
+          alpha: true,
+          clearColor: 0x090807,
+          clearAlpha: 1,
+        ),
+        setup: _setupScene,
+        onSetupComplete: _handleSetupComplete,
+        windowResizeUpdate: _handleResize,
+        loadingWidget: const SizedBox.shrink(),
+      );
+
+      setState(() {
+        _sceneRequested = true;
+      });
+    });
+  }
+
+  Future<void> _buildRoomShell() async {
     final roomWidth =
         RoomEditorController.roomWidth * RoomEditorController.cellSize;
     final roomDepth =
         RoomEditorController.roomDepth * RoomEditorController.cellSize;
+    final scene = _threeJs!.scene;
 
     final ambient = three.AmbientLight(0xf3e7d7, 1.0);
-    _threeJs.scene.add(ambient);
+    scene.add(ambient);
 
     final hemi = three.HemisphereLight(0xf7eadc, 0x2e221c, 1.1);
     hemi.position.setValues(0, 10, 0);
-    _threeJs.scene.add(hemi);
+    scene.add(hemi);
 
     final keyLight = three.DirectionalLight(0xffebd2, 1.0);
     keyLight.position.setValues(0, 6, 8);
-    _threeJs.scene.add(keyLight);
+    scene.add(keyLight);
 
     final warmLamp = three.PointLight(0xf9c8a9, 1.5, 14, 2);
     warmLamp.position.setValues(2.4, 3.7, -0.8);
-    _threeJs.scene.add(warmLamp);
+    scene.add(warmLamp);
 
     final platform = _box(
       width: roomWidth + 1.4,
@@ -162,7 +216,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       color: const Color(0xFF4A342B),
       receiveShadow: true,
     )..position.setValues(0, -0.26, 0.3);
-    _threeJs.scene.add(platform);
+    scene.add(platform);
 
     final floor = _box(
       width: roomWidth,
@@ -171,7 +225,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       color: const Color(0xFF6A4E41),
       receiveShadow: true,
     )..position.setValues(0, -0.04, 0);
-    _threeJs.scene.add(floor);
+    scene.add(floor);
 
     for (var x = 0; x < RoomEditorController.roomWidth; x += 1) {
       final plank = _box(
@@ -181,7 +235,12 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         color: x.isEven ? const Color(0xFF785848) : const Color(0xFF6C5143),
         receiveShadow: true,
       )..position.setValues(-roomWidth / 2 + 0.5 + x.toDouble(), 0.03, 0);
-      _threeJs.scene.add(plank);
+      scene.add(plank);
+    }
+
+    await _yieldSceneStep();
+    if (!mounted) {
+      return;
     }
 
     final backWall = _box(
@@ -191,7 +250,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       color: const Color(0xFFEEE7DE),
       receiveShadow: true,
     )..position.setValues(0, 2.4, -roomDepth / 2 + 0.1);
-    _threeJs.scene.add(backWall);
+    scene.add(backWall);
 
     final leftWall = _box(
       width: 0.22,
@@ -200,7 +259,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       color: const Color(0xFFD8CEC3),
       receiveShadow: true,
     )..position.setValues(-roomWidth / 2 + 0.1, 2.4, 0);
-    _threeJs.scene.add(leftWall);
+    scene.add(leftWall);
 
     final rightWall = _box(
       width: 0.22,
@@ -209,7 +268,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       color: const Color(0xFFD3C9BE),
       receiveShadow: true,
     )..position.setValues(roomWidth / 2 - 0.1, 2.4, 0);
-    _threeJs.scene.add(rightWall);
+    scene.add(rightWall);
 
     final ceilingBeam = _box(
       width: roomWidth + 0.5,
@@ -217,7 +276,12 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       depth: 0.4,
       color: const Color(0xFF3A2A24),
     )..position.setValues(0, 4.6, 0.45);
-    _threeJs.scene.add(ceilingBeam);
+    scene.add(ceilingBeam);
+
+    await _yieldSceneStep();
+    if (!mounted) {
+      return;
+    }
 
     final rearWindowFrame = _box(
       width: 4.9,
@@ -225,7 +289,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       depth: 0.1,
       color: const Color(0xFF4C392F),
     )..position.setValues(1.0, 2.35, -roomDepth / 2 + 0.18);
-    _threeJs.scene.add(rearWindowFrame);
+    scene.add(rearWindowFrame);
 
     final rearWindowGlass =
         three.Mesh(
@@ -238,7 +302,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
           )
           ..position.setValues(1.0, 2.28, -roomDepth / 2 + 0.22)
           ..receiveShadow = true;
-    _threeJs.scene.add(rearWindowGlass);
+    scene.add(rearWindowGlass);
 
     final mullion = _box(
       width: 0.12,
@@ -246,7 +310,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       depth: 0.08,
       color: const Color(0xFF5B463B),
     )..position.setValues(1.0, 2.28, -roomDepth / 2 + 0.24);
-    _threeJs.scene.add(mullion);
+    scene.add(mullion);
 
     final windowSeat = _box(
       width: 5.1,
@@ -255,7 +319,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       color: const Color(0xFF5C4337),
       receiveShadow: true,
     )..position.setValues(1.0, 0.7, -roomDepth / 2 + 0.58);
-    _threeJs.scene.add(windowSeat);
+    scene.add(windowSeat);
 
     final windowSeatBase = _box(
       width: 5.2,
@@ -264,7 +328,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       color: const Color(0xFFC7B6A6),
       receiveShadow: true,
     )..position.setValues(1.0, 0.25, -roomDepth / 2 + 0.6);
-    _threeJs.scene.add(windowSeatBase);
+    scene.add(windowSeatBase);
 
     final laptopBase = _box(
       width: 0.64,
@@ -272,7 +336,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       depth: 0.42,
       color: const Color(0xFFD3CBC4),
     )..position.setValues(2.55, 0.9, -roomDepth / 2 + 0.38);
-    _threeJs.scene.add(laptopBase);
+    scene.add(laptopBase);
 
     final laptopScreen =
         _box(
@@ -283,7 +347,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
           )
           ..position.setValues(2.55, 1.12, -roomDepth / 2 + 0.29)
           ..rotation.x = -0.35;
-    _threeJs.scene.add(laptopScreen);
+    scene.add(laptopScreen);
 
     final screenGlow = _box(
       width: 0.5,
@@ -291,7 +355,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       depth: 0.01,
       color: const Color(0xFFB8705C),
     )..position.setValues(2.55, 1.12, -roomDepth / 2 + 0.26);
-    _threeJs.scene.add(screenGlow);
+    scene.add(screenGlow);
 
     final frame = _box(
       width: 0.55,
@@ -299,7 +363,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       depth: 0.06,
       color: const Color(0xFFD4D0CB),
     )..position.setValues(0.7, 1.18, -roomDepth / 2 + 0.43);
-    _threeJs.scene.add(frame);
+    scene.add(frame);
 
     final candle =
         three.Mesh(
@@ -310,7 +374,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
           )
           ..position.setValues(1.45, 0.92, -roomDepth / 2 + 0.38)
           ..castShadow = true;
-    _threeJs.scene.add(candle);
+    scene.add(candle);
 
     final pendantStem = _box(
       width: 0.05,
@@ -318,7 +382,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       depth: 0.05,
       color: const Color(0xFF1D1715),
     )..position.setValues(2.4, 4.15, -0.9);
-    _threeJs.scene.add(pendantStem);
+    scene.add(pendantStem);
 
     final pendant =
         three.Mesh(
@@ -331,7 +395,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
           )
           ..position.setValues(2.4, 3.55, -0.9)
           ..castShadow = true;
-    _threeJs.scene.add(pendant);
+    scene.add(pendant);
   }
 
   void _attachPointerEvents() {
@@ -339,7 +403,12 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       return;
     }
 
-    final dom = _threeJs.globalKey.currentState;
+    final threeJs = _threeJs;
+    if (threeJs == null) {
+      return;
+    }
+
+    final dom = threeJs.globalKey.currentState;
     if (dom == null) {
       return;
     }
@@ -357,7 +426,13 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       return;
     }
 
-    final dom = _threeJs.globalKey.currentState;
+    final threeJs = _threeJs;
+    if (threeJs == null) {
+      _pointerEventsAttached = false;
+      return;
+    }
+
+    final dom = threeJs.globalKey.currentState;
     if (dom == null) {
       _pointerEventsAttached = false;
       return;
@@ -468,7 +543,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       if (!currentIds.contains(instanceId)) {
         final removed = _sceneFurniture.remove(instanceId);
         if (removed != null) {
-          _threeJs.scene.remove(removed.root);
+          _threeJs!.scene.remove(removed.root);
         }
       }
     }
@@ -520,7 +595,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
           ..renderOrder = 8;
     root.add(selectionPlate);
     root.add(_buildFurnitureVisual(definition));
-    _threeJs.scene.add(root);
+    _threeJs!.scene.add(root);
 
     return _SceneFurniture(
       itemId: item.instanceId,
@@ -582,8 +657,13 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   }
 
   void _updatePointer(dynamic event) {
+    final threeJs = _threeJs;
+    if (threeJs == null) {
+      return;
+    }
+
     final box =
-        _threeJs.globalKey.currentContext?.findRenderObject() as RenderBox?;
+        threeJs.globalKey.currentContext?.findRenderObject() as RenderBox?;
     if (box == null) {
       return;
     }
@@ -938,6 +1018,8 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   }
 
   int _hex(Color color) => color.toARGB32() & 0x00ffffff;
+
+  Future<void> _yieldSceneStep() => Future<void>.delayed(Duration.zero);
 }
 
 class _SceneFurniture {
@@ -950,4 +1032,72 @@ class _SceneFurniture {
   final String itemId;
   final three.Group root;
   final three.MeshBasicMaterial selectionMaterial;
+}
+
+class _RoomScenePlaceholder extends StatelessWidget {
+  const _RoomScenePlaceholder();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFF1A1513), Color(0xFF110E0C)],
+        ),
+      ),
+      child: Center(
+        child: Container(
+          width: 220,
+          padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+          decoration: BoxDecoration(
+            color: const Color(0xFF201916).withValues(alpha: 0.92),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x44000000),
+                blurRadius: 24,
+                offset: Offset(0, 10),
+              ),
+            ],
+          ),
+          child: const Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 28,
+                height: 28,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.6,
+                  color: Color(0xFFF0C6A9),
+                ),
+              ),
+              SizedBox(height: 14),
+              Text(
+                'Preparing your room',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              SizedBox(height: 6),
+              Text(
+                'The scene loads in the background so the rest of the app stays responsive.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Color(0xFFD8C3B5),
+                  fontSize: 12,
+                  height: 1.35,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

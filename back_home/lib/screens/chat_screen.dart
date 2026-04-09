@@ -32,7 +32,7 @@ class ChatScreen extends StatelessWidget {
       title: 'Chat space',
       subtitle:
           'Talk with AI personalities, other people, or send a message in a bottle when you want help from the wider community.',
-      trailing: const TagChip(
+      trailing: const TopicChip(
         label: 'AI + Human',
         icon: Icons.hub_rounded,
         highlight: true,
@@ -54,17 +54,20 @@ class ChatScreen extends StatelessWidget {
                 spacing: 10,
                 runSpacing: 10,
                 children: [
-                  TagChip(
+                  TopicChip(
                     label: 'Beautiful girl',
                     icon: Icons.auto_awesome_rounded,
                     highlight: true,
                   ),
-                  TagChip(
+                  TopicChip(
                     label: 'Handsome boy',
                     icon: Icons.psychology_alt_rounded,
                   ),
-                  TagChip(label: 'Mentor', icon: Icons.school_rounded),
-                  TagChip(label: 'Real people', icon: Icons.people_alt_rounded),
+                  TopicChip(label: 'Mentor', icon: Icons.school_rounded),
+                  TopicChip(
+                    label: 'Real people',
+                    icon: Icons.people_alt_rounded,
+                  ),
                 ],
               ),
               const SizedBox(height: 18),
@@ -235,7 +238,7 @@ class _ChatListTile extends StatelessWidget {
                     Expanded(
                       child: Text(name, style: theme.textTheme.titleMedium),
                     ),
-                    TagChip(
+                    TopicChip(
                       label: role,
                       icon: isAi ? Icons.memory_rounded : Icons.people_rounded,
                     ),

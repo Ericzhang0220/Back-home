@@ -383,62 +383,11 @@ class _SettingsPanel extends StatelessWidget {
   }
 }
 
-class _FloatingTitle extends StatelessWidget {
-  const _FloatingTitle({required this.title, required this.subtitle});
-
-  final String title;
-  final String subtitle;
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(24),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.32),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w800,
-                  color: Colors.white,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                subtitle,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Colors.white.withValues(alpha: 0.8),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _SceneButton extends StatelessWidget {
-  const _SceneButton({
-    required this.icon,
-    required this.onTap,
-    this.highlighted = false,
-  });
+  const _SceneButton({required this.icon, required this.onTap});
 
   final IconData icon;
   final VoidCallback onTap;
-  final bool highlighted;
 
   @override
   Widget build(BuildContext context) {
@@ -446,18 +395,13 @@ class _SceneButton extends StatelessWidget {
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
         child: Material(
-          color: highlighted
-              ? const Color(0xFFF5D7C8).withValues(alpha: 0.92)
-              : Colors.black.withValues(alpha: 0.28),
+          color: Colors.black.withValues(alpha: 0.28),
           child: InkWell(
             onTap: onTap,
             child: SizedBox(
               width: 54,
               height: 54,
-              child: Icon(
-                icon,
-                color: highlighted ? AppColors.clay : Colors.white,
-              ),
+              child: Icon(icon, color: Colors.white),
             ),
           ),
         ),
@@ -629,16 +573,16 @@ class _SelectionPanel extends StatelessWidget {
                 spacing: 10,
                 runSpacing: 10,
                 children: [
-                  TagChip(
+                  TopicChip(
                     label: 'Grid ${item.origin.x + 1}, ${item.origin.z + 1}',
                     icon: Icons.place_rounded,
                     highlight: true,
                   ),
-                  TagChip(
+                  TopicChip(
                     label: 'Rotation ${item.rotationQuarterTurns * 90}°',
                     icon: Icons.rotate_90_degrees_ccw_rounded,
                   ),
-                  TagChip(label: definition.typeLabel, icon: definition.icon),
+                  TopicChip(label: definition.typeLabel, icon: definition.icon),
                 ],
               ),
             ),

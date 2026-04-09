@@ -70,8 +70,9 @@ class AppPage extends StatelessWidget {
     required this.children,
     this.leading,
     this.trailing,
-    this.padding = const EdgeInsets.fromLTRB(20, 18, 20, 140),
+    this.padding = const EdgeInsets.fromLTRB(20, 0, 20, 140),
     this.physics,
+    this.keyboardDismissBehavior = ScrollViewKeyboardDismissBehavior.manual,
   });
 
   final String? eyebrow;
@@ -82,6 +83,7 @@ class AppPage extends StatelessWidget {
   final Widget? trailing;
   final EdgeInsetsGeometry padding;
   final ScrollPhysics? physics;
+  final ScrollViewKeyboardDismissBehavior keyboardDismissBehavior;
 
   @override
   Widget build(BuildContext context) {
@@ -89,6 +91,7 @@ class AppPage extends StatelessWidget {
 
     return SingleChildScrollView(
       physics: physics,
+      keyboardDismissBehavior: keyboardDismissBehavior,
       padding: padding,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -328,8 +331,8 @@ class ActionTile extends StatelessWidget {
   }
 }
 
-class TagChip extends StatelessWidget {
-  const TagChip({
+class TopicChip extends StatelessWidget {
+  const TopicChip({
     super.key,
     required this.label,
     this.icon,

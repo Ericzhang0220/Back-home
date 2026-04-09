@@ -21,16 +21,8 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     'Overwhelmed',
   ];
 
-  static const List<String> _tags = [
-    'Daily check-in',
-    'Kind note',
-    'Room update',
-    'Small win',
-    'Need support',
-  ];
-
   late final TextEditingController _messageController;
-  late final TextEditingController _tagController;
+  late final TextEditingController _topicController;
   late String _selectedMood;
 
   @override
@@ -39,8 +31,8 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     _messageController = TextEditingController(
       text: widget.existingPost?.message ?? '',
     );
-    _tagController = TextEditingController(
-      text: widget.existingPost?.tag ?? _tags.first,
+    _topicController = TextEditingController(
+      text: widget.existingPost?.topic ?? '',
     );
     _selectedMood = widget.existingPost?.mood ?? _moods[1];
   }
@@ -48,20 +40,31 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   @override
   void dispose() {
     _messageController.dispose();
-    _tagController.dispose();
+    _topicController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final isEditing = widget.existingPost != null;
+    final mediaQuery = MediaQuery.of(context);
+    final bottomInset = mediaQuery.viewInsets.bottom;
+    final bottomPadding = mediaQuery.padding.bottom + bottomInset + 32;
+    final textFieldScrollPadding = EdgeInsets.fromLTRB(
+      20,
+      20,
+      20,
+      bottomInset + 120,
+    );
 
     return Scaffold(
-      backgroundColor: Colors.transparent,
+      backgroundColor: AppColors.cream,
+      resizeToAvoidBottomInset: false,
       body: Stack(
         children: [
           const AmbientBackground(),
           SafeArea(
+            bottom: false,
             child: AppPage(
               title: '',
               subtitle: '',
@@ -70,18 +73,67 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
               //   onPressed: () => Navigator.of(context).pop(),
               //   icon: const Icon(Icons.close_rounded),
               // ),
-              padding: const EdgeInsets.fromLTRB(20, 18, 20, 32),
+              physics: const ClampingScrollPhysics(),
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.manual,
+              padding: EdgeInsets.fromLTRB(20, 18, 20, bottomPadding),
               children: [
                 Container(
+                  width: MediaQuery.of(context).size.width,
+                  height: 60,
                   decoration: BoxDecoration(
                     color: Colors.white.withValues(alpha: 0.8),
                     borderRadius: BorderRadius.circular(18),
                   ),
                   child: Padding(
                     padding: const EdgeInsets.all(8.0),
-                    child: Text(
-                      isEditing ? 'Update your note' : 'Topic:',
-                      style: Theme.of(context).textTheme.headlineMedium,
+                    child: Row(
+                      children: [
+                        Text(
+                          'Topic:',
+                          style: Theme.of(context).textTheme.headlineMedium,
+                        ),
+                        Expanded(
+                          child: SizedBox(
+                            height: 40,
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: _topicController,
+                                    maxLength: 13,
+                                    scrollPadding: textFieldScrollPadding,
+                                    textInputAction: TextInputAction.next,
+                                    onTapOutside: (_) => _dismissKeyboard(),
+                                    decoration: const InputDecoration(
+                                      hintText: 'Write a topic',
+                                      border: InputBorder.none,
+                                      counterText: '',
+                                      contentPadding: EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                ValueListenableBuilder<TextEditingValue>(
+                                  valueListenable: _topicController,
+                                  builder: (context, value, _) {
+                                    return Padding(
+                                      padding: const EdgeInsets.only(right: 8),
+                                      child: Text(
+                                        '${value.text.characters.length}/13',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall
+                                            ?.copyWith(color: AppColors.muted),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -89,23 +141,30 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    TextField(
-                      controller: _messageController,
-                      maxLines: 7,
-                      decoration: InputDecoration(
-                        hintText:
-                            'Write a small encouragement, room update, or what you wish someone had said to you today.',
-                        filled: true,
-                        fillColor: Colors.white.withValues(alpha: 0.8),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(22),
-                          borderSide: BorderSide.none,
+                    SizedBox(
+                      height: MediaQuery.of(context).size.height * 0.60,
+                      child: TextField(
+                        controller: _messageController,
+                        maxLines: 70,
+                        scrollPadding: textFieldScrollPadding,
+                        textInputAction: TextInputAction.done,
+                        onTapOutside: (_) => _dismissKeyboard(),
+                        decoration: InputDecoration(
+                          hintText:
+                              'Try to write something interesting today..',
+                          filled: true,
+                          fillColor: Colors.white.withValues(alpha: 0.8),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(22),
+                            borderSide: BorderSide.none,
+                          ),
+                          contentPadding: const EdgeInsets.all(16),
                         ),
-                        contentPadding: const EdgeInsets.all(16),
                       ),
                     ),
                   ],
                 ),
+                SizedBox(height: 28),
                 Row(
                   children: [
                     Expanded(
@@ -131,14 +190,21 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     );
   }
 
+  void _dismissKeyboard() {
+    final focusScope = FocusScope.of(context);
+    if (!focusScope.hasPrimaryFocus && focusScope.focusedChild != null) {
+      focusScope.unfocus();
+    }
+  }
+
   void _submit() {
     final message = _messageController.text.trim();
-    final tag = _tagController.text.trim();
+    final topic = _topicController.text.trim();
 
-    if (message.isEmpty || tag.isEmpty) {
+    if (message.isEmpty || topic.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Add both a tag and a short message before posting.'),
+          content: Text('Add both a topic and a short message before posting.'),
         ),
       );
       return;
@@ -148,11 +214,12 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       HallPost(
         author: 'You',
         mood: _selectedMood,
-        tag: tag,
+        topic: topic,
         message: message,
         likes: widget.existingPost?.likes ?? 0,
-        comments: widget.existingPost?.comments ?? 0,
+        thread: widget.existingPost?.thread ?? const [],
         canEdit: true,
+        likedByMe: widget.existingPost?.likedByMe ?? false,
       ),
     );
   }

@@ -91,17 +91,17 @@ class ShopScreen extends StatelessWidget {
                       spacing: 10,
                       runSpacing: 10,
                       children: [
-                        TagChip(
+                        TopicChip(
                           label: 'Statement',
                           icon: Icons.bed_rounded,
                           highlight: true,
                         ),
-                        TagChip(
+                        TopicChip(
                           label: 'Storage',
                           icon: Icons.inventory_2_rounded,
                         ),
-                        TagChip(label: 'Lighting', icon: Icons.light_rounded),
-                        TagChip(
+                        TopicChip(label: 'Lighting', icon: Icons.light_rounded),
+                        TopicChip(
                           label: 'Decor',
                           icon: Icons.local_florist_rounded,
                         ),
