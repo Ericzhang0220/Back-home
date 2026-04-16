@@ -117,12 +117,8 @@ class ProfileScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 28),
-            const SectionHeader(
-              title: 'Reading comfort',
-              subtitle:
-                  'Text size should be easy to switch without leaving the page.',
-            ),
-            const SizedBox(height: 14),
+            const SectionHeader(title: 'Reading comfort'),
+            const SizedBox(height: 12),
             SoftCard(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -149,12 +145,9 @@ class ProfileScreen extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(height: 28),
-            const SectionHeader(
-              title: 'Audio settings',
-              subtitle: 'Background music should feel adjustable, not buried.',
-            ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 40),
+            const SectionHeader(title: 'Audio settings'),
+            const SizedBox(height: 12),
             SoftCard(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -184,7 +177,7 @@ class ProfileScreen extends StatelessWidget {
                   Text(
                     musicVolume <= 0
                         ? 'Muted. Raise the slider to resume your playlist.'
-                        : 'Now rotating softly through tracks 1, 2, and 3.',
+                        : 'Music Time!',
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                 ],

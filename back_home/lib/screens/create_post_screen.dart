@@ -50,6 +50,10 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     final mediaQuery = MediaQuery.of(context);
     final bottomInset = mediaQuery.viewInsets.bottom;
     final bottomPadding = mediaQuery.padding.bottom + bottomInset + 32;
+    final topicTextStyle = Theme.of(context).textTheme.headlineMedium?.copyWith(
+      color: const Color.fromARGB(255, 0, 0, 0),
+      fontSize: 24,
+    );
     final textFieldScrollPadding = EdgeInsets.fromLTRB(
       20,
       20,
@@ -88,10 +92,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                     padding: const EdgeInsets.all(8.0),
                     child: Row(
                       children: [
-                        Text(
-                          'Topic:',
-                          style: Theme.of(context).textTheme.headlineMedium,
-                        ),
+                        Text('Topic:', style: topicTextStyle),
                         Expanded(
                           child: SizedBox(
                             height: 40,
@@ -101,16 +102,29 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                                   child: TextField(
                                     controller: _topicController,
                                     maxLength: 13,
+                                    style: topicTextStyle,
+                                    textAlignVertical: TextAlignVertical.center,
                                     scrollPadding: textFieldScrollPadding,
                                     textInputAction: TextInputAction.next,
                                     onTapOutside: (_) => _dismissKeyboard(),
-                                    decoration: const InputDecoration(
+                                    decoration: InputDecoration(
                                       hintText: 'Write a topic',
+                                      hintStyle: topicTextStyle?.copyWith(
+                                        color: const Color.fromARGB(
+                                          255,
+                                          141,
+                                          132,
+                                          132,
+                                        ),
+                                        fontSize: 20,
+                                      ),
                                       border: InputBorder.none,
                                       counterText: '',
-                                      contentPadding: EdgeInsets.symmetric(
-                                        horizontal: 12,
-                                      ),
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                            horizontal: 12,
+                                            vertical: 11.5,
+                                          ),
                                     ),
                                   ),
                                 ),

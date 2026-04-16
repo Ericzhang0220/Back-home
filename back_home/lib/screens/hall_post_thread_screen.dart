@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../widgets/app_ui.dart';
-import '../widgets/hall_post_card.dart';
 import 'hall_post.dart';
 
 class HallPostThreadScreen extends StatefulWidget {
@@ -18,6 +17,7 @@ class _HallPostThreadScreenState extends State<HallPostThreadScreen> {
   late final TextEditingController _commentController;
   late final FocusNode _commentFocusNode;
   late final ScrollController _threadScrollController;
+  bool _composerExpanded = false;
 
   @override
   void initState() {
@@ -25,12 +25,14 @@ class _HallPostThreadScreenState extends State<HallPostThreadScreen> {
     _post = widget.post;
     _commentController = TextEditingController();
     _commentFocusNode = FocusNode();
+    _commentFocusNode.addListener(_handleComposerFocusChanged);
     _threadScrollController = ScrollController();
   }
 
   @override
   void dispose() {
     _commentController.dispose();
+    _commentFocusNode.removeListener(_handleComposerFocusChanged);
     _commentFocusNode.dispose();
     _threadScrollController.dispose();
     super.dispose();
@@ -40,7 +42,9 @@ class _HallPostThreadScreenState extends State<HallPostThreadScreen> {
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
     final bottomInset = mediaQuery.viewInsets.bottom;
+    final composerHeight = _composerExpanded ? 88.0 : 62.0;
     final composerBottomPadding = mediaQuery.padding.bottom + bottomInset + 16;
+    final scrollBottomPadding = composerHeight + composerBottomPadding + 20;
 
     return PopScope<HallPost>(
       canPop: false,
@@ -63,100 +67,58 @@ class _HallPostThreadScreenState extends State<HallPostThreadScreen> {
                 behavior: HitTestBehavior.translucent,
                 child: Column(
                   children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 18, 20, 14),
-                      child: Row(
-                        children: [
-                          BackButton(onPressed: _close),
-                          const SizedBox(width: 4),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Post thread',
-                                  style: Theme.of(
-                                    context,
-                                  ).textTheme.headlineMedium,
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  'Join the conversation below.',
-                                  style: Theme.of(context).textTheme.bodyMedium,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
                     Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
-                        child: SoftCard(
-                          padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-                          child: Column(
-                            children: [
-                              HallPostCard(
+                      child: CustomScrollView(
+                        controller: _threadScrollController,
+                        keyboardDismissBehavior:
+                            ScrollViewKeyboardDismissBehavior.onDrag,
+                        slivers: [
+                          SliverToBoxAdapter(
+                            child: _ThreadHeader(post: _post, onBack: _close),
+                          ),
+                          SliverToBoxAdapter(
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(20, 8, 20, 10),
+                              child: _ThreadPostSummary(
                                 post: _post,
                                 onLikeTap: _toggleLike,
                                 onCommentTap: _focusComposer,
-                                embedded: true,
                               ),
-                              const SizedBox(height: 18),
-                              const Divider(height: 1),
-                              Padding(
-                                padding: const EdgeInsets.fromLTRB(
-                                  0,
-                                  16,
-                                  0,
-                                  12,
-                                ),
-                                child: Row(
-                                  children: [
-                                    Text(
-                                      'Comments',
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.titleLarge,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    TopicChip(
-                                      label:
-                                          '${_post.comments} ${_post.comments == 1 ? 'reply' : 'replies'}',
-                                      icon: Icons.chat_bubble_outline_rounded,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Expanded(
-                                child: _post.thread.isEmpty
-                                    ? _EmptyThread(onReplyTap: _focusComposer)
-                                    : ListView.separated(
-                                        controller: _threadScrollController,
-                                        keyboardDismissBehavior:
-                                            ScrollViewKeyboardDismissBehavior
-                                                .onDrag,
-                                        padding: const EdgeInsets.fromLTRB(
-                                          0,
-                                          4,
-                                          0,
-                                          24,
-                                        ),
-                                        itemCount: _post.thread.length,
-                                        separatorBuilder: (_, _) =>
-                                            const SizedBox(height: 16),
-                                        itemBuilder: (context, index) {
-                                          final comment = _post.thread[index];
-                                          return _CommentBubble(
-                                            comment: comment,
-                                          );
-                                        },
-                                      ),
-                              ),
-                            ],
+                            ),
                           ),
-                        ),
+                          if (_post.thread.isEmpty)
+                            SliverFillRemaining(
+                              hasScrollBody: false,
+                              child: Padding(
+                                padding: EdgeInsets.only(
+                                  left: 18,
+                                  right: 18,
+                                  bottom: scrollBottomPadding,
+                                ),
+                                child: _EmptyThread(onReplyTap: _focusComposer),
+                              ),
+                            )
+                          else
+                            SliverPadding(
+                              padding: EdgeInsets.fromLTRB(
+                                18,
+                                4,
+                                18,
+                                scrollBottomPadding,
+                              ),
+                              sliver: SliverList.separated(
+                                itemCount: _post.thread.length,
+                                itemBuilder: (context, index) {
+                                  final comment = _post.thread[index];
+                                  return _CommentListItem(comment: comment);
+                                },
+                                separatorBuilder: (_, _) => const Divider(
+                                  height: 24,
+                                  color: Colors.transparent,
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                     ),
                     AnimatedPadding(
@@ -168,13 +130,24 @@ class _HallPostThreadScreenState extends State<HallPostThreadScreen> {
                         20,
                         composerBottomPadding,
                       ),
-                      child: _CommentComposer(
-                        controller: _commentController,
-                        focusNode: _commentFocusNode,
-                        onChanged: (_) => setState(() {}),
-                        onSubmitted: (_) => _submitComment(),
-                        onSend: _submitComment,
-                        onTapOutside: (_) => _dismissKeyboard(),
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 180),
+                        switchInCurve: Curves.easeOut,
+                        switchOutCurve: Curves.easeIn,
+                        child: _composerExpanded
+                            ? _CommentComposer(
+                                key: const ValueKey('expanded-composer'),
+                                controller: _commentController,
+                                focusNode: _commentFocusNode,
+                                onChanged: (_) => setState(() {}),
+                                onSubmitted: (_) => _submitComment(),
+                                onSend: _submitComment,
+                                onTapOutside: (_) => _dismissKeyboard(),
+                              )
+                            : _CommentComposerTrigger(
+                                key: const ValueKey('collapsed-composer'),
+                                onTap: _focusComposer,
+                              ),
                       ),
                     ),
                   ],
@@ -197,6 +170,11 @@ class _HallPostThreadScreenState extends State<HallPostThreadScreen> {
   }
 
   void _focusComposer() {
+    if (!_composerExpanded) {
+      setState(() {
+        _composerExpanded = true;
+      });
+    }
     FocusScope.of(context).requestFocus(_commentFocusNode);
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
   }
@@ -222,6 +200,7 @@ class _HallPostThreadScreenState extends State<HallPostThreadScreen> {
       _commentController.clear();
     });
 
+    _commentFocusNode.unfocus();
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
   }
 
@@ -240,6 +219,27 @@ class _HallPostThreadScreenState extends State<HallPostThreadScreen> {
     final focusScope = FocusScope.of(context);
     if (!focusScope.hasPrimaryFocus && focusScope.focusedChild != null) {
       focusScope.unfocus();
+    }
+  }
+
+  void _handleComposerFocusChanged() {
+    if (!mounted) {
+      return;
+    }
+
+    if (_commentFocusNode.hasFocus) {
+      if (!_composerExpanded) {
+        setState(() {
+          _composerExpanded = true;
+        });
+      }
+      return;
+    }
+
+    if (_composerExpanded && _commentController.text.trim().isEmpty) {
+      setState(() {
+        _composerExpanded = false;
+      });
     }
   }
 
@@ -285,65 +285,219 @@ class _EmptyThread extends StatelessWidget {
   }
 }
 
-class _CommentBubble extends StatelessWidget {
-  const _CommentBubble({required this.comment});
+class _ThreadHeader extends StatelessWidget {
+  const _ThreadHeader({required this.post, required this.onBack});
+
+  final HallPost post;
+  final VoidCallback onBack;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 14, 18, 0),
+      child: Row(
+        children: [
+          IconButton(
+            onPressed: onBack,
+            icon: const Icon(Icons.arrow_back_ios_new_rounded),
+          ),
+          CircleAvatar(
+            radius: 22,
+            backgroundColor: AppColors.blush,
+            child: Text(post.author.characters.first),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  post.topic,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${post.author}  ·  ${post.mood}',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: AppColors.muted,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      'All comments ${post.comments}',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: AppColors.clay,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ThreadPostSummary extends StatelessWidget {
+  const _ThreadPostSummary({
+    required this.post,
+    required this.onLikeTap,
+    required this.onCommentTap,
+  });
+
+  final HallPost post;
+  final VoidCallback onLikeTap;
+  final VoidCallback onCommentTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(18, 14, 18, 14),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.84),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: AppColors.stroke),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              TopicChip(label: post.topic, icon: Icons.sell_rounded),
+              const Spacer(),
+              Text(post.mood, style: theme.textTheme.bodySmall),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            post.message,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodyLarge,
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              _ThreadAction(
+                icon: post.likedByMe
+                    ? Icons.favorite_rounded
+                    : Icons.favorite_border_rounded,
+                label: '${post.likes}',
+                onTap: onLikeTap,
+                active: post.likedByMe,
+              ),
+              const SizedBox(width: 18),
+              _ThreadAction(
+                icon: Icons.mode_comment_outlined,
+                label: '${post.comments}',
+                onTap: onCommentTap,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ThreadAction extends StatelessWidget {
+  const _ThreadAction({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.active = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: 18,
+            color: active ? AppColors.clay : AppColors.muted,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: active ? AppColors.ink : AppColors.muted,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CommentListItem extends StatelessWidget {
+  const _CommentListItem({required this.comment});
 
   final HallComment comment;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isMe = comment.isMe;
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
       children: [
-        if (!isMe) ...[
-          CircleAvatar(
-            radius: 18,
-            backgroundColor: AppColors.blush.withValues(alpha: 0.85),
-            child: Text(comment.author.characters.first),
-          ),
-          const SizedBox(width: 10),
-        ],
-        Flexible(
+        CircleAvatar(
+          radius: 18,
+          backgroundColor: comment.isMe
+              ? const Color(0xFFE7D0BD)
+              : AppColors.blush.withValues(alpha: 0.85),
+          child: Text(comment.author.characters.first),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
           child: Column(
-            crossAxisAlignment: isMe
-                ? CrossAxisAlignment.end
-                : CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                '${comment.author}  ${comment.sentAt}',
-                style: theme.textTheme.bodySmall,
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      comment.author,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  Text(comment.sentAt, style: theme.textTheme.bodySmall),
+                ],
               ),
               const SizedBox(height: 6),
-              Container(
-                constraints: const BoxConstraints(maxWidth: 280),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 12,
-                ),
-                decoration: BoxDecoration(
-                  color: isMe
-                      ? const Color(0xFFE7D0BD)
-                      : Colors.white.withValues(alpha: 0.82),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: AppColors.stroke),
-                ),
-                child: Text(comment.message, style: theme.textTheme.bodyLarge),
+              Text(
+                comment.message,
+                style: theme.textTheme.bodyLarge?.copyWith(height: 1.4),
               ),
             ],
           ),
         ),
-        if (isMe) ...[
-          const SizedBox(width: 10),
-          CircleAvatar(
-            radius: 18,
-            backgroundColor: const Color(0xFFE7D0BD),
-            child: Text(comment.author.characters.first),
-          ),
-        ],
       ],
     );
   }
@@ -351,6 +505,7 @@ class _CommentBubble extends StatelessWidget {
 
 class _CommentComposer extends StatelessWidget {
   const _CommentComposer({
+    super.key,
     required this.controller,
     required this.focusNode,
     required this.onChanged,
@@ -410,6 +565,50 @@ class _CommentComposer extends StatelessWidget {
             tooltip: 'Send comment',
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _CommentComposerTrigger extends StatelessWidget {
+  const _CommentComposerTrigger({super.key, required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(26),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.84),
+            borderRadius: BorderRadius.circular(26),
+            border: Border.all(color: AppColors.stroke),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x12000000),
+                blurRadius: 24,
+                offset: Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Text(
+                'Write a comment...',
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(color: AppColors.muted),
+              ),
+              const Spacer(),
+              const Icon(Icons.edit_outlined, color: AppColors.muted),
+            ],
+          ),
+        ),
       ),
     );
   }

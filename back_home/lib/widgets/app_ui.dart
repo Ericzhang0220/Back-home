@@ -190,14 +190,14 @@ class SectionHeader extends StatelessWidget {
     super.key,
     required this.title,
     this.titleSize = 20,
-    required this.subtitle,
+    this.subtitle,
     this.actionLabel,
     this.onAction,
   });
 
   final String title;
   final double titleSize;
-  final String subtitle;
+  final String? subtitle;
   final String? actionLabel;
   final VoidCallback? onAction;
 
@@ -218,8 +218,9 @@ class SectionHeader extends StatelessWidget {
                   fontSize: titleSize,
                 ),
               ),
-              const SizedBox(height: 4),
-              Text(subtitle, style: theme.textTheme.bodyMedium),
+              if (subtitle != null) const SizedBox(height: 4),
+              if (subtitle != null)
+                Text(subtitle!, style: theme.textTheme.bodyMedium),
             ],
           ),
         ),
