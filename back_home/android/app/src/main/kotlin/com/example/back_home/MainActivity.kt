@@ -1,4 +1,4 @@
-package com.example.back_home
+package com.eric.back_home
 
 import io.flutter.embedding.android.FlutterActivity
 

@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "594092611672",
+    "project_id": "back-home-7cf17",
+    "storage_bucket": "back-home-7cf17.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:594092611672:android:aac02b568412c9213a922d",
+        "android_client_info": {
+          "package_name": "com.Eric.backHome"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDvUdoL5LojuBG7VQvL-wCqA4681ea_yUg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:594092611672:android:ed0941914beab9e93a922d",
+        "android_client_info": {
+          "package_name": "com.eric.back_home"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDvUdoL5LojuBG7VQvL-wCqA4681ea_yUg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
