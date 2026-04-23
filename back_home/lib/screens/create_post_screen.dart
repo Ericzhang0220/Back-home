@@ -79,7 +79,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
               // ),
               physics: const ClampingScrollPhysics(),
               keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.manual,
-              padding: EdgeInsets.fromLTRB(20, 18, 20, bottomPadding),
+              padding: EdgeInsets.fromLTRB(20, 4, 20, bottomPadding),
               children: [
                 Container(
                   width: MediaQuery.of(context).size.width,

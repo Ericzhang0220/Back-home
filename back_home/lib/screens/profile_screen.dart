@@ -1,21 +1,35 @@
 import 'package:flutter/material.dart';
 
+import '../auth/app_auth_controller.dart';
 import 'mood_calendar_screen.dart';
 import '../settings/app_settings_controller.dart';
 import '../widgets/app_ui.dart';
 
 class ProfileScreen extends StatelessWidget {
-  const ProfileScreen({required this.settingsController, super.key});
+  const ProfileScreen({
+    required this.settingsController,
+    required this.authController,
+    super.key,
+  });
 
   final AppSettingsController settingsController;
+  final AppAuthController authController;
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: settingsController,
+      animation: Listenable.merge([settingsController, authController]),
       builder: (context, _) {
         final selectedTextSize = settingsController.readingComfort;
         final musicVolume = settingsController.musicVolume;
+        final currentUser = authController.currentUser;
+        final profileName = currentUser?.displayName?.trim().isNotEmpty == true
+            ? currentUser!.displayName!.trim()
+            : currentUser?.phoneNumber ?? 'Your account';
+        final accountHint =
+            currentUser?.email ??
+            currentUser?.phoneNumber ??
+            'Signed in and saved on this device.';
 
         return AppPage(
           title: '',
@@ -33,6 +47,26 @@ class ProfileScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
+            Center(
+              child: Column(
+                children: [
+                  Text(
+                    profileName,
+                    style: Theme.of(
+                      context,
+                    ).textTheme.headlineMedium?.copyWith(fontSize: 24),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    accountHint,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
@@ -190,10 +224,11 @@ class ProfileScreen extends StatelessWidget {
                   'Keep sensitive actions separated from everyday controls.',
             ),
             const SizedBox(height: 14),
-            const _SettingsAction(
+            _SettingsAction(
               icon: Icons.logout_rounded,
               title: 'Log out',
               detail: 'Sign out from this device.',
+              onTap: () => _confirmSignOut(context),
             ),
             const SizedBox(height: 12),
             const _SettingsAction(
@@ -207,6 +242,71 @@ class ProfileScreen extends StatelessWidget {
       },
     );
   }
+
+  Future<void> _confirmSignOut(BuildContext context) async {
+    final didConfirm = await showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: SoftCard(
+              color: Colors.white.withValues(alpha: 0.94),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Log out now?',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'The next app open will show the login screen again until you sign back in.',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.of(context).pop(false),
+                          child: const Text('Stay signed in'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: FilledButton(
+                          onPressed: () => Navigator.of(context).pop(true),
+                          child: const Text('Log out'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    if (didConfirm != true || !context.mounted) {
+      return;
+    }
+
+    try {
+      await authController.signOut();
+    } on AuthFlowException catch (error) {
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    }
+  }
 }
 
 class _SettingsAction extends StatelessWidget {
@@ -215,50 +315,59 @@ class _SettingsAction extends StatelessWidget {
     required this.title,
     required this.detail,
     this.destructive = false,
+    this.onTap,
   });
 
   final IconData icon;
   final String title;
   final String detail;
   final bool destructive;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return SoftCard(
-      padding: const EdgeInsets.all(18),
-      child: Row(
-        children: [
-          Container(
-            height: 46,
-            width: 46,
-            decoration: BoxDecoration(
-              color: destructive
-                  ? const Color(0xFFF7DEDA)
-                  : AppColors.blush.withValues(alpha: 0.75),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Icon(
-              icon,
-              color: destructive ? const Color(0xFFC34A3F) : AppColors.clay,
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: destructive ? const Color(0xFFC34A3F) : null,
-                  ),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(28),
+        onTap: onTap,
+        child: SoftCard(
+          padding: const EdgeInsets.all(18),
+          child: Row(
+            children: [
+              Container(
+                height: 46,
+                width: 46,
+                decoration: BoxDecoration(
+                  color: destructive
+                      ? const Color(0xFFF7DEDA)
+                      : AppColors.blush.withValues(alpha: 0.75),
+                  borderRadius: BorderRadius.circular(14),
                 ),
-                const SizedBox(height: 6),
-                Text(detail, style: Theme.of(context).textTheme.bodyMedium),
-              ],
-            ),
+                child: Icon(
+                  icon,
+                  color: destructive ? const Color(0xFFC34A3F) : AppColors.clay,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: destructive ? const Color(0xFFC34A3F) : null,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(detail, style: Theme.of(context).textTheme.bodyMedium),
+                  ],
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

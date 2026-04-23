@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 
 import '../widgets/app_ui.dart';
@@ -41,10 +43,12 @@ class _HallPostThreadScreenState extends State<HallPostThreadScreen> {
   @override
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
-    final bottomInset = mediaQuery.viewInsets.bottom;
-    final composerHeight = _composerExpanded ? 88.0 : 62.0;
-    final composerBottomPadding = mediaQuery.padding.bottom + bottomInset + 16;
-    final scrollBottomPadding = composerHeight + composerBottomPadding + 20;
+    final commentsPanelMinHeight = mediaQuery.size.height * 0.54;
+    final composerOverlayHeight = _composerExpanded ? 86.0 : 60.0;
+    final composerBottomInset =
+        mediaQuery.padding.bottom + mediaQuery.viewInsets.bottom;
+    final commentsBottomSafeSpace =
+        composerOverlayHeight + composerBottomInset + 18;
 
     return PopScope<HallPost>(
       canPop: false,
@@ -65,93 +69,89 @@ class _HallPostThreadScreenState extends State<HallPostThreadScreen> {
               child: GestureDetector(
                 onTap: _dismissKeyboard,
                 behavior: HitTestBehavior.translucent,
-                child: Column(
-                  children: [
-                    Expanded(
-                      child: CustomScrollView(
-                        controller: _threadScrollController,
-                        keyboardDismissBehavior:
-                            ScrollViewKeyboardDismissBehavior.onDrag,
-                        slivers: [
-                          SliverToBoxAdapter(
-                            child: _ThreadHeader(post: _post, onBack: _close),
-                          ),
-                          SliverToBoxAdapter(
-                            child: Padding(
-                              padding: const EdgeInsets.fromLTRB(20, 8, 20, 10),
-                              child: _ThreadPostSummary(
-                                post: _post,
-                                onLikeTap: _toggleLike,
-                                onCommentTap: _focusComposer,
-                              ),
-                            ),
-                          ),
-                          if (_post.thread.isEmpty)
-                            SliverFillRemaining(
-                              hasScrollBody: false,
-                              child: Padding(
-                                padding: EdgeInsets.only(
-                                  left: 18,
-                                  right: 18,
-                                  bottom: scrollBottomPadding,
-                                ),
-                                child: _EmptyThread(onReplyTap: _focusComposer),
-                              ),
-                            )
-                          else
-                            SliverPadding(
-                              padding: EdgeInsets.fromLTRB(
-                                18,
-                                4,
-                                18,
-                                scrollBottomPadding,
-                              ),
-                              sliver: SliverList.separated(
-                                itemCount: _post.thread.length,
-                                itemBuilder: (context, index) {
-                                  final comment = _post.thread[index];
-                                  return _CommentListItem(comment: comment);
-                                },
-                                separatorBuilder: (_, _) => const Divider(
-                                  height: 24,
-                                  color: Colors.transparent,
-                                ),
-                              ),
-                            ),
-                        ],
+                child: CustomScrollView(
+                  controller: _threadScrollController,
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
+                  slivers: [
+                    SliverToBoxAdapter(
+                      child: _ThreadHeader(post: _post, onBack: _close),
+                    ),
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 10),
+                        child: _ThreadPostSummary(
+                          post: _post,
+                          onLikeTap: _toggleLike,
+                          onCommentTap: _focusComposer,
+                        ),
                       ),
                     ),
-                    AnimatedPadding(
-                      duration: const Duration(milliseconds: 180),
-                      curve: Curves.easeOut,
-                      padding: EdgeInsets.fromLTRB(
-                        20,
-                        12,
-                        20,
-                        composerBottomPadding,
-                      ),
-                      child: AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 180),
-                        switchInCurve: Curves.easeOut,
-                        switchOutCurve: Curves.easeIn,
-                        child: _composerExpanded
-                            ? _CommentComposer(
-                                key: const ValueKey('expanded-composer'),
-                                controller: _commentController,
-                                focusNode: _commentFocusNode,
-                                onChanged: (_) => setState(() {}),
-                                onSubmitted: (_) => _submitComment(),
-                                onSend: _submitComment,
-                                onTapOutside: (_) => _dismissKeyboard(),
-                              )
-                            : _CommentComposerTrigger(
-                                key: const ValueKey('collapsed-composer'),
-                                onTap: _focusComposer,
-                              ),
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+                        child: _CommentsPanel(
+                          minHeight: commentsPanelMinHeight,
+                          child: Padding(
+                            padding: EdgeInsets.only(
+                              bottom: commentsBottomSafeSpace,
+                            ),
+                            child: Column(
+                              children: [
+                                if (_post.thread.isEmpty)
+                                  _EmptyThread(onReplyTap: _focusComposer)
+                                else
+                                  Column(
+                                    children: List.generate(
+                                      _post.thread.length,
+                                      (index) {
+                                        final comment = _post.thread[index];
+                                        return Padding(
+                                          padding: EdgeInsets.only(
+                                            bottom:
+                                                index == _post.thread.length - 1
+                                                ? 0
+                                                : 24,
+                                          ),
+                                          child: _CommentListItem(
+                                            comment: comment,
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ],
                 ),
+              ),
+            ),
+            Positioned(
+              left: 38,
+              right: 38,
+              bottom: composerBottomInset,
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 180),
+                switchInCurve: Curves.easeOut,
+                switchOutCurve: Curves.easeIn,
+                child: _composerExpanded
+                    ? _CommentComposer(
+                        key: const ValueKey('expanded-composer'),
+                        controller: _commentController,
+                        focusNode: _commentFocusNode,
+                        onChanged: (_) => setState(() {}),
+                        onSubmitted: (_) => _submitComment(),
+                        onSend: _submitComment,
+                        onTapOutside: (_) => _dismissKeyboard(),
+                      )
+                    : _CommentComposerTrigger(
+                        key: const ValueKey('collapsed-composer'),
+                        onTap: _focusComposer,
+                      ),
               ),
             ),
           ],
@@ -248,6 +248,30 @@ class _HallPostThreadScreenState extends State<HallPostThreadScreen> {
   }
 }
 
+class _CommentsPanel extends StatelessWidget {
+  const _CommentsPanel({required this.child, this.minHeight});
+
+  final Widget child;
+  final double? minHeight;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      constraints: minHeight == null
+          ? null
+          : BoxConstraints(minHeight: minHeight!),
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.84),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: AppColors.stroke),
+      ),
+      child: child,
+    );
+  }
+}
+
 class _EmptyThread extends StatelessWidget {
   const _EmptyThread({required this.onReplyTap});
 
@@ -296,6 +320,7 @@ class _ThreadHeader extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 14, 18, 0),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           IconButton(
             onPressed: onBack,
@@ -308,42 +333,69 @@ class _ThreadHeader extends StatelessWidget {
           ),
           const SizedBox(width: 12),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  post.topic,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 15,
+            child: Padding(
+              padding: const EdgeInsets.only(right: 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    post.topic,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 2),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        '${post.author}  ·  ${post.mood}',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: AppColors.muted,
-                        ),
-                      ),
-                    ),
-                    Text(
-                      'All comments ${post.comments}',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: AppColors.clay,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+                  const SizedBox(height: 2),
+                  Text(
+                    '${post.author}  ·  ${post.mood}',
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodyMedium?.copyWith(color: AppColors.muted),
+                  ),
+                ],
+              ),
             ),
           ),
+          _CommentsBadge(count: post.comments),
         ],
+      ),
+    );
+  }
+}
+
+class _CommentsBadge extends StatelessWidget {
+  const _CommentsBadge({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 32),
+      alignment: Alignment.center,
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1EFEC),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFD7D2CC)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x12000000),
+            blurRadius: 10,
+            offset: Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Text(
+        '$count replies',
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: const Color.fromARGB(255, 124, 53, 53),
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.15,
+          fontSize: 12,
+        ),
       ),
     );
   }
@@ -525,46 +577,52 @@ class _CommentComposer extends StatelessWidget {
   Widget build(BuildContext context) {
     final canSend = controller.text.trim().isNotEmpty;
 
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.84),
-        borderRadius: BorderRadius.circular(26),
-        border: Border.all(color: AppColors.stroke),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x12000000),
-            blurRadius: 24,
-            offset: Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: TextField(
-              controller: controller,
-              focusNode: focusNode,
-              minLines: 1,
-              maxLines: 4,
-              textInputAction: TextInputAction.send,
-              onChanged: onChanged,
-              onSubmitted: onSubmitted,
-              onTapOutside: onTapOutside,
-              decoration: const InputDecoration(
-                hintText: 'Write a comment...',
-                border: InputBorder.none,
-                isDense: true,
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(26),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.58),
+            borderRadius: BorderRadius.circular(26),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.56)),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x12000000),
+                blurRadius: 24,
+                offset: Offset(0, 10),
               ),
-            ),
+            ],
           ),
-          const SizedBox(width: 10),
-          IconButton.filled(
-            onPressed: canSend ? onSend : null,
-            icon: const Icon(Icons.arrow_upward_rounded),
-            tooltip: 'Send comment',
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: controller,
+                  focusNode: focusNode,
+                  minLines: 1,
+                  maxLines: 4,
+                  textInputAction: TextInputAction.send,
+                  onChanged: onChanged,
+                  onSubmitted: onSubmitted,
+                  onTapOutside: onTapOutside,
+                  decoration: const InputDecoration(
+                    hintText: 'Write a comment...',
+                    border: InputBorder.none,
+                    isDense: true,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              IconButton.filled(
+                onPressed: canSend ? onSend : null,
+                icon: const Icon(Icons.arrow_upward_rounded),
+                tooltip: 'Send comment',
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -577,17 +635,15 @@ class _CommentComposerTrigger extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(26),
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(26),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
         child: Container(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.84),
+            color: Colors.white.withValues(alpha: 0.58),
             borderRadius: BorderRadius.circular(26),
-            border: Border.all(color: AppColors.stroke),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.56)),
             boxShadow: const [
               BoxShadow(
                 color: Color(0x12000000),
@@ -596,17 +652,28 @@ class _CommentComposerTrigger extends StatelessWidget {
               ),
             ],
           ),
-          child: Row(
-            children: [
-              Text(
-                'Write a comment...',
-                style: Theme.of(
-                  context,
-                ).textTheme.bodyMedium?.copyWith(color: AppColors.muted),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(26),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                child: Row(
+                  children: [
+                    Text(
+                      'Write a comment...',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: const Color(0xFF8F8983),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const Spacer(),
+                    const Icon(Icons.edit_outlined, color: AppColors.muted),
+                  ],
+                ),
               ),
-              const Spacer(),
-              const Icon(Icons.edit_outlined, color: AppColors.muted),
-            ],
+            ),
           ),
         ),
       ),

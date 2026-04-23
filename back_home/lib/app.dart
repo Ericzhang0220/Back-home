@@ -1,14 +1,17 @@
 import 'dart:async';
 import 'dart:ui';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import 'auth/app_auth_controller.dart';
 import 'audio/background_music_controller.dart';
 import 'rooms/room_state.dart';
 import 'screens/achievements_screen.dart';
 import 'screens/chat_screen.dart';
 import 'screens/hall_screen.dart';
 import 'screens/home_screen.dart';
+import 'screens/login_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/room_screen.dart';
 import 'screens/shop_screen.dart';
@@ -26,11 +29,13 @@ class BackHomeApp extends StatefulWidget {
 class _BackHomeAppState extends State<BackHomeApp> {
   late final AppSettingsController _settingsController;
   late final BackgroundMusicController _musicController;
+  late final AppAuthController _authController;
 
   @override
   void initState() {
     super.initState();
     _settingsController = AppSettingsController();
+    _authController = AppAuthController();
     _musicController = BackgroundMusicController(
       settingsController: _settingsController,
     );
@@ -40,6 +45,7 @@ class _BackHomeAppState extends State<BackHomeApp> {
   @override
   void dispose() {
     unawaited(_musicController.dispose());
+    _authController.dispose();
     _settingsController.dispose();
     super.dispose();
   }
@@ -67,7 +73,50 @@ class _BackHomeAppState extends State<BackHomeApp> {
               child: child ?? const SizedBox.shrink(),
             );
           },
-          home: AppShell(settingsController: _settingsController),
+          home: _AuthGate(
+            settingsController: _settingsController,
+            authController: _authController,
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _AuthGate extends StatelessWidget {
+  const _AuthGate({
+    required this.settingsController,
+    required this.authController,
+  });
+
+  final AppSettingsController settingsController;
+  final AppAuthController authController;
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<User?>(
+      initialData: authController.currentUser,
+      stream: authController.authStateChanges,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            snapshot.data == null) {
+          return const Scaffold(
+            body: Stack(
+              children: [
+                AmbientBackground(showSideGlow: true),
+                Center(child: CircularProgressIndicator()),
+              ],
+            ),
+          );
+        }
+
+        if (snapshot.data == null) {
+          return LoginScreen(authController: authController);
+        }
+
+        return AppShell(
+          settingsController: settingsController,
+          authController: authController,
         );
       },
     );
@@ -77,9 +126,14 @@ class _BackHomeAppState extends State<BackHomeApp> {
 enum AppTab { home, room, hall, chat, profile }
 
 class AppShell extends StatefulWidget {
-  const AppShell({required this.settingsController, super.key});
+  const AppShell({
+    required this.settingsController,
+    required this.authController,
+    super.key,
+  });
 
   final AppSettingsController settingsController;
+  final AppAuthController authController;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -163,7 +217,10 @@ class _AppShellState extends State<AppShell> {
         return KeyedSubtree(
           key: const ValueKey(AppTab.profile),
           child: SafeArea(
-            child: ProfileScreen(settingsController: widget.settingsController),
+            child: ProfileScreen(
+              settingsController: widget.settingsController,
+              authController: widget.authController,
+            ),
           ),
         );
       case AppTab.home:
