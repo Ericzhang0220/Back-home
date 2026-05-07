@@ -7,12 +7,18 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:crypto/crypto.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 class AppAuthController extends ChangeNotifier {
   AppAuthController({FirebaseAuth? firebaseAuth, FirebaseFirestore? firestore})
     : _auth = firebaseAuth ?? FirebaseAuth.instance,
-      _firestore = firestore ?? FirebaseFirestore.instance;
+      _firestore = firestore ?? FirebaseFirestore.instance {
+    unawaited(_loadPendingEmailPasswordSetup());
+  }
+
+  static const String _pendingEmailPasswordSetupUidKey =
+      'pendingEmailPasswordSetupUid';
 
   final FirebaseAuth _auth;
   final FirebaseFirestore _firestore;
@@ -21,11 +27,27 @@ class AppAuthController extends ChangeNotifier {
   String? _verificationId;
   int? _forceResendingToken;
   String? _lastPhoneNumber;
+  String? _pendingEmailPasswordSetupUid;
 
   bool get isBusy => _isBusy;
   bool get hasPendingPhoneCode => _verificationId != null;
   User? get currentUser => _auth.currentUser;
   Stream<User?> get authStateChanges => _auth.authStateChanges();
+  bool get needsEmailPasswordSetup {
+    final user = _auth.currentUser;
+    return user != null && user.uid == _pendingEmailPasswordSetupUid;
+  }
+
+  bool get needsEmailVerification {
+    final user = _auth.currentUser;
+    if (user == null || user.email == null || user.emailVerified) {
+      return false;
+    }
+
+    return user.providerData.any(
+      (provider) => provider.providerId == 'password',
+    );
+  }
 
   bool get supportsAppleSignIn {
     if (kIsWeb) {
@@ -165,6 +187,124 @@ class AppAuthController extends ChangeNotifier {
     }
   }
 
+  Future<void> signInWithEmail({
+    required String email,
+    required String password,
+  }) async {
+    final normalizedEmail = email.trim();
+    if (normalizedEmail.isEmpty) {
+      throw const AuthFlowException('Please enter your email first.');
+    }
+    if (password.isEmpty) {
+      throw const AuthFlowException('Please enter your password.');
+    }
+
+    _setBusy(true);
+    try {
+      await _auth.signInWithEmailAndPassword(
+        email: normalizedEmail,
+        password: password,
+      );
+      await _clearPendingEmailPasswordSetup();
+      await _upsertUserProfile(provider: 'email');
+    } catch (error) {
+      throw _mapError(error);
+    } finally {
+      _setBusy(false);
+    }
+  }
+
+  Future<void> sendEmailCreationVerification(String email) async {
+    final normalizedEmail = email.trim();
+    if (normalizedEmail.isEmpty) {
+      throw const AuthFlowException('Please enter your email first.');
+    }
+
+    final currentUser = _auth.currentUser;
+    if (currentUser != null &&
+        currentUser.email == normalizedEmail &&
+        !currentUser.emailVerified) {
+      _setBusy(true);
+      try {
+        await currentUser.sendEmailVerification();
+      } catch (error) {
+        throw _mapError(error);
+      } finally {
+        _setBusy(false);
+      }
+      return;
+    }
+
+    _setBusy(true);
+    try {
+      final credential = await _auth.createUserWithEmailAndPassword(
+        email: normalizedEmail,
+        password: '${_randomNonce(28)}Aa1!',
+      );
+      await credential.user?.sendEmailVerification();
+      await _setPendingEmailPasswordSetup(credential.user?.uid);
+      await _upsertUserProfile(provider: 'email_pending');
+    } catch (error) {
+      throw _mapError(error);
+    } finally {
+      _setBusy(false);
+    }
+  }
+
+  Future<void> confirmEmailCreationVerification() async {
+    _setBusy(true);
+    try {
+      final user = _auth.currentUser;
+      if (user == null) {
+        throw const AuthFlowException(
+          'Send the verification email before continuing.',
+        );
+      }
+
+      await user.reload();
+      final refreshedUser = _auth.currentUser;
+      if (refreshedUser == null || !refreshedUser.emailVerified) {
+        throw const AuthFlowException(
+          'Please open the verification email first, then try again.',
+        );
+      }
+      await _setPendingEmailPasswordSetup(refreshedUser.uid);
+      notifyListeners();
+    } catch (error) {
+      throw _mapError(error);
+    } finally {
+      _setBusy(false);
+    }
+  }
+
+  Future<void> finishVerifiedEmailAccount({required String password}) async {
+    if (password.length < 6) {
+      throw const AuthFlowException(
+        'Please use a password with at least 6 characters.',
+      );
+    }
+
+    _setBusy(true);
+    try {
+      final user = _auth.currentUser;
+      if (user == null || !user.emailVerified) {
+        throw const AuthFlowException(
+          'Verify your email before creating your password.',
+        );
+      }
+
+      await user.updatePassword(password);
+      await user.reload();
+      await _upsertUserProfile(provider: 'email');
+      await _clearPendingEmailPasswordSetup();
+      notifyListeners();
+    } catch (error) {
+      throw _mapError(error);
+    } finally {
+      _setBusy(false);
+    }
+  }
+
   Future<void> signOut() async {
     _setBusy(true);
     try {
@@ -172,6 +312,7 @@ class AppAuthController extends ChangeNotifier {
       _verificationId = null;
       _forceResendingToken = null;
       _lastPhoneNumber = null;
+      await _clearPendingEmailPasswordSetup();
       notifyListeners();
     } catch (error) {
       throw _mapError(error);
@@ -239,6 +380,16 @@ class AppAuthController extends ChangeNotifier {
         return 'That code expired. Please send a new one.';
       case 'account-exists-with-different-credential':
         return 'That account already exists with another login method.';
+      case 'email-already-in-use':
+        return 'That email already has an account. Try signing in instead.';
+      case 'invalid-email':
+        return 'Please enter a valid email address.';
+      case 'user-not-found':
+      case 'wrong-password':
+      case 'invalid-credential':
+        return 'The email or password is incorrect.';
+      case 'weak-password':
+        return 'Please use a stronger password.';
       case 'missing-or-invalid-nonce':
         return 'Apple sign in could not be verified. Please try again.';
       case 'network-request-failed':
@@ -256,6 +407,41 @@ class AppAuthController extends ChangeNotifier {
 
     _isBusy = value;
     notifyListeners();
+  }
+
+  Future<void> _loadPendingEmailPasswordSetup() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      _pendingEmailPasswordSetupUid = preferences.getString(
+        _pendingEmailPasswordSetupUidKey,
+      );
+      notifyListeners();
+    } catch (_) {
+      // Keep the in-memory default if preferences are unavailable in tests.
+    }
+  }
+
+  Future<void> _setPendingEmailPasswordSetup(String? uid) async {
+    if (uid == null) {
+      return;
+    }
+    _pendingEmailPasswordSetupUid = uid;
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.setString(_pendingEmailPasswordSetupUidKey, uid);
+    } catch (_) {
+      // The in-memory flag still protects the current session.
+    }
+  }
+
+  Future<void> _clearPendingEmailPasswordSetup() async {
+    _pendingEmailPasswordSetupUid = null;
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.remove(_pendingEmailPasswordSetupUidKey);
+    } catch (_) {
+      // The in-memory flag was already cleared.
+    }
   }
 
   String _randomNonce([int length = 32]) {

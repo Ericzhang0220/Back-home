@@ -94,29 +94,36 @@ class _AuthGate extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<User?>(
-      initialData: authController.currentUser,
-      stream: authController.authStateChanges,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting &&
-            snapshot.data == null) {
-          return const Scaffold(
-            body: Stack(
-              children: [
-                AmbientBackground(showSideGlow: true),
-                Center(child: CircularProgressIndicator()),
-              ],
-            ),
-          );
-        }
+    return AnimatedBuilder(
+      animation: authController,
+      builder: (context, _) {
+        return StreamBuilder<User?>(
+          initialData: authController.currentUser,
+          stream: authController.authStateChanges,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting &&
+                snapshot.data == null) {
+              return const Scaffold(
+                body: Stack(
+                  children: [
+                    AmbientBackground(showSideGlow: true),
+                    Center(child: CircularProgressIndicator()),
+                  ],
+                ),
+              );
+            }
 
-        if (snapshot.data == null) {
-          return LoginScreen(authController: authController);
-        }
+            if (snapshot.data == null ||
+                authController.needsEmailVerification ||
+                authController.needsEmailPasswordSetup) {
+              return LoginScreen(authController: authController);
+            }
 
-        return AppShell(
-          settingsController: settingsController,
-          authController: authController,
+            return AppShell(
+              settingsController: settingsController,
+              authController: authController,
+            );
+          },
         );
       },
     );

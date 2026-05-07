@@ -5,6 +5,10 @@ import 'package:flutter/material.dart';
 import '../auth/app_auth_controller.dart';
 import '../widgets/app_ui.dart';
 
+enum _AccountFlow { signIn, create }
+
+enum _AuthMethod { phone, apple, email }
+
 class LoginScreen extends StatefulWidget {
   const LoginScreen({required this.authController, super.key});
 
@@ -17,15 +21,47 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _codeController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+  final TextEditingController _confirmPasswordController =
+      TextEditingController();
   final FocusNode _phoneFocusNode = FocusNode();
   final FocusNode _codeFocusNode = FocusNode();
+  final FocusNode _emailFocusNode = FocusNode();
+  final FocusNode _passwordFocusNode = FocusNode();
+  final FocusNode _confirmPasswordFocusNode = FocusNode();
+
+  _AccountFlow _flow = _AccountFlow.signIn;
+  _AuthMethod _method = _AuthMethod.phone;
+  bool _emailVerificationSent = false;
+  bool _emailVerifiedForCreation = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.authController.needsEmailVerification ||
+        widget.authController.needsEmailPasswordSetup) {
+      _flow = _AccountFlow.create;
+      _method = _AuthMethod.email;
+      _emailVerificationSent = true;
+      _emailVerifiedForCreation =
+          widget.authController.currentUser?.emailVerified ?? false;
+      _emailController.text = widget.authController.currentUser?.email ?? '';
+    }
+  }
 
   @override
   void dispose() {
     _phoneController.dispose();
     _codeController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
+    _confirmPasswordController.dispose();
     _phoneFocusNode.dispose();
     _codeFocusNode.dispose();
+    _emailFocusNode.dispose();
+    _passwordFocusNode.dispose();
+    _confirmPasswordFocusNode.dispose();
     super.dispose();
   }
 
@@ -46,14 +82,64 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _verifyCode() async {
     await _runAuthAction(
       () => widget.authController.verifySmsCode(_codeController.text),
-      successMessage: 'You are signed in now.',
     );
   }
 
   Future<void> _signInWithApple() async {
+    await _runAuthAction(widget.authController.signInWithApple);
+  }
+
+  Future<void> _signInWithEmail() async {
     await _runAuthAction(
-      widget.authController.signInWithApple,
-      successMessage: 'Apple sign in completed.',
+      () => widget.authController.signInWithEmail(
+        email: _emailController.text,
+        password: _passwordController.text,
+      ),
+    );
+  }
+
+  Future<void> _createEmailAccount() async {
+    if (_passwordController.text != _confirmPasswordController.text) {
+      _showMessage('Please enter the same password twice.');
+      _confirmPasswordFocusNode.requestFocus();
+      return;
+    }
+
+    await _runAuthAction(
+      () => widget.authController.finishVerifiedEmailAccount(
+        password: _passwordController.text,
+      ),
+      afterSuccess: () {
+        ScaffoldMessenger.of(context).clearSnackBars();
+      },
+    );
+  }
+
+  Future<void> _sendEmailCreationVerification() async {
+    await _runAuthAction(
+      () => widget.authController.sendEmailCreationVerification(
+        _emailController.text,
+      ),
+      successMessage: 'Verification email sent. Open it before continuing.',
+      afterSuccess: () {
+        setState(() {
+          _emailVerificationSent = true;
+          _emailVerifiedForCreation = false;
+        });
+      },
+    );
+  }
+
+  Future<void> _confirmEmailCreationVerification() async {
+    await _runAuthAction(
+      widget.authController.confirmEmailCreationVerification,
+      successMessage: 'Email verified. Now create your password.',
+      afterSuccess: () {
+        setState(() {
+          _emailVerifiedForCreation = true;
+        });
+        _passwordFocusNode.requestFocus();
+      },
     );
   }
 
@@ -131,135 +217,90 @@ class _LoginScreenState extends State<LoginScreen> {
                           fontSize: 38,
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'Create your account with a phone number or Apple ID before entering the app. Once you are signed in, we will keep you signed in until you log out in Settings.',
-                        style: theme.textTheme.bodyLarge?.copyWith(
-                          color: AppColors.muted,
-                        ),
-                      ),
-                      const SizedBox(height: 28),
-                      _LoginHeroCard(theme: theme),
                       const SizedBox(height: 24),
-                      SoftCard(
-                        color: Colors.white.withValues(alpha: 0.84),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Phone number',
-                              style: theme.textTheme.titleLarge,
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Use your full international number, like +1 555 123 4567.',
-                              style: theme.textTheme.bodyMedium,
-                            ),
-                            const SizedBox(height: 16),
-                            _BlurTextField(
-                              controller: _phoneController,
-                              focusNode: _phoneFocusNode,
-                              enabled: !authController.isBusy,
-                              hintText: '+1 555 123 4567',
-                              keyboardType: TextInputType.phone,
-                              textInputAction: TextInputAction.done,
-                              prefixIcon: Icons.phone_rounded,
-                            ),
-                            const SizedBox(height: 14),
-                            SizedBox(
-                              width: double.infinity,
-                              child: FilledButton(
-                                onPressed: authController.isBusy
-                                    ? null
-                                    : _sendPhoneCode,
-                                child: Text(
-                                  authController.hasPendingPhoneCode
-                                      ? 'Resend code'
-                                      : 'Send code',
-                                ),
-                              ),
-                            ),
-                            AnimatedCrossFade(
-                              duration: const Duration(milliseconds: 220),
-                              crossFadeState: authController.hasPendingPhoneCode
-                                  ? CrossFadeState.showSecond
-                                  : CrossFadeState.showFirst,
-                              firstChild: const SizedBox(height: 12),
-                              secondChild: Padding(
-                                padding: const EdgeInsets.only(top: 16),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Verification code',
-                                      style: theme.textTheme.titleMedium,
-                                    ),
-                                    const SizedBox(height: 10),
-                                    _BlurTextField(
-                                      controller: _codeController,
-                                      focusNode: _codeFocusNode,
-                                      enabled: !authController.isBusy,
-                                      hintText: 'Enter 6-digit code',
-                                      keyboardType: TextInputType.number,
-                                      textInputAction: TextInputAction.done,
-                                      prefixIcon: Icons.verified_user_rounded,
-                                    ),
-                                    const SizedBox(height: 14),
-                                    SizedBox(
-                                      width: double.infinity,
-                                      child: FilledButton(
-                                        onPressed: authController.isBusy
-                                            ? null
-                                            : _verifyCode,
-                                        child: const Text('Confirm and enter'),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (authController.supportsAppleSignIn) ...[
-                        const SizedBox(height: 18),
-                        SoftCard(
-                          color: Colors.white.withValues(alpha: 0.84),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Apple ID',
-                                style: theme.textTheme.titleLarge,
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                'A soft one-tap option for people already on iPhone.',
-                                style: theme.textTheme.bodyMedium,
-                              ),
-                              const SizedBox(height: 16),
-                              SizedBox(
-                                width: double.infinity,
-                                child: OutlinedButton.icon(
-                                  onPressed: authController.isBusy
-                                      ? null
-                                      : _signInWithApple,
-                                  icon: const Icon(Icons.apple),
-                                  label: const Text('Continue with Apple'),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                      const SizedBox(height: 18),
                       Text(
-                        'Without signing in, the app stays locked on this welcome screen.',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: AppColors.clay,
-                          fontWeight: FontWeight.w700,
-                        ),
+                        'Choose how you want to continue',
+                        style: theme.textTheme.titleLarge,
                       ),
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _FlowCard(
+                              icon: Icons.login_rounded,
+                              title: 'Sign in',
+                              subtitle: 'Use an existing account',
+                              selected: _flow == _AccountFlow.signIn,
+                              onTap: authController.isBusy
+                                  ? null
+                                  : () => setState(() {
+                                      _flow = _AccountFlow.signIn;
+                                    }),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _FlowCard(
+                              icon: Icons.person_add_alt_1_rounded,
+                              title: 'Create',
+                              subtitle: 'Start a new account',
+                              selected: _flow == _AccountFlow.create,
+                              onTap: authController.isBusy
+                                  ? null
+                                  : () => setState(() {
+                                      _flow = _AccountFlow.create;
+                                    }),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 18),
+                      _MethodPicker(
+                        selectedMethod: _method,
+                        onSelected: authController.isBusy
+                            ? null
+                            : (method) {
+                                setState(() {
+                                  _method = method;
+                                });
+                                if (method == _AuthMethod.apple) {
+                                  _signInWithApple();
+                                }
+                              },
+                      ),
+                      const SizedBox(height: 18),
+                      if (_method == _AuthMethod.phone)
+                        _PhoneCard(
+                          flow: _flow,
+                          authController: authController,
+                          phoneController: _phoneController,
+                          codeController: _codeController,
+                          phoneFocusNode: _phoneFocusNode,
+                          codeFocusNode: _codeFocusNode,
+                          onSendCode: _sendPhoneCode,
+                          onVerifyCode: _verifyCode,
+                        ),
+                      if (_method == _AuthMethod.apple)
+                        _AppleCard(flow: _flow, onPressed: _signInWithApple),
+                      if (_method == _AuthMethod.email)
+                        _EmailCard(
+                          flow: _flow,
+                          authController: authController,
+                          verificationSent: _emailVerificationSent,
+                          emailVerifiedForCreation: _emailVerifiedForCreation,
+                          emailController: _emailController,
+                          passwordController: _passwordController,
+                          confirmPasswordController: _confirmPasswordController,
+                          emailFocusNode: _emailFocusNode,
+                          passwordFocusNode: _passwordFocusNode,
+                          confirmPasswordFocusNode: _confirmPasswordFocusNode,
+                          onSubmit: _flow == _AccountFlow.create
+                              ? _createEmailAccount
+                              : _signInWithEmail,
+                          onSendVerification: _sendEmailCreationVerification,
+                          onConfirmVerification:
+                              _confirmEmailCreationVerification,
+                        ),
                     ],
                   ),
                 ),
@@ -281,59 +322,230 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-class _LoginHeroCard extends StatelessWidget {
-  const _LoginHeroCard({required this.theme});
+class _FlowCard extends StatelessWidget {
+  const _FlowCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.selected,
+    required this.onTap,
+  });
 
-  final ThemeData theme;
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool selected;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(30),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFFFFF7F1), Color(0xFFF7E3D4), Color(0xFFF4D8C2)],
-        ),
-        border: Border.all(color: AppColors.stroke),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x18000000),
-            blurRadius: 28,
-            offset: Offset(0, 18),
+    final theme = Theme.of(context);
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(22),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: selected
+              ? AppColors.clay.withValues(alpha: 0.14)
+              : Colors.white.withValues(alpha: 0.78),
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(
+            color: selected ? AppColors.clay : AppColors.stroke,
+            width: selected ? 1.4 : 1,
           ),
-        ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: AppColors.clay),
+            const SizedBox(height: 12),
+            Text(title, style: theme.textTheme.titleMedium),
+            const SizedBox(height: 4),
+            Text(subtitle, style: theme.textTheme.bodySmall),
+          ],
+        ),
       ),
+    );
+  }
+}
+
+class _MethodPicker extends StatelessWidget {
+  const _MethodPicker({required this.selectedMethod, required this.onSelected});
+
+  final _AuthMethod selectedMethod;
+  final ValueChanged<_AuthMethod>? onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        _MethodButton(
+          icon: Icons.phone_rounded,
+          label: 'Phone',
+          selected: selectedMethod == _AuthMethod.phone,
+          onPressed: onSelected == null
+              ? null
+              : () => onSelected!(_AuthMethod.phone),
+        ),
+        _MethodButton(
+          icon: Icons.apple,
+          label: 'Apple',
+          selected: selectedMethod == _AuthMethod.apple,
+          onPressed: onSelected == null
+              ? null
+              : () => onSelected!(_AuthMethod.apple),
+        ),
+        _MethodButton(
+          icon: Icons.mail_rounded,
+          label: 'Email',
+          selected: selectedMethod == _AuthMethod.email,
+          onPressed: onSelected == null
+              ? null
+              : () => onSelected!(_AuthMethod.email),
+        ),
+      ],
+    );
+  }
+}
+
+class _MethodButton extends StatelessWidget {
+  const _MethodButton({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: label,
+      child: ElevatedButton(
+        onPressed: onPressed,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: selected ? AppColors.clay : Colors.white,
+          foregroundColor: selected ? Colors.white : AppColors.clay,
+          fixedSize: const Size(76, 54),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+            side: BorderSide(
+              color: selected ? AppColors.clay : AppColors.stroke,
+            ),
+          ),
+          elevation: selected ? 2 : 0,
+        ),
+        child: Icon(icon),
+      ),
+    );
+  }
+}
+
+class _PhoneCard extends StatelessWidget {
+  const _PhoneCard({
+    required this.flow,
+    required this.authController,
+    required this.phoneController,
+    required this.codeController,
+    required this.phoneFocusNode,
+    required this.codeFocusNode,
+    required this.onSendCode,
+    required this.onVerifyCode,
+  });
+
+  final _AccountFlow flow;
+  final AppAuthController authController;
+  final TextEditingController phoneController;
+  final TextEditingController codeController;
+  final FocusNode phoneFocusNode;
+  final FocusNode codeFocusNode;
+  final VoidCallback onSendCode;
+  final VoidCallback onVerifyCode;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return SoftCard(
+      color: Colors.white.withValues(alpha: 0.84),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              _MiniChip(
-                icon: Icons.lock_rounded,
-                label: 'Private account gate',
-              ),
-              const Spacer(),
-              Text(
-                'Secure entry',
-                style: theme.textTheme.labelLarge?.copyWith(
-                  color: AppColors.clay,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 18),
+          Text('Phone number', style: theme.textTheme.titleLarge),
+          const SizedBox(height: 8),
           Text(
-            'Let each person enter through their own account.',
-            style: theme.textTheme.headlineMedium?.copyWith(fontSize: 31),
+            flow == _AccountFlow.create
+                ? 'Create your account by receiving a verification code on your phone.'
+                : 'Use your full international number, like +1 555 123 4567.',
+            style: theme.textTheme.bodyMedium,
           ),
-          const SizedBox(height: 10),
-          Text(
-            'The room, hall, chat, and profile stay behind this first door until registration is complete.',
-            style: theme.textTheme.bodyLarge?.copyWith(color: AppColors.muted),
+          const SizedBox(height: 16),
+          _BlurTextField(
+            controller: phoneController,
+            focusNode: phoneFocusNode,
+            enabled: !authController.isBusy,
+            hintText: '+1 555 123 4567',
+            keyboardType: TextInputType.phone,
+            textInputAction: TextInputAction.done,
+            prefixIcon: Icons.phone_rounded,
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: authController.isBusy ? null : onSendCode,
+              child: Text(
+                authController.hasPendingPhoneCode
+                    ? 'Resend code'
+                    : 'Send code',
+              ),
+            ),
+          ),
+          AnimatedCrossFade(
+            duration: const Duration(milliseconds: 220),
+            crossFadeState: authController.hasPendingPhoneCode
+                ? CrossFadeState.showSecond
+                : CrossFadeState.showFirst,
+            firstChild: const SizedBox(height: 12),
+            secondChild: Padding(
+              padding: const EdgeInsets.only(top: 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Verification code', style: theme.textTheme.titleMedium),
+                  const SizedBox(height: 10),
+                  _BlurTextField(
+                    controller: codeController,
+                    focusNode: codeFocusNode,
+                    enabled: !authController.isBusy,
+                    hintText: 'Enter 6-digit code',
+                    keyboardType: TextInputType.number,
+                    textInputAction: TextInputAction.done,
+                    prefixIcon: Icons.verified_user_rounded,
+                  ),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: authController.isBusy ? null : onVerifyCode,
+                      child: Text(
+                        flow == _AccountFlow.create
+                            ? 'Confirm and create'
+                            : 'Confirm and enter',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ],
       ),
@@ -341,31 +553,179 @@ class _LoginHeroCard extends StatelessWidget {
   }
 }
 
-class _MiniChip extends StatelessWidget {
-  const _MiniChip({required this.icon, required this.label});
+class _AppleCard extends StatelessWidget {
+  const _AppleCard({required this.flow, required this.onPressed});
 
-  final IconData icon;
-  final String label;
+  final _AccountFlow flow;
+  final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.78),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.stroke),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+    final theme = Theme.of(context);
+
+    return SoftCard(
+      color: Colors.white.withValues(alpha: 0.84),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 16, color: AppColors.clay),
-          const SizedBox(width: 8),
+          Text('Apple ID', style: theme.textTheme.titleLarge),
+          const SizedBox(height: 8),
           Text(
-            label,
-            style: Theme.of(
-              context,
-            ).textTheme.labelLarge?.copyWith(color: AppColors.clay),
+            flow == _AccountFlow.create
+                ? 'Create your account after Apple ID authentication, password, or Face ID.'
+                : 'Sign in with your Apple ID password or Face ID.',
+            style: theme.textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: onPressed,
+              icon: const Icon(Icons.apple),
+              label: Text(
+                flow == _AccountFlow.create
+                    ? 'Authenticate and create'
+                    : 'Continue with Apple',
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmailCard extends StatelessWidget {
+  const _EmailCard({
+    required this.flow,
+    required this.authController,
+    required this.verificationSent,
+    required this.emailVerifiedForCreation,
+    required this.emailController,
+    required this.passwordController,
+    required this.confirmPasswordController,
+    required this.emailFocusNode,
+    required this.passwordFocusNode,
+    required this.confirmPasswordFocusNode,
+    required this.onSubmit,
+    required this.onSendVerification,
+    required this.onConfirmVerification,
+  });
+
+  final _AccountFlow flow;
+  final AppAuthController authController;
+  final bool verificationSent;
+  final bool emailVerifiedForCreation;
+  final TextEditingController emailController;
+  final TextEditingController passwordController;
+  final TextEditingController confirmPasswordController;
+  final FocusNode emailFocusNode;
+  final FocusNode passwordFocusNode;
+  final FocusNode confirmPasswordFocusNode;
+  final VoidCallback onSubmit;
+  final VoidCallback onSendVerification;
+  final VoidCallback onConfirmVerification;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isCreating = flow == _AccountFlow.create;
+    final canEditPassword = !isCreating || emailVerifiedForCreation;
+
+    return SoftCard(
+      color: Colors.white.withValues(alpha: 0.84),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Email', style: theme.textTheme.titleLarge),
+          const SizedBox(height: 8),
+          Text(
+            isCreating
+                ? 'Verify your email first. Password fields unlock after verification.'
+                : 'Sign in with your email and password.',
+            style: theme.textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 16),
+          _BlurTextField(
+            controller: emailController,
+            focusNode: emailFocusNode,
+            enabled: !authController.isBusy,
+            hintText: 'Email',
+            keyboardType: TextInputType.emailAddress,
+            textInputAction: TextInputAction.next,
+            prefixIcon: Icons.mail_rounded,
+          ),
+          if (isCreating) ...[
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: authController.isBusy ? null : onSendVerification,
+                child: Text(
+                  verificationSent
+                      ? 'Resend verification email'
+                      : 'Send verification email',
+                ),
+              ),
+            ),
+            AnimatedCrossFade(
+              duration: const Duration(milliseconds: 220),
+              crossFadeState: verificationSent
+                  ? CrossFadeState.showSecond
+                  : CrossFadeState.showFirst,
+              firstChild: const SizedBox(height: 12),
+              secondChild: Padding(
+                padding: const EdgeInsets.only(top: 14),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: authController.isBusy
+                        ? null
+                        : onConfirmVerification,
+                    icon: const Icon(Icons.verified_user_rounded),
+                    label: const Text('I verified my email'),
+                  ),
+                ),
+              ),
+            ),
+          ],
+          if (canEditPassword) ...[
+            const SizedBox(height: 14),
+            _BlurTextField(
+              controller: passwordController,
+              focusNode: passwordFocusNode,
+              enabled: !authController.isBusy,
+              hintText: 'Password',
+              keyboardType: TextInputType.visiblePassword,
+              textInputAction: isCreating
+                  ? TextInputAction.next
+                  : TextInputAction.done,
+              prefixIcon: Icons.key_rounded,
+              obscureText: true,
+            ),
+          ],
+          if (isCreating && emailVerifiedForCreation) ...[
+            const SizedBox(height: 14),
+            _BlurTextField(
+              controller: confirmPasswordController,
+              focusNode: confirmPasswordFocusNode,
+              enabled: !authController.isBusy,
+              hintText: 'Enter password again',
+              keyboardType: TextInputType.visiblePassword,
+              textInputAction: TextInputAction.done,
+              prefixIcon: Icons.lock_reset_rounded,
+              obscureText: true,
+            ),
+          ],
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: authController.isBusy || !canEditPassword
+                  ? null
+                  : onSubmit,
+              child: Text(isCreating ? 'Create with email' : 'Sign in'),
+            ),
           ),
         ],
       ),
@@ -382,6 +742,7 @@ class _BlurTextField extends StatelessWidget {
     required this.keyboardType,
     required this.textInputAction,
     required this.prefixIcon,
+    this.obscureText = false,
   });
 
   final TextEditingController controller;
@@ -391,6 +752,7 @@ class _BlurTextField extends StatelessWidget {
   final TextInputType keyboardType;
   final TextInputAction textInputAction;
   final IconData prefixIcon;
+  final bool obscureText;
 
   @override
   Widget build(BuildContext context) {
@@ -404,6 +766,7 @@ class _BlurTextField extends StatelessWidget {
           controller: controller,
           focusNode: focusNode,
           enabled: enabled,
+          obscureText: obscureText,
           keyboardType: keyboardType,
           textInputAction: textInputAction,
           style: theme.textTheme.bodyLarge?.copyWith(color: AppColors.ink),
