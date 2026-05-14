@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui';
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
 import 'auth/app_auth_controller.dart';
@@ -30,12 +31,16 @@ class _BackHomeAppState extends State<BackHomeApp> {
   late final AppSettingsController _settingsController;
   late final BackgroundMusicController _musicController;
   late final AppAuthController _authController;
+  late final bool _useOfflineAuth;
 
   @override
   void initState() {
     super.initState();
     _settingsController = AppSettingsController();
-    _authController = AppAuthController();
+    _useOfflineAuth = Firebase.apps.isEmpty;
+    _authController = _useOfflineAuth
+        ? AppAuthController.offline()
+        : AppAuthController();
     _musicController = BackgroundMusicController(
       settingsController: _settingsController,
     );
@@ -76,6 +81,7 @@ class _BackHomeAppState extends State<BackHomeApp> {
           home: _AuthGate(
             settingsController: _settingsController,
             authController: _authController,
+            bypassAuth: _useOfflineAuth,
           ),
         );
       },
@@ -87,13 +93,22 @@ class _AuthGate extends StatelessWidget {
   const _AuthGate({
     required this.settingsController,
     required this.authController,
+    this.bypassAuth = false,
   });
 
   final AppSettingsController settingsController;
   final AppAuthController authController;
+  final bool bypassAuth;
 
   @override
   Widget build(BuildContext context) {
+    if (bypassAuth) {
+      return AppShell(
+        settingsController: settingsController,
+        authController: authController,
+      );
+    }
+
     return AnimatedBuilder(
       animation: authController,
       builder: (context, _) {
@@ -101,6 +116,18 @@ class _AuthGate extends StatelessWidget {
           initialData: authController.currentUser,
           stream: authController.authStateChanges,
           builder: (context, snapshot) {
+            if (snapshot.data != null &&
+                !authController.hasLoadedPendingEmailPasswordSetup) {
+              return const Scaffold(
+                body: Stack(
+                  children: [
+                    AmbientBackground(showSideGlow: true),
+                    Center(child: CircularProgressIndicator()),
+                  ],
+                ),
+              );
+            }
+
             if (snapshot.connectionState == ConnectionState.waiting &&
                 snapshot.data == null) {
               return const Scaffold(
@@ -211,9 +238,11 @@ class _AppShellState extends State<AppShell> {
           isActive: _currentTab == AppTab.room,
         );
       case AppTab.hall:
-        return const KeyedSubtree(
-          key: ValueKey(AppTab.hall),
-          child: SafeArea(child: HallScreen()),
+        return KeyedSubtree(
+          key: const ValueKey(AppTab.hall),
+          child: SafeArea(
+            child: HallScreen(authController: widget.authController),
+          ),
         );
       case AppTab.chat:
         return const KeyedSubtree(

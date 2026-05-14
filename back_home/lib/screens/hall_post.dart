@@ -4,24 +4,32 @@ class HallComment {
     required this.message,
     required this.sentAt,
     this.isMe = false,
+    this.authorUid,
+    this.authorPhotoUrl,
   });
 
   final String author;
   final String message;
   final String sentAt;
   final bool isMe;
+  final String? authorUid;
+  final String? authorPhotoUrl;
 
   HallComment copyWith({
     String? author,
     String? message,
     String? sentAt,
     bool? isMe,
+    String? authorUid,
+    String? authorPhotoUrl,
   }) {
     return HallComment(
       author: author ?? this.author,
       message: message ?? this.message,
       sentAt: sentAt ?? this.sentAt,
       isMe: isMe ?? this.isMe,
+      authorUid: authorUid ?? this.authorUid,
+      authorPhotoUrl: authorPhotoUrl ?? this.authorPhotoUrl,
     );
   }
 }
@@ -36,6 +44,8 @@ class HallPost {
     this.thread = const [],
     this.canEdit = false,
     this.likedByMe = false,
+    this.authorUid,
+    this.authorPhotoUrl,
   });
 
   final String author;
@@ -46,6 +56,8 @@ class HallPost {
   final List<HallComment> thread;
   final bool canEdit;
   final bool likedByMe;
+  final String? authorUid;
+  final String? authorPhotoUrl;
 
   int get comments => thread.length;
 
@@ -58,6 +70,8 @@ class HallPost {
     List<HallComment>? thread,
     bool? canEdit,
     bool? likedByMe,
+    String? authorUid,
+    String? authorPhotoUrl,
   }) {
     return HallPost(
       author: author ?? this.author,
@@ -68,6 +82,8 @@ class HallPost {
       thread: thread ?? this.thread,
       canEdit: canEdit ?? this.canEdit,
       likedByMe: likedByMe ?? this.likedByMe,
+      authorUid: authorUid ?? this.authorUid,
+      authorPhotoUrl: authorPhotoUrl ?? this.authorPhotoUrl,
     );
   }
 }

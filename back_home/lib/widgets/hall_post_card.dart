@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../screens/hall_post.dart';
 import 'app_ui.dart';
+import 'profile_avatar.dart';
 
 class HallPostCard extends StatelessWidget {
   const HallPostCard({
@@ -10,6 +11,7 @@ class HallPostCard extends StatelessWidget {
     this.onLikeTap,
     this.onCommentTap,
     this.onEdit,
+    this.onAuthorTap,
     this.embedded = false,
   });
 
@@ -17,6 +19,7 @@ class HallPostCard extends StatelessWidget {
   final VoidCallback? onLikeTap;
   final VoidCallback? onCommentTap;
   final VoidCallback? onEdit;
+  final VoidCallback? onAuthorTap;
   final bool embedded;
 
   @override
@@ -29,10 +32,12 @@ class HallPostCard extends StatelessWidget {
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            CircleAvatar(
+            ProfileAvatar(
+              displayName: post.author,
+              photoUrl: post.authorPhotoUrl,
               radius: 22,
-              backgroundColor: AppColors.blush,
-              child: Text(post.author.characters.first),
+              onTap: onAuthorTap,
+              heroTag: 'hall-avatar-${post.authorUid ?? post.author}',
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -53,7 +58,10 @@ class HallPostCard extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 16),
-        Text(post.message, style: theme.textTheme.bodyLarge),
+        InkWell(
+          onTap: onCommentTap,
+          child: Text(post.message, style: theme.textTheme.bodyLarge),
+        ),
         const SizedBox(height: 16),
         Row(
           children: [

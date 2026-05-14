@@ -4,9 +4,18 @@ import '../widgets/app_ui.dart';
 import 'hall_post.dart';
 
 class CreatePostScreen extends StatefulWidget {
-  const CreatePostScreen({super.key, this.existingPost});
+  const CreatePostScreen({
+    super.key,
+    this.existingPost,
+    this.authorName = 'You',
+    this.authorUid,
+    this.authorPhotoUrl,
+  });
 
   final HallPost? existingPost;
+  final String authorName;
+  final String? authorUid;
+  final String? authorPhotoUrl;
 
   @override
   State<CreatePostScreen> createState() => _CreatePostScreenState();
@@ -226,7 +235,9 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
 
     Navigator.of(context).pop(
       HallPost(
-        author: 'You',
+        author: widget.authorName,
+        authorUid: widget.authorUid,
+        authorPhotoUrl: widget.authorPhotoUrl,
         mood: _selectedMood,
         topic: topic,
         message: message,

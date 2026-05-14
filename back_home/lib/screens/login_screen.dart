@@ -35,23 +35,62 @@ class _LoginScreenState extends State<LoginScreen> {
   _AuthMethod _method = _AuthMethod.phone;
   bool _emailVerificationSent = false;
   bool _emailVerifiedForCreation = false;
+  bool _keepSignInSelection = false;
 
   @override
   void initState() {
     super.initState();
-    if (widget.authController.needsEmailVerification ||
-        widget.authController.needsEmailPasswordSetup) {
+    widget.authController.addListener(_syncCreateEmailFlowFromAuth);
+    _syncCreateEmailFlowFromAuth();
+  }
+
+  @override
+  void didUpdateWidget(covariant LoginScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.authController != widget.authController) {
+      oldWidget.authController.removeListener(_syncCreateEmailFlowFromAuth);
+      widget.authController.addListener(_syncCreateEmailFlowFromAuth);
+      _syncCreateEmailFlowFromAuth();
+    }
+  }
+
+  void _syncCreateEmailFlowFromAuth() {
+    final shouldStayInCreateEmail =
+        widget.authController.prefersCreateEmailFlow ||
+        widget.authController.needsEmailVerification ||
+        widget.authController.needsEmailPasswordSetup;
+    if (!shouldStayInCreateEmail || !mounted || _keepSignInSelection) {
+      return;
+    }
+
+    final email = widget.authController.currentUser?.email ?? '';
+    final emailVerified =
+        widget.authController.currentUser?.emailVerified ?? false;
+    final shouldUpdate =
+        _flow != _AccountFlow.create ||
+        _method != _AuthMethod.email ||
+        !_emailVerificationSent ||
+        _emailVerifiedForCreation != emailVerified ||
+        (_emailController.text.isEmpty && email.isNotEmpty);
+
+    if (!shouldUpdate) {
+      return;
+    }
+
+    setState(() {
       _flow = _AccountFlow.create;
       _method = _AuthMethod.email;
       _emailVerificationSent = true;
-      _emailVerifiedForCreation =
-          widget.authController.currentUser?.emailVerified ?? false;
-      _emailController.text = widget.authController.currentUser?.email ?? '';
-    }
+      _emailVerifiedForCreation = emailVerified;
+      if (_emailController.text.isEmpty && email.isNotEmpty) {
+        _emailController.text = email;
+      }
+    });
   }
 
   @override
   void dispose() {
+    widget.authController.removeListener(_syncCreateEmailFlowFromAuth);
     _phoneController.dispose();
     _codeController.dispose();
     _emailController.dispose();
@@ -90,11 +129,30 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _signInWithEmail() async {
+    setState(() {
+      _keepSignInSelection = true;
+      _flow = _AccountFlow.signIn;
+      _method = _AuthMethod.email;
+    });
+    widget.authController.clearCreateEmailFlowPreference();
     await _runAuthAction(
       () => widget.authController.signInWithEmail(
         email: _emailController.text,
         password: _passwordController.text,
       ),
+    );
+  }
+
+  Future<void> _sendPasswordResetEmail() async {
+    setState(() {
+      _keepSignInSelection = true;
+      _flow = _AccountFlow.signIn;
+      _method = _AuthMethod.email;
+    });
+    widget.authController.clearCreateEmailFlowPreference();
+    await _runAuthAction(
+      () => widget.authController.sendPasswordResetEmail(_emailController.text),
+      successMessage: 'Password reset email sent.',
     );
   }
 
@@ -116,18 +174,37 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _sendEmailCreationVerification() async {
-    await _runAuthAction(
-      () => widget.authController.sendEmailCreationVerification(
+    setState(() {
+      _keepSignInSelection = false;
+      _flow = _AccountFlow.create;
+      _method = _AuthMethod.email;
+    });
+    widget.authController.preferCreateEmailFlow();
+    try {
+      await widget.authController.sendEmailCreationVerification(
         _emailController.text,
-      ),
-      successMessage: 'Verification email sent. Open it before continuing.',
-      afterSuccess: () {
-        setState(() {
-          _emailVerificationSent = true;
-          _emailVerifiedForCreation = false;
-        });
-      },
-    );
+      );
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Verification email sent. Open it before continuing.'),
+        ),
+      );
+      setState(() {
+        _emailVerificationSent = true;
+        _emailVerifiedForCreation = false;
+      });
+    } on AuthFlowException catch (error) {
+      if (error.code == 'email-already-in-use') {
+        await _showExistingAccountSheet();
+        return;
+      }
+      _showMessage(error.message);
+    } catch (_) {
+      _showMessage('Something went wrong. Please try again.');
+    }
   }
 
   Future<void> _confirmEmailCreationVerification() async {
@@ -173,6 +250,82 @@ class _LoginScreenState extends State<LoginScreen> {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _showExistingAccountSheet() async {
+    if (!mounted) {
+      return;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: SoftCard(
+              color: Colors.white,
+              radius: 24,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(
+                          color: AppColors.peach.withValues(alpha: 0.28),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: const Icon(
+                          Icons.info_outline_rounded,
+                          color: AppColors.clay,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'This email already has an account',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Use Sign in with this email and your password instead of creating a new account.',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 18),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                        if (!mounted) {
+                          return;
+                        }
+                        setState(() {
+                          _keepSignInSelection = true;
+                          _flow = _AccountFlow.signIn;
+                          _method = _AuthMethod.email;
+                        });
+                        widget.authController.clearCreateEmailFlowPreference();
+                        _passwordFocusNode.requestFocus();
+                      },
+                      child: const Text('Go to sign in'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -234,6 +387,9 @@ class _LoginScreenState extends State<LoginScreen> {
                               onTap: authController.isBusy
                                   ? null
                                   : () => setState(() {
+                                      _keepSignInSelection = true;
+                                      widget.authController
+                                          .clearCreateEmailFlowPreference();
                                       _flow = _AccountFlow.signIn;
                                     }),
                             ),
@@ -248,6 +404,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               onTap: authController.isBusy
                                   ? null
                                   : () => setState(() {
+                                      _keepSignInSelection = false;
                                       _flow = _AccountFlow.create;
                                     }),
                             ),
@@ -261,8 +418,22 @@ class _LoginScreenState extends State<LoginScreen> {
                             ? null
                             : (method) {
                                 setState(() {
+                                  if (_flow == _AccountFlow.signIn &&
+                                      method == _AuthMethod.email) {
+                                    _keepSignInSelection = true;
+                                  } else if (method != _AuthMethod.email ||
+                                      _flow == _AccountFlow.create) {
+                                    _keepSignInSelection = false;
+                                  }
                                   _method = method;
                                 });
+                                if (_flow == _AccountFlow.create &&
+                                    method == _AuthMethod.email) {
+                                  widget.authController.preferCreateEmailFlow();
+                                } else {
+                                  widget.authController
+                                      .clearCreateEmailFlowPreference();
+                                }
                                 if (method == _AuthMethod.apple) {
                                   _signInWithApple();
                                 }
@@ -297,6 +468,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           onSubmit: _flow == _AccountFlow.create
                               ? _createEmailAccount
                               : _signInWithEmail,
+                          onForgotPassword: _sendPasswordResetEmail,
                           onSendVerification: _sendEmailCreationVerification,
                           onConfirmVerification:
                               _confirmEmailCreationVerification,
@@ -608,6 +780,7 @@ class _EmailCard extends StatelessWidget {
     required this.passwordFocusNode,
     required this.confirmPasswordFocusNode,
     required this.onSubmit,
+    required this.onForgotPassword,
     required this.onSendVerification,
     required this.onConfirmVerification,
   });
@@ -623,6 +796,7 @@ class _EmailCard extends StatelessWidget {
   final FocusNode passwordFocusNode;
   final FocusNode confirmPasswordFocusNode;
   final VoidCallback onSubmit;
+  final VoidCallback onForgotPassword;
   final VoidCallback onSendVerification;
   final VoidCallback onConfirmVerification;
 
@@ -702,6 +876,16 @@ class _EmailCard extends StatelessWidget {
                   : TextInputAction.done,
               prefixIcon: Icons.key_rounded,
               obscureText: true,
+            ),
+          ],
+          if (!isCreating) ...[
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: authController.isBusy ? null : onForgotPassword,
+                child: const Text('Forgot password?'),
+              ),
             ),
           ],
           if (isCreating && emailVerifiedForCreation) ...[

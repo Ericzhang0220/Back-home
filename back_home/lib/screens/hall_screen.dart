@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
 
+import '../auth/app_auth_controller.dart';
 import '../widgets/app_ui.dart';
 import '../widgets/hall_post_card.dart';
 import 'create_post_screen.dart';
 import 'hall_post.dart';
 import 'hall_post_thread_screen.dart';
+import 'hall_user_profile_screen.dart';
 
 class HallScreen extends StatefulWidget {
-  const HallScreen({super.key});
+  const HallScreen({required this.authController, super.key});
+
+  final AppAuthController authController;
 
   @override
   State<HallScreen> createState() => _HallScreenState();
@@ -24,7 +28,9 @@ class _HallScreenState extends State<HallScreen> {
     _searchController = TextEditingController();
     _posts = [
       HallPost(
-        author: 'You',
+        author: _currentUserName(),
+        authorUid: widget.authController.currentUser?.uid,
+        authorPhotoUrl: widget.authController.currentUser?.photoURL,
         mood: 'Hopeful',
         topic: 'Daily Life',
         message:
@@ -32,7 +38,7 @@ class _HallScreenState extends State<HallScreen> {
         likes: 16,
         thread: _seedThread(
           count: 4,
-          samples: const [
+          samples: [
             HallComment(
               author: 'Jamie',
               message: 'That sounds like a really good reset.',
@@ -49,10 +55,12 @@ class _HallScreenState extends State<HallScreen> {
               sentAt: '11m',
             ),
             HallComment(
-              author: 'You',
+              author: _currentUserName(),
               message: 'I think I am going to keep leaning into that tonight.',
               sentAt: '6m',
               isMe: true,
+              authorUid: widget.authController.currentUser?.uid,
+              authorPhotoUrl: widget.authController.currentUser?.photoURL,
             ),
           ],
         ),
@@ -67,12 +75,14 @@ class _HallScreenState extends State<HallScreen> {
         likes: 42,
         thread: _seedThread(
           count: 12,
-          samples: const [
+          samples: [
             HallComment(
-              author: 'You',
+              author: _currentUserName(),
               message: 'I needed this reminder today.',
               sentAt: '2h',
               isMe: true,
+              authorUid: widget.authController.currentUser?.uid,
+              authorPhotoUrl: widget.authController.currentUser?.photoURL,
             ),
             HallComment(
               author: 'Rin',
@@ -97,17 +107,19 @@ class _HallScreenState extends State<HallScreen> {
         likes: 27,
         thread: _seedThread(
           count: 9,
-          samples: const [
+          samples: [
             HallComment(
               author: 'Jamie',
               message: 'That is such a sweet little detail.',
               sentAt: '88m',
             ),
             HallComment(
-              author: 'You',
+              author: _currentUserName(),
               message: 'The sunset version felt surprisingly emotional.',
               sentAt: '52m',
               isMe: true,
+              authorUid: widget.authController.currentUser?.uid,
+              authorPhotoUrl: widget.authController.currentUser?.photoURL,
             ),
             HallComment(
               author: 'Harper',
@@ -126,7 +138,7 @@ class _HallScreenState extends State<HallScreen> {
         likes: 19,
         thread: _seedThread(
           count: 6,
-          samples: const [
+          samples: [
             HallComment(
               author: 'Jamie',
               message: 'Three bottles in one week is impressive.',
@@ -138,10 +150,12 @@ class _HallScreenState extends State<HallScreen> {
               sentAt: '51m',
             ),
             HallComment(
-              author: 'You',
+              author: _currentUserName(),
               message: 'Okay that convinced me to save up for it too.',
               sentAt: '16m',
               isMe: true,
+              authorUid: widget.authController.currentUser?.uid,
+              authorPhotoUrl: widget.authController.currentUser?.photoURL,
             ),
           ],
         ),
@@ -235,6 +249,7 @@ class _HallScreenState extends State<HallScreen> {
               post: post,
               onLikeTap: () => _toggleLike(post),
               onCommentTap: () => _openPostThread(post),
+              onAuthorTap: () => _openUserProfile(post),
               onEdit: post.canEdit
                   ? () => _openCreatePost(existingPost: post)
                   : null,
@@ -273,7 +288,12 @@ class _HallScreenState extends State<HallScreen> {
   Future<void> _openCreatePost({HallPost? existingPost}) async {
     final createdPost = await Navigator.of(context).push<HallPost>(
       MaterialPageRoute<HallPost>(
-        builder: (_) => CreatePostScreen(existingPost: existingPost),
+        builder: (_) => CreatePostScreen(
+          existingPost: existingPost,
+          authorName: _currentUserName(),
+          authorUid: widget.authController.currentUser?.uid,
+          authorPhotoUrl: widget.authController.currentUser?.photoURL,
+        ),
       ),
     );
 
@@ -326,6 +346,28 @@ class _HallScreenState extends State<HallScreen> {
         likes: post.likes + (post.likedByMe ? -1 : 1),
       );
     });
+  }
+
+  Future<void> _openUserProfile(HallPost post) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => HallUserProfileScreen(
+          displayName: post.author,
+          uid: post.authorUid,
+          photoUrl: post.authorPhotoUrl,
+          mood: post.mood,
+        ),
+      ),
+    );
+  }
+
+  String _currentUserName() {
+    final currentUser = widget.authController.currentUser;
+    final displayName = currentUser?.displayName?.trim();
+    if (displayName != null && displayName.isNotEmpty) {
+      return displayName;
+    }
+    return currentUser?.phoneNumber ?? 'You';
   }
 
   List<HallComment> _seedThread({

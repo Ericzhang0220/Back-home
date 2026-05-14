@@ -6,40 +6,68 @@ import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:crypto/crypto.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 class AppAuthController extends ChangeNotifier {
-  AppAuthController({FirebaseAuth? firebaseAuth, FirebaseFirestore? firestore})
-    : _auth = firebaseAuth ?? FirebaseAuth.instance,
-      _firestore = firestore ?? FirebaseFirestore.instance {
+  AppAuthController({
+    FirebaseAuth? firebaseAuth,
+    FirebaseFirestore? firestore,
+    FirebaseStorage? storage,
+  }) : _auth = firebaseAuth ?? FirebaseAuth.instance,
+       _firestore = firestore ?? FirebaseFirestore.instance,
+       _storage = storage ?? FirebaseStorage.instance {
     unawaited(_loadPendingEmailPasswordSetup());
+    unawaited(_loadLocalProfilePhotoPath());
   }
+
+  AppAuthController.offline()
+    : _auth = null,
+      _firestore = null,
+      _storage = null,
+      _hasLoadedPendingEmailPasswordSetup = true;
 
   static const String _pendingEmailPasswordSetupUidKey =
       'pendingEmailPasswordSetupUid';
+  static const String _pendingEmailPasswordSetupEmailKey =
+      'pendingEmailPasswordSetupEmail';
+  static const String _pendingEmailPasswordSetupTempPasswordKey =
+      'pendingEmailPasswordSetupTempPassword';
+  static const String _localProfilePhotoPathPrefix = 'localProfilePhotoPath.';
 
-  final FirebaseAuth _auth;
-  final FirebaseFirestore _firestore;
+  final FirebaseAuth? _auth;
+  final FirebaseFirestore? _firestore;
+  final FirebaseStorage? _storage;
 
   bool _isBusy = false;
   String? _verificationId;
   int? _forceResendingToken;
   String? _lastPhoneNumber;
+  bool _prefersCreateEmailFlow = false;
   String? _pendingEmailPasswordSetupUid;
+  String? _pendingEmailPasswordSetupEmail;
+  String? _pendingEmailPasswordSetupTempPassword;
+  bool _hasLoadedPendingEmailPasswordSetup = false;
+  String? _localProfilePhotoPath;
 
   bool get isBusy => _isBusy;
   bool get hasPendingPhoneCode => _verificationId != null;
-  User? get currentUser => _auth.currentUser;
-  Stream<User?> get authStateChanges => _auth.authStateChanges();
+  User? get currentUser => _auth?.currentUser;
+  String? get localProfilePhotoPath => _localProfilePhotoPath;
+  Stream<User?> get authStateChanges =>
+      _auth?.authStateChanges() ?? Stream<User?>.value(null);
+  bool get prefersCreateEmailFlow => _prefersCreateEmailFlow;
+  bool get hasLoadedPendingEmailPasswordSetup =>
+      _hasLoadedPendingEmailPasswordSetup;
   bool get needsEmailPasswordSetup {
-    final user = _auth.currentUser;
+    final user = _auth?.currentUser;
     return user != null && user.uid == _pendingEmailPasswordSetupUid;
   }
 
   bool get needsEmailVerification {
-    final user = _auth.currentUser;
+    final user = _auth?.currentUser;
     if (user == null || user.email == null || user.emailVerified) {
       return false;
     }
@@ -57,6 +85,22 @@ class AppAuthController extends ChangeNotifier {
     return Platform.isIOS || Platform.isMacOS;
   }
 
+  void preferCreateEmailFlow() {
+    if (_prefersCreateEmailFlow) {
+      return;
+    }
+    _prefersCreateEmailFlow = true;
+    notifyListeners();
+  }
+
+  void clearCreateEmailFlowPreference() {
+    if (!_prefersCreateEmailFlow) {
+      return;
+    }
+    _prefersCreateEmailFlow = false;
+    notifyListeners();
+  }
+
   Future<void> sendPhoneCode(String phoneNumber) async {
     final normalizedPhone = phoneNumber.trim();
     if (normalizedPhone.isEmpty) {
@@ -66,19 +110,20 @@ class AppAuthController extends ChangeNotifier {
     _setBusy(true);
 
     try {
+      final auth = _auth!;
       final completer = Completer<void>();
 
-      await _auth.verifyPhoneNumber(
+      await auth.verifyPhoneNumber(
         phoneNumber: normalizedPhone,
         forceResendingToken: _forceResendingToken,
         verificationCompleted: (credential) async {
           try {
-            await _auth.signInWithCredential(credential);
+            await auth.signInWithCredential(credential);
             await _upsertUserProfile(
               provider: 'phone',
               phoneNumber: credential.smsCode == null
                   ? normalizedPhone
-                  : _auth.currentUser?.phoneNumber ?? normalizedPhone,
+                  : auth.currentUser?.phoneNumber ?? normalizedPhone,
             );
             _verificationId = null;
             _forceResendingToken = null;
@@ -130,14 +175,15 @@ class AppAuthController extends ChangeNotifier {
 
     _setBusy(true);
     try {
+      final auth = _auth!;
       final credential = PhoneAuthProvider.credential(
         verificationId: _verificationId!,
         smsCode: trimmedCode,
       );
-      await _auth.signInWithCredential(credential);
+      await auth.signInWithCredential(credential);
       await _upsertUserProfile(
         provider: 'phone',
-        phoneNumber: _auth.currentUser?.phoneNumber ?? _lastPhoneNumber,
+        phoneNumber: auth.currentUser?.phoneNumber ?? _lastPhoneNumber,
       );
       _verificationId = null;
       notifyListeners();
@@ -171,7 +217,7 @@ class AppAuthController extends ChangeNotifier {
         'apple.com',
       ).credential(idToken: credential.identityToken, rawNonce: rawNonce);
 
-      final userCredential = await _auth.signInWithCredential(oauthCredential);
+      final userCredential = await _auth!.signInWithCredential(oauthCredential);
       await _upsertUserProfile(
         provider: 'apple',
         displayName: _joinAppleName(
@@ -201,12 +247,29 @@ class AppAuthController extends ChangeNotifier {
 
     _setBusy(true);
     try {
-      await _auth.signInWithEmailAndPassword(
+      await _auth!.signInWithEmailAndPassword(
         email: normalizedEmail,
         password: password,
       );
+      clearCreateEmailFlowPreference();
       await _clearPendingEmailPasswordSetup();
       await _upsertUserProfile(provider: 'email');
+    } catch (error) {
+      throw _mapError(error);
+    } finally {
+      _setBusy(false);
+    }
+  }
+
+  Future<void> sendPasswordResetEmail(String email) async {
+    final normalizedEmail = email.trim();
+    if (normalizedEmail.isEmpty) {
+      throw const AuthFlowException('Please enter your email first.');
+    }
+
+    _setBusy(true);
+    try {
+      await _auth!.sendPasswordResetEmail(email: normalizedEmail);
     } catch (error) {
       throw _mapError(error);
     } finally {
@@ -220,13 +283,18 @@ class AppAuthController extends ChangeNotifier {
       throw const AuthFlowException('Please enter your email first.');
     }
 
-    final currentUser = _auth.currentUser;
-    if (currentUser != null &&
-        currentUser.email == normalizedEmail &&
-        !currentUser.emailVerified) {
+    preferCreateEmailFlow();
+
+    final currentUser = _auth!.currentUser;
+    if (currentUser != null && currentUser.email == normalizedEmail) {
       _setBusy(true);
       try {
-        await currentUser.sendEmailVerification();
+        if (!currentUser.emailVerified) {
+          await currentUser.sendEmailVerification();
+        } else {
+          await _setPendingEmailPasswordSetup(currentUser.uid);
+          notifyListeners();
+        }
       } catch (error) {
         throw _mapError(error);
       } finally {
@@ -237,12 +305,18 @@ class AppAuthController extends ChangeNotifier {
 
     _setBusy(true);
     try {
-      final credential = await _auth.createUserWithEmailAndPassword(
+      final auth = _auth;
+      final tempPassword = '${_randomNonce(28)}Aa1!';
+      final credential = await auth.createUserWithEmailAndPassword(
         email: normalizedEmail,
-        password: '${_randomNonce(28)}Aa1!',
+        password: tempPassword,
       );
       await credential.user?.sendEmailVerification();
-      await _setPendingEmailPasswordSetup(credential.user?.uid);
+      await _setPendingEmailPasswordSetup(
+        credential.user?.uid,
+        email: normalizedEmail,
+        tempPassword: tempPassword,
+      );
       await _upsertUserProfile(provider: 'email_pending');
     } catch (error) {
       throw _mapError(error);
@@ -254,7 +328,8 @@ class AppAuthController extends ChangeNotifier {
   Future<void> confirmEmailCreationVerification() async {
     _setBusy(true);
     try {
-      final user = _auth.currentUser;
+      final auth = _auth!;
+      final user = auth.currentUser;
       if (user == null) {
         throw const AuthFlowException(
           'Send the verification email before continuing.',
@@ -262,13 +337,17 @@ class AppAuthController extends ChangeNotifier {
       }
 
       await user.reload();
-      final refreshedUser = _auth.currentUser;
+      final refreshedUser = auth.currentUser;
       if (refreshedUser == null || !refreshedUser.emailVerified) {
         throw const AuthFlowException(
           'Please open the verification email first, then try again.',
         );
       }
-      await _setPendingEmailPasswordSetup(refreshedUser.uid);
+      await _setPendingEmailPasswordSetup(
+        refreshedUser.uid,
+        email: refreshedUser.email,
+        tempPassword: _pendingEmailPasswordSetupTempPassword,
+      );
       notifyListeners();
     } catch (error) {
       throw _mapError(error);
@@ -286,7 +365,7 @@ class AppAuthController extends ChangeNotifier {
 
     _setBusy(true);
     try {
-      final user = _auth.currentUser;
+      final user = _auth!.currentUser;
       if (user == null || !user.emailVerified) {
         throw const AuthFlowException(
           'Verify your email before creating your password.',
@@ -295,6 +374,7 @@ class AppAuthController extends ChangeNotifier {
 
       await user.updatePassword(password);
       await user.reload();
+      clearCreateEmailFlowPreference();
       await _upsertUserProfile(provider: 'email');
       await _clearPendingEmailPasswordSetup();
       notifyListeners();
@@ -308,14 +388,63 @@ class AppAuthController extends ChangeNotifier {
   Future<void> signOut() async {
     _setBusy(true);
     try {
-      await _auth.signOut();
+      await _auth!.signOut();
       _verificationId = null;
       _forceResendingToken = null;
       _lastPhoneNumber = null;
+      clearCreateEmailFlowPreference();
       await _clearPendingEmailPasswordSetup();
       notifyListeners();
     } catch (error) {
       throw _mapError(error);
+    } finally {
+      _setBusy(false);
+    }
+  }
+
+  Future<void> updateProfilePhoto(File imageFile) async {
+    final user = _auth!.currentUser;
+    if (user == null) {
+      throw const AuthFlowException('Sign in before updating your profile.');
+    }
+
+    _setBusy(true);
+    try {
+      await _saveLocalProfilePhotoPath(user.uid, imageFile.path);
+
+      String? downloadUrl;
+      try {
+        final extension = _fileExtension(imageFile.path);
+        final ref = _storage!.ref(
+          'profile_images/${user.uid}/avatar$extension',
+        );
+        final metadata = SettableMetadata(
+          contentType: _contentTypeForExtension(extension),
+          customMetadata: {'uid': user.uid},
+        );
+        await ref.putFile(imageFile, metadata);
+        downloadUrl = await ref.getDownloadURL();
+        await user.updatePhotoURL(downloadUrl);
+      } on FirebaseException {
+        // Firebase Storage is intentionally unavailable on the Spark plan.
+        // The local path keeps the app-side picker flow usable until Storage is enabled.
+      }
+
+      await _firestore!.collection('users').doc(user.uid).set({
+        'uid': user.uid,
+        'photoUrl': downloadUrl ?? user.photoURL,
+        'hasLocalProfilePhoto': downloadUrl == null,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      await user.reload();
+      notifyListeners();
+    } catch (error) {
+      if (error is AuthFlowException) {
+        rethrow;
+      }
+      throw const AuthFlowException(
+        'Could not update your profile photo. Please try again.',
+      );
     } finally {
       _setBusy(false);
     }
@@ -326,7 +455,7 @@ class AppAuthController extends ChangeNotifier {
     String? displayName,
     String? phoneNumber,
   }) async {
-    final user = _auth.currentUser;
+    final user = _auth!.currentUser;
     if (user == null) {
       return;
     }
@@ -337,7 +466,7 @@ class AppAuthController extends ChangeNotifier {
     }
 
     final now = FieldValue.serverTimestamp();
-    await _firestore.collection('users').doc(user.uid).set({
+    await _firestore!.collection('users').doc(user.uid).set({
       'uid': user.uid,
       'displayName': (resolvedDisplayName?.isNotEmpty ?? false)
           ? resolvedDisplayName
@@ -349,6 +478,7 @@ class AppAuthController extends ChangeNotifier {
       'lastLoginAt': now,
       'createdAt': now,
     }, SetOptions(merge: true));
+    await _loadLocalProfilePhotoPath();
   }
 
   AuthFlowException _mapError(Object error) {
@@ -356,7 +486,7 @@ class AppAuthController extends ChangeNotifier {
       return error;
     }
     if (error is FirebaseAuthException) {
-      return AuthFlowException(_messageForAuthCode(error));
+      return AuthFlowException(_messageForAuthCode(error), code: error.code);
     }
     if (error is SignInWithAppleAuthorizationException &&
         error.code == AuthorizationErrorCode.canceled) {
@@ -409,26 +539,111 @@ class AppAuthController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> _loadLocalProfilePhotoPath() async {
+    final user = _auth?.currentUser;
+    if (user == null) {
+      return;
+    }
+
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      _localProfilePhotoPath = preferences.getString(
+        '$_localProfilePhotoPathPrefix${user.uid}',
+      );
+      notifyListeners();
+    } catch (_) {
+      // Profile photos can still load from Firebase Auth or Firestore.
+    }
+  }
+
+  Future<void> _saveLocalProfilePhotoPath(String uid, String path) async {
+    _localProfilePhotoPath = path;
+    notifyListeners();
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.setString('$_localProfilePhotoPathPrefix$uid', path);
+    } catch (_) {
+      // The picked image still works for the current run even without preferences.
+    }
+  }
+
+  String _fileExtension(String path) {
+    final extension = path.split('.').last.toLowerCase();
+    switch (extension) {
+      case 'png':
+        return '.png';
+      case 'webp':
+        return '.webp';
+      case 'heic':
+        return '.heic';
+      case 'jpg':
+      case 'jpeg':
+      default:
+        return '.jpg';
+    }
+  }
+
+  String _contentTypeForExtension(String extension) {
+    switch (extension) {
+      case '.png':
+        return 'image/png';
+      case '.webp':
+        return 'image/webp';
+      case '.heic':
+        return 'image/heic';
+      default:
+        return 'image/jpeg';
+    }
+  }
+
   Future<void> _loadPendingEmailPasswordSetup() async {
     try {
       final preferences = await SharedPreferences.getInstance();
       _pendingEmailPasswordSetupUid = preferences.getString(
         _pendingEmailPasswordSetupUidKey,
       );
-      notifyListeners();
+      _pendingEmailPasswordSetupEmail = preferences.getString(
+        _pendingEmailPasswordSetupEmailKey,
+      );
+      _pendingEmailPasswordSetupTempPassword = preferences.getString(
+        _pendingEmailPasswordSetupTempPasswordKey,
+      );
     } catch (_) {
       // Keep the in-memory default if preferences are unavailable in tests.
+    } finally {
+      _hasLoadedPendingEmailPasswordSetup = true;
+      notifyListeners();
     }
   }
 
-  Future<void> _setPendingEmailPasswordSetup(String? uid) async {
+  Future<void> _setPendingEmailPasswordSetup(
+    String? uid, {
+    String? email,
+    String? tempPassword,
+  }) async {
     if (uid == null) {
       return;
     }
     _pendingEmailPasswordSetupUid = uid;
+    _pendingEmailPasswordSetupEmail = email ?? _pendingEmailPasswordSetupEmail;
+    _pendingEmailPasswordSetupTempPassword =
+        tempPassword ?? _pendingEmailPasswordSetupTempPassword;
+    notifyListeners();
     try {
       final preferences = await SharedPreferences.getInstance();
       await preferences.setString(_pendingEmailPasswordSetupUidKey, uid);
+      if (_pendingEmailPasswordSetupEmail != null) {
+        await preferences.setString(
+          _pendingEmailPasswordSetupEmailKey,
+          _pendingEmailPasswordSetupEmail!,
+        );
+      }
+      if (_pendingEmailPasswordSetupTempPassword != null) {
+        await preferences.setString(
+          _pendingEmailPasswordSetupTempPasswordKey,
+          _pendingEmailPasswordSetupTempPassword!,
+        );
+      }
     } catch (_) {
       // The in-memory flag still protects the current session.
     }
@@ -436,9 +651,14 @@ class AppAuthController extends ChangeNotifier {
 
   Future<void> _clearPendingEmailPasswordSetup() async {
     _pendingEmailPasswordSetupUid = null;
+    _pendingEmailPasswordSetupEmail = null;
+    _pendingEmailPasswordSetupTempPassword = null;
+    notifyListeners();
     try {
       final preferences = await SharedPreferences.getInstance();
       await preferences.remove(_pendingEmailPasswordSetupUidKey);
+      await preferences.remove(_pendingEmailPasswordSetupEmailKey);
+      await preferences.remove(_pendingEmailPasswordSetupTempPasswordKey);
     } catch (_) {
       // The in-memory flag was already cleared.
     }
@@ -477,9 +697,10 @@ class AppAuthController extends ChangeNotifier {
 }
 
 class AuthFlowException implements Exception {
-  const AuthFlowException(this.message);
+  const AuthFlowException(this.message, {this.code});
 
   final String message;
+  final String? code;
 
   @override
   String toString() => message;

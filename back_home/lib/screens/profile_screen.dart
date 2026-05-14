@@ -1,11 +1,15 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../auth/app_auth_controller.dart';
 import 'mood_calendar_screen.dart';
 import '../settings/app_settings_controller.dart';
 import '../widgets/app_ui.dart';
+import '../widgets/profile_avatar.dart';
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({
     required this.settingsController,
     required this.authController,
@@ -16,13 +20,23 @@ class ProfileScreen extends StatelessWidget {
   final AppAuthController authController;
 
   @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  final ImagePicker _imagePicker = ImagePicker();
+
+  @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: Listenable.merge([settingsController, authController]),
+      animation: Listenable.merge([
+        widget.settingsController,
+        widget.authController,
+      ]),
       builder: (context, _) {
-        final selectedTextSize = settingsController.readingComfort;
-        final musicVolume = settingsController.musicVolume;
-        final currentUser = authController.currentUser;
+        final selectedTextSize = widget.settingsController.readingComfort;
+        final musicVolume = widget.settingsController.musicVolume;
+        final currentUser = widget.authController.currentUser;
         final profileName = currentUser?.displayName?.trim().isNotEmpty == true
             ? currentUser!.displayName!.trim()
             : currentUser?.phoneNumber ?? 'Your account';
@@ -36,14 +50,14 @@ class ProfileScreen extends StatelessWidget {
           subtitle: '',
           children: [
             Center(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(24),
-                child: Image.asset(
-                  'assets/default.png',
-                  width: 92,
-                  height: 92,
-                  fit: BoxFit.cover,
-                ),
+              child: ProfileAvatar(
+                displayName: profileName,
+                photoUrl: currentUser?.photoURL,
+                localPhotoPath: widget.authController.localProfilePhotoPath,
+                radius: 46,
+                showEditBadge: true,
+                onTap: widget.authController.isBusy ? null : _pickProfilePhoto,
+                heroTag: 'profile-avatar-${currentUser?.uid ?? 'me'}',
               ),
             ),
             const SizedBox(height: 12),
@@ -166,7 +180,7 @@ class ProfileScreen extends StatelessWidget {
                           label: Text(option.label),
                           selected: selectedTextSize == option,
                           onSelected: (_) {
-                            settingsController.setReadingComfort(option);
+                            widget.settingsController.setReadingComfort(option);
                           },
                         ),
                     ],
@@ -206,7 +220,7 @@ class ProfileScreen extends StatelessWidget {
                   ),
                   Slider(
                     value: musicVolume,
-                    onChanged: settingsController.setMusicVolume,
+                    onChanged: widget.settingsController.setMusicVolume,
                   ),
                   Text(
                     musicVolume <= 0
@@ -297,9 +311,47 @@ class ProfileScreen extends StatelessWidget {
     }
 
     try {
-      await authController.signOut();
+      await widget.authController.signOut();
     } on AuthFlowException catch (error) {
       if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    }
+  }
+
+  Future<void> _pickProfilePhoto() async {
+    final pickedImage = await _imagePicker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1024,
+      maxHeight: 1024,
+      imageQuality: 86,
+    );
+    if (pickedImage == null) {
+      return;
+    }
+
+    try {
+      await widget.authController.updateProfilePhoto(File(pickedImage.path));
+      if (!mounted) {
+        return;
+      }
+      final hasUploadedUrl =
+          widget.authController.currentUser?.photoURL?.trim().isNotEmpty ==
+          true;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            hasUploadedUrl
+                ? 'Profile photo updated.'
+                : 'Photo set locally. It will upload once Firebase Storage is enabled.',
+          ),
+        ),
+      );
+    } on AuthFlowException catch (error) {
+      if (!mounted) {
         return;
       }
       ScaffoldMessenger.of(

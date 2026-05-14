@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 
 import '../widgets/app_ui.dart';
+import '../widgets/profile_avatar.dart';
 import 'hall_post.dart';
 
 class HallPostThreadScreen extends StatefulWidget {
@@ -326,10 +327,11 @@ class _ThreadHeader extends StatelessWidget {
             onPressed: onBack,
             icon: const Icon(Icons.arrow_back_ios_new_rounded),
           ),
-          CircleAvatar(
+          ProfileAvatar(
+            displayName: post.author,
+            photoUrl: post.authorPhotoUrl,
             radius: 22,
-            backgroundColor: AppColors.blush,
-            child: Text(post.author.characters.first),
+            heroTag: 'hall-avatar-${post.authorUid ?? post.author}',
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -517,12 +519,10 @@ class _CommentListItem extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        CircleAvatar(
+        ProfileAvatar(
+          displayName: comment.author,
+          photoUrl: comment.authorPhotoUrl,
           radius: 18,
-          backgroundColor: comment.isMe
-              ? const Color(0xFFE7D0BD)
-              : AppColors.blush.withValues(alpha: 0.85),
-          child: Text(comment.author.characters.first),
         ),
         const SizedBox(width: 12),
         Expanded(
