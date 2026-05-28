@@ -55,6 +55,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
         return AppPage(
           title: '',
           subtitle: '',
+          leading: IconButton(
+            padding: const EdgeInsets.only(right: 6),
+            icon: const Icon(Icons.mail_outline),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+          trailing: IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Profile editing coming soon!')),
+              );
+            },
+          ),
           children: [
             Center(
               child: ProfileAvatar(

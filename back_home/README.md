@@ -37,3 +37,32 @@ Chat Screen:
 - users can message one another only if mutually following
 - if not, then max 1 sentence (probably character limit)
 - 
+
+
+
+Checking for wireless devices...
+
+[1]: Eric的iPhone (00008120-000661A62E7B601E)
+[2]: iPhone 16e (3200CDA0-8D1B-4F00-90F5-5D4EE5F203EE)
+[3]: macOS (macos)
+[4]: Chrome (chrome)
+Please choose one (or "q" to quit): 1
+Launching lib/main.dart on Eric的iPhone in debug mode...
+Automatically signing iOS for device deployment using specified development
+team in Xcode project: N3PX95D3HF
+Running Xcode build...                                                  
+Xcode build done.                                           26.7s
+Process 58731 stopped
+* thread #1, stop reason = signal SIGKILL
+    frame #0: 0x0000000196a8578c dyld`lldb_image_notifier
+dyld`lldb_image_notifier:
+->  0x196a8578c <+0>: ret    
+
+dyld`close:
+    0x196a85790 <+0>: mov    x16, #0x6                 ; =6 
+    0x196a85794 <+4>: svc    #0x80
+    0x196a85798 <+8>: b.lo   0x196a857b8               ; <+40>
+Target 0: (Runner) stopped.
+The Dart VM Service was not discovered after 60 seconds. This is taking much
+longer than expected...
+Installing and launching...  

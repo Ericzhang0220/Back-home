@@ -106,6 +106,7 @@ class AppPage extends StatelessWidget {
             ),
           if (eyebrow != null) const SizedBox(height: 10),
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (leading != null) ...[leading!, const SizedBox(width: 16)],
