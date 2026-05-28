@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../audio/background_music_controller.dart';
 import '../auth/app_auth_controller.dart';
 import 'mood_calendar_screen.dart';
 import '../settings/app_settings_controller.dart';
@@ -12,11 +13,13 @@ import '../widgets/profile_avatar.dart';
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({
     required this.settingsController,
+    required this.musicController,
     required this.authController,
     super.key,
   });
 
   final AppSettingsController settingsController;
+  final BackgroundMusicController musicController;
   final AppAuthController authController;
 
   @override
@@ -31,11 +34,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return AnimatedBuilder(
       animation: Listenable.merge([
         widget.settingsController,
+        widget.musicController,
         widget.authController,
       ]),
       builder: (context, _) {
         final selectedTextSize = widget.settingsController.readingComfort;
         final musicVolume = widget.settingsController.musicVolume;
+        final currentTrackTitle = widget.musicController.currentTrackTitle;
+        final currentTrackSubtitle =
+            widget.musicController.currentTrackSubtitle;
         final currentUser = widget.authController.currentUser;
         final profileName = currentUser?.displayName?.trim().isNotEmpty == true
             ? currentUser!.displayName!.trim()
@@ -208,7 +215,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                       const SizedBox(width: 10),
                       Text(
-                        'Music volume',
+                        'Apple Music',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const Spacer(),
@@ -222,10 +229,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     value: musicVolume,
                     onChanged: widget.settingsController.setMusicVolume,
                   ),
+                  if (currentTrackTitle != null) ...[
+                    Text(
+                      currentTrackTitle,
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    if (currentTrackSubtitle != null)
+                      Text(
+                        currentTrackSubtitle,
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    const SizedBox(height: 8),
+                  ],
                   Text(
                     musicVolume <= 0
-                        ? 'Muted. Raise the slider to resume your playlist.'
-                        : 'Music Time!',
+                        ? 'Muted. Raise the slider to resume Apple Music.'
+                        : widget.musicController.statusMessage,
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                 ],

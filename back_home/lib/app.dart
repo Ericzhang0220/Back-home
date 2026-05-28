@@ -49,7 +49,7 @@ class _BackHomeAppState extends State<BackHomeApp> {
 
   @override
   void dispose() {
-    unawaited(_musicController.dispose());
+    unawaited(_musicController.shutdown());
     _authController.dispose();
     _settingsController.dispose();
     super.dispose();
@@ -80,6 +80,7 @@ class _BackHomeAppState extends State<BackHomeApp> {
           },
           home: _AuthGate(
             settingsController: _settingsController,
+            musicController: _musicController,
             authController: _authController,
             bypassAuth: _useOfflineAuth,
           ),
@@ -92,11 +93,13 @@ class _BackHomeAppState extends State<BackHomeApp> {
 class _AuthGate extends StatelessWidget {
   const _AuthGate({
     required this.settingsController,
+    required this.musicController,
     required this.authController,
     this.bypassAuth = false,
   });
 
   final AppSettingsController settingsController;
+  final BackgroundMusicController musicController;
   final AppAuthController authController;
   final bool bypassAuth;
 
@@ -105,6 +108,7 @@ class _AuthGate extends StatelessWidget {
     if (bypassAuth) {
       return AppShell(
         settingsController: settingsController,
+        musicController: musicController,
         authController: authController,
       );
     }
@@ -148,6 +152,7 @@ class _AuthGate extends StatelessWidget {
 
             return AppShell(
               settingsController: settingsController,
+              musicController: musicController,
               authController: authController,
             );
           },
@@ -162,11 +167,13 @@ enum AppTab { home, room, hall, chat, profile }
 class AppShell extends StatefulWidget {
   const AppShell({
     required this.settingsController,
+    required this.musicController,
     required this.authController,
     super.key,
   });
 
   final AppSettingsController settingsController;
+  final BackgroundMusicController musicController;
   final AppAuthController authController;
 
   @override
@@ -255,6 +262,7 @@ class _AppShellState extends State<AppShell> {
           child: SafeArea(
             child: ProfileScreen(
               settingsController: widget.settingsController,
+              musicController: widget.musicController,
               authController: widget.authController,
             ),
           ),

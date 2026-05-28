@@ -1,140 +1,215 @@
 import 'dart:async';
 
-import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:music_kit/music_kit.dart';
 
 import '../settings/app_settings_controller.dart';
 
-class BackgroundMusicController {
+class BackgroundMusicController extends ChangeNotifier {
   BackgroundMusicController({required AppSettingsController settingsController})
     : _settingsController = settingsController {
     _settingsController.addListener(_handleSettingsChanged);
   }
 
-  static const List<String> _playlist = ['1.mp3', '2.mp3', '3.mp3'];
+  static const MethodChannel _favoritesChannel = MethodChannel(
+    'back_home/apple_music',
+  );
 
   final AppSettingsController _settingsController;
-  AudioPlayer? _player;
+  final MusicKit _musicKit = MusicKit();
 
-  StreamSubscription<void>? _playerCompleteSubscription;
-  int _currentTrackIndex = 0;
+  StreamSubscription<MusicPlayerState>? _playerStateSubscription;
+  StreamSubscription<MusicPlayerQueue>? _playerQueueSubscription;
   bool _isInitialized = false;
   bool _isDisposed = false;
-  bool _isAudioAvailable = true;
-  bool _hasStartedPlayback = false;
+  bool _isPreparingQueue = false;
+  bool _hasPreparedQueue = false;
+  bool _isAppleMusicAvailable = true;
+  String _statusMessage = 'Apple Music favorites will play after permission.';
+  String? _currentTrackTitle;
+  String? _currentTrackSubtitle;
+
+  bool get isAppleMusicAvailable => _isAppleMusicAvailable;
+  String get statusMessage => _statusMessage;
+  String? get currentTrackTitle => _currentTrackTitle;
+  String? get currentTrackSubtitle => _currentTrackSubtitle;
 
   Future<void> initialize() async {
-    if (_isInitialized || _isDisposed || !_isAudioAvailable) {
+    if (_isInitialized || _isDisposed || !_isAppleMusicAvailable) {
+      return;
+    }
+
+    if (!_supportsAppleMusic) {
+      _markUnavailable('Apple Music playback is available on iOS devices.');
       return;
     }
 
     try {
-      final player = AudioPlayer();
-      _player = player;
-
-      await player.setReleaseMode(ReleaseMode.stop);
-      _playerCompleteSubscription = player.onPlayerComplete.listen((_) {
-        unawaited(_playNextTrack());
+      _playerStateSubscription = _musicKit.onMusicPlayerStateChanged.listen((
+        state,
+      ) {
+        if (state.playbackStatus == MusicPlayerPlaybackStatus.playing) {
+          _setStatus('Playing your Apple Music favorites.');
+        } else if (state.playbackStatus == MusicPlayerPlaybackStatus.paused) {
+          _setStatus('Apple Music is paused.');
+        }
       });
-      _isInitialized = true;
-      await player.setVolume(_settingsController.musicVolume);
 
+      _playerQueueSubscription = _musicKit.onPlayerQueueChanged.listen((queue) {
+        final entry = queue.currentEntry;
+        _currentTrackTitle = entry?.title;
+        _currentTrackSubtitle = entry?.subtitle;
+        notifyListeners();
+      });
+
+      _isInitialized = true;
       if (_settingsController.musicVolume > 0) {
-        await _playCurrentTrack();
+        await _ensureFavoritesPlaying();
       }
     } on MissingPluginException {
-      _isAudioAvailable = false;
+      _markUnavailable('Apple Music playback is not available here.');
     } catch (_) {
-      _isAudioAvailable = false;
+      _markUnavailable('Apple Music could not start on this device.');
     }
   }
 
-  Future<void> dispose() async {
+  Future<void> shutdown() async {
+    dispose();
+  }
+
+  @override
+  void dispose() {
     if (_isDisposed) {
       return;
     }
 
     _isDisposed = true;
     _settingsController.removeListener(_handleSettingsChanged);
-    await _playerCompleteSubscription?.cancel();
+    unawaited(_playerStateSubscription?.cancel());
+    unawaited(_playerQueueSubscription?.cancel());
 
-    final player = _player;
-    if (_isAudioAvailable && player != null) {
-      try {
-        await player.dispose();
-      } catch (_) {
-        // Ignore shutdown issues during app teardown.
-      }
+    if (_isAppleMusicAvailable) {
+      unawaited(_pauseDuringShutdown());
+    }
+    super.dispose();
+  }
+
+  Future<void> _pauseDuringShutdown() async {
+    try {
+      await _musicKit.pause();
+    } catch (_) {
+      // Ignore shutdown issues during app teardown.
     }
   }
 
   void _handleSettingsChanged() {
-    unawaited(_syncVolume());
+    unawaited(_syncPlaybackPreference());
   }
 
-  Future<void> _syncVolume() async {
-    if (!_isInitialized || !_isAudioAvailable || _isDisposed) {
-      return;
-    }
-
-    final player = _player;
-    if (player == null) {
+  Future<void> _syncPlaybackPreference() async {
+    if (!_isInitialized || !_isAppleMusicAvailable || _isDisposed) {
       return;
     }
 
     try {
-      final volume = _settingsController.musicVolume;
-      await player.setVolume(volume);
-
-      if (volume <= 0) {
-        await player.pause();
+      if (_settingsController.musicVolume <= 0) {
+        await _musicKit.pause();
+        _setStatus('Apple Music is muted in Back Home.');
         return;
       }
 
-      if (!_hasStartedPlayback) {
-        await _playCurrentTrack();
-        return;
-      }
-
-      if (player.state != PlayerState.playing) {
-        await player.resume();
-      }
+      await _ensureFavoritesPlaying();
     } on MissingPluginException {
-      _isAudioAvailable = false;
+      _markUnavailable('Apple Music playback is not available here.');
     } catch (_) {
-      _isAudioAvailable = false;
+      _markUnavailable('Apple Music could not resume.');
     }
   }
 
-  Future<void> _playCurrentTrack() async {
-    if (!_isInitialized || !_isAudioAvailable || _isDisposed) {
+  Future<void> _ensureFavoritesPlaying() async {
+    if (_isPreparingQueue || _isDisposed) {
       return;
     }
 
-    final player = _player;
-    if (player == null) {
-      return;
-    }
-
+    _isPreparingQueue = true;
     try {
-      _hasStartedPlayback = true;
-      await player.play(
-        AssetSource(_playlist[_currentTrackIndex]),
-        volume: _settingsController.musicVolume,
-      );
+      final isAuthorized = await _ensureAuthorized();
+      if (!isAuthorized || _settingsController.musicVolume <= 0) {
+        return;
+      }
+
+      if (!_hasPreparedQueue) {
+        final queueInfo = await _favoritesChannel
+            .invokeMapMethod<String, Object?>(
+              'prepareFavoritesQueue',
+              <String, Object?>{'limit': 30},
+            );
+
+        _hasPreparedQueue = true;
+        _currentTrackTitle = queueInfo?['title'] as String?;
+        _currentTrackSubtitle = queueInfo?['subtitle'] as String?;
+      }
+
+      await _musicKit.setShuffleMode(MusicPlayerShuffleMode.songs);
+      await _musicKit.setRepeatMode(MusicPlayerRepeatMode.all);
+      await _musicKit.play();
+      _setStatus('Playing your Apple Music favorites.');
     } on MissingPluginException {
-      _isAudioAvailable = false;
+      _markUnavailable('Apple Music playback is not available here.');
+    } on PlatformException catch (error) {
+      _markUnavailable(error.message ?? 'Apple Music could not prepare songs.');
     } catch (_) {
-      _isAudioAvailable = false;
+      _markUnavailable('Apple Music could not prepare songs.');
+    } finally {
+      _isPreparingQueue = false;
     }
   }
 
-  Future<void> _playNextTrack() async {
-    if (_settingsController.musicVolume <= 0) {
+  Future<bool> _ensureAuthorized() async {
+    final currentStatus = await _musicKit.authorizationStatus;
+    switch (currentStatus) {
+      case MusicAuthorizationStatusAuthorized():
+        return true;
+      case MusicAuthorizationStatusDenied():
+        _setStatus('Apple Music permission is off.');
+        return false;
+      case MusicAuthorizationStatusRestricted():
+        _setStatus('Apple Music is restricted on this device.');
+        return false;
+      case MusicAuthorizationStatusInitial() ||
+          MusicAuthorizationStatusNotDetermined():
+        final requestedStatus = await _musicKit.requestAuthorizationStatus(
+          startScreenMessage:
+              'Back Home can play favorites from your Apple Music library.',
+        );
+        if (requestedStatus is MusicAuthorizationStatusAuthorized) {
+          return true;
+        }
+
+        _setStatus('Apple Music permission is needed to play favorites.');
+        return false;
+    }
+  }
+
+  void _markUnavailable(String message) {
+    _isAppleMusicAvailable = false;
+    _setStatus(message);
+  }
+
+  void _setStatus(String message) {
+    if (_statusMessage == message || _isDisposed) {
       return;
     }
 
-    _currentTrackIndex = (_currentTrackIndex + 1) % _playlist.length;
-    await _playCurrentTrack();
+    _statusMessage = message;
+    notifyListeners();
+  }
+
+  bool get _supportsAppleMusic {
+    if (kIsWeb) {
+      return false;
+    }
+    return defaultTargetPlatform == TargetPlatform.iOS;
   }
 }

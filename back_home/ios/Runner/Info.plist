@@ -26,6 +26,8 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>Back Home uses Apple Music to play favorites from your library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Back Home uses your photo library so you can choose a profile image.</string>
 	<key>UIApplicationSceneManifest</key>
