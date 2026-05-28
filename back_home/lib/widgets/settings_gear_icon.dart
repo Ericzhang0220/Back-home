@@ -31,7 +31,7 @@ class _SettingsGearPainter extends CustomPainter {
   final Color color;
   final double strokeWidth;
 
-  static const int _teeth = 8;
+  static const int _teeth = 6;
 
   @override
   void paint(Canvas canvas, Size size) {
