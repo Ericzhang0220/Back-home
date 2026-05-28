@@ -26,60 +26,79 @@ class HallPostCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    final content = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    final content = Stack(
       children: [
-        Row(
+        Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            ProfileAvatar(
-              displayName: post.author,
-              photoUrl: post.authorPhotoUrl,
-              radius: 22,
-              onTap: onAuthorTap,
-              heroTag: 'hall-avatar-${post.authorUid ?? post.author}',
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ProfileAvatar(
+                  displayName: post.author,
+                  photoUrl: post.authorPhotoUrl,
+                  radius: 22,
+                  onTap: onAuthorTap,
+                  heroTag: 'hall-avatar-${post.authorUid ?? post.author}',
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(post.author, style: theme.textTheme.titleMedium),
+                      const SizedBox(height: 2),
+                      Text(post.mood, style: theme.textTheme.bodySmall),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(post.author, style: theme.textTheme.titleMedium),
-                  const SizedBox(height: 2),
-                  Text(post.mood, style: theme.textTheme.bodySmall),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            SizedBox(
-              width: MediaQuery.of(context).size.width * 0.42,
-              child: TopicChip(label: post.topic, icon: Icons.sell_rounded),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        InkWell(
-          onTap: onCommentTap,
-          child: Text(post.message, style: theme.textTheme.bodyLarge),
-        ),
-        const SizedBox(height: 16),
-        Row(
-          children: [
-            _PostActionButton(
-              icon: post.likedByMe
-                  ? Icons.favorite_rounded
-                  : Icons.favorite_rounded,
-              label: _likesLabel(post.likes),
-              isActive: post.likedByMe,
-              onTap: onLikeTap,
-            ),
-            const Spacer(),
-            _PostActionButton(
-              icon: Icons.mode_comment_outlined,
-              label: _commentsLabel(post.comments),
+            const SizedBox(height: 16),
+            InkWell(
               onTap: onCommentTap,
+              child: Text(post.message, style: theme.textTheme.bodyLarge),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                _PostActionButton(
+                  icon: post.likedByMe
+                      ? Icons.favorite_rounded
+                      : Icons.favorite_rounded,
+                  label: _likesLabel(post.likes),
+                  isActive: post.likedByMe,
+                  onTap: onLikeTap,
+                ),
+                const Spacer(),
+                _PostActionButton(
+                  icon: Icons.mode_comment_outlined,
+                  label: _commentsLabel(post.comments),
+                  onTap: onCommentTap,
+                ),
+              ],
             ),
           ],
+        ),
+        Positioned(
+          top: 0,
+          right: 0,
+          child: SizedBox(
+            width: MediaQuery.of(context).size.width * 0.42,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                TopicChip(label: post.topic, icon: Icons.sell_rounded),
+                Text(
+                  post.relativeTime,
+                  textAlign: TextAlign.end,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: AppColors.muted,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ],
     );

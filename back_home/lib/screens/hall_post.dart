@@ -73,6 +73,7 @@ class HallPost {
     required this.topic,
     required this.message,
     required this.likes,
+    required this.lastUpdatedAt,
     this.id,
     this.thread = const [],
     this.canEdit = false,
@@ -87,6 +88,7 @@ class HallPost {
   final String topic;
   final String message;
   final int likes;
+  final DateTime lastUpdatedAt;
   final List<HallComment> thread;
   final bool canEdit;
   final bool likedByMe;
@@ -102,6 +104,7 @@ class HallPost {
     String? topic,
     String? message,
     int? likes,
+    DateTime? lastUpdatedAt,
     List<HallComment>? thread,
     bool? canEdit,
     bool? likedByMe,
@@ -115,6 +118,7 @@ class HallPost {
       topic: topic ?? this.topic,
       message: message ?? this.message,
       likes: likes ?? this.likes,
+      lastUpdatedAt: lastUpdatedAt ?? this.lastUpdatedAt,
       thread: thread ?? this.thread,
       canEdit: canEdit ?? this.canEdit,
       likedByMe: likedByMe ?? this.likedByMe,
@@ -158,6 +162,9 @@ class HallPost {
       topic: (data['topic'] as String?) ?? '',
       message: (data['message'] as String?) ?? '',
       likes: (data['likes'] as num?)?.toInt() ?? 0,
+      lastUpdatedAt:
+          (data['updatedAt'] as Timestamp?)?.toDate() ??
+          DateTime.fromMillisecondsSinceEpoch(0),
       likedByMe: currentUid != null && likedBy.contains(currentUid),
       canEdit: authorUid != null && authorUid == currentUid,
       thread: threadRaw
@@ -171,9 +178,12 @@ class HallPost {
           .toList(growable: false),
     );
   }
+
+  String get relativeTime =>
+      hallRelativeTime(lastUpdatedAt.millisecondsSinceEpoch);
 }
 
-/// Short relative label (e.g. `Now`, `24m`, `2h 5m`, `3d`) from an epoch ms.
+/// Short relative label (e.g. `Now`, `24m`, `2h 5m`, `3d`, `May 1st`,`May 2nd 2009`) from an epoch ms.
 String hallRelativeTime(int createdAtMillis) {
   final nowMillis = DateTime.now().millisecondsSinceEpoch;
   final minutes = ((nowMillis - createdAtMillis) ~/ 60000).clamp(0, 1 << 31);
@@ -186,7 +196,42 @@ String hallRelativeTime(int createdAtMillis) {
   final hours = minutes ~/ 60;
   if (hours < 24) {
     final remainderMinutes = minutes % 60;
-    return remainderMinutes == 0 ? '${hours}h' : '${hours}h ${remainderMinutes}m';
+    return remainderMinutes == 0
+        ? '${hours}h'
+        : '${hours}h ${remainderMinutes}m';
   }
-  return '${hours ~/ 24}d';
+  // return '${hours ~/ 24}d';
+
+  if (hours ~/ 24 < 7) {
+    return '${hours ~/ 24}d';
+  }
+
+  final date = DateTime.fromMillisecondsSinceEpoch(createdAtMillis);
+  final int currentYear = DateTime.now().year;
+  final int year = date.year;
+  final String month = _monthAbbreviation(date.month);
+  final String day = date.day.toString();
+  if (year == currentYear) {
+    return '$month $day';
+  } else {
+    return '$month $day $year';
+  }
+}
+
+String _monthAbbreviation(int month) {
+  const monthAbbreviations = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  return monthAbbreviations[month - 1];
 }

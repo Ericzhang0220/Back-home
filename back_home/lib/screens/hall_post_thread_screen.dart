@@ -126,6 +126,7 @@ class _HallPostThreadScreenState extends State<HallPostThreadScreen> {
                                           ),
                                           child: _CommentListItem(
                                             comment: comment,
+                                            controller: _commentController,
                                           ),
                                         );
                                       },
@@ -455,6 +456,7 @@ class _ThreadPostSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    print('post relative time: ${post.relativeTime}');
 
     return Container(
       width: double.infinity,
@@ -471,7 +473,10 @@ class _ThreadPostSummary extends StatelessWidget {
             children: [
               TopicChip(label: post.topic, icon: Icons.sell_rounded),
               const Spacer(),
-              Text(post.mood, style: theme.textTheme.bodySmall),
+              Text(
+                (post.relativeTime).toString(),
+                style: theme.textTheme.bodySmall,
+              ),
             ],
           ),
           const SizedBox(height: 10),
@@ -546,49 +551,59 @@ class _ThreadAction extends StatelessWidget {
 }
 
 class _CommentListItem extends StatelessWidget {
-  const _CommentListItem({required this.comment});
+  const _CommentListItem({required this.comment, this.controller});
 
   final HallComment comment;
+  final TextEditingController? controller;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        ProfileAvatar(
-          displayName: comment.author,
-          photoUrl: comment.authorPhotoUrl,
-          radius: 18,
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      comment.author,
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
+    return InkWell(
+      onTap: () {
+        print('Tapped comment by ${comment.author}');
+        controller?.text = '@${comment.author} ';
+        controller?.selection = TextSelection.fromPosition(
+          TextPosition(offset: controller!.text.length),
+        );
+      },
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ProfileAvatar(
+            displayName: comment.author,
+            photoUrl: comment.authorPhotoUrl,
+            radius: 18,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        comment.author,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
-                  ),
-                  Text(comment.sentAt, style: theme.textTheme.bodySmall),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Text(
-                comment.message,
-                style: theme.textTheme.bodyLarge?.copyWith(height: 1.4),
-              ),
-            ],
+                    Text(comment.sentAt, style: theme.textTheme.bodySmall),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  comment.message,
+                  style: theme.textTheme.bodyLarge?.copyWith(height: 1.4),
+                ),
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

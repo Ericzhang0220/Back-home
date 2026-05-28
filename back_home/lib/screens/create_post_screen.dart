@@ -242,6 +242,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         topic: topic,
         message: message,
         likes: widget.existingPost?.likes ?? 0,
+        lastUpdatedAt: DateTime.now(),
         thread: widget.existingPost?.thread ?? const [],
         canEdit: true,
         likedByMe: widget.existingPost?.likedByMe ?? false,
