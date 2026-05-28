@@ -1,5 +1,6 @@
 import 'dart:ui';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../widgets/app_ui.dart';
@@ -7,9 +8,18 @@ import '../widgets/profile_avatar.dart';
 import 'hall_post.dart';
 
 class HallPostThreadScreen extends StatefulWidget {
-  const HallPostThreadScreen({required this.post, super.key});
+  const HallPostThreadScreen({
+    required this.post,
+    this.authorName = 'You',
+    this.authorUid,
+    this.authorPhotoUrl,
+    super.key,
+  });
 
   final HallPost post;
+  final String authorName;
+  final String? authorUid;
+  final String? authorPhotoUrl;
 
   @override
   State<HallPostThreadScreen> createState() => _HallPostThreadScreenState();
@@ -161,13 +171,37 @@ class _HallPostThreadScreenState extends State<HallPostThreadScreen> {
     );
   }
 
+  DocumentReference<Map<String, dynamic>>? get _postRef {
+    final id = _post.id;
+    if (id == null) {
+      return null;
+    }
+    return FirebaseFirestore.instance.collection('posts').doc(id);
+  }
+
   void _toggleLike() {
+    final willLike = !_post.likedByMe;
     setState(() {
       _post = _post.copyWith(
-        likedByMe: !_post.likedByMe,
-        likes: _post.likes + (_post.likedByMe ? -1 : 1),
+        likedByMe: willLike,
+        likes: _post.likes + (willLike ? 1 : -1),
       );
     });
+
+    final ref = _postRef;
+    if (ref == null) {
+      return;
+    }
+    final update = <String, dynamic>{
+      'likes': FieldValue.increment(willLike ? 1 : -1),
+    };
+    final uid = widget.authorUid;
+    if (uid != null) {
+      update['likedBy'] = willLike
+          ? FieldValue.arrayUnion([uid])
+          : FieldValue.arrayRemove([uid]);
+    }
+    ref.update(update).ignore();
   }
 
   void _focusComposer() {
@@ -186,20 +220,24 @@ class _HallPostThreadScreenState extends State<HallPostThreadScreen> {
       return;
     }
 
+    final comment = HallComment(
+      author: widget.authorName,
+      message: message,
+      sentAt: 'Now',
+      isMe: true,
+      authorUid: widget.authorUid,
+      authorPhotoUrl: widget.authorPhotoUrl,
+      createdAtMillis: DateTime.now().millisecondsSinceEpoch,
+    );
+
     setState(() {
-      _post = _post.copyWith(
-        thread: [
-          ..._post.thread,
-          const HallComment(
-            author: 'You',
-            message: '',
-            sentAt: 'Now',
-            isMe: true,
-          ).copyWith(message: message),
-        ],
-      );
+      _post = _post.copyWith(thread: [..._post.thread, comment]);
       _commentController.clear();
     });
+
+    _postRef?.update({
+      'thread': FieldValue.arrayUnion([comment.toMap()]),
+    }).ignore();
 
     _commentFocusNode.unfocus();
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
