@@ -9,6 +9,7 @@ import 'mood_calendar_screen.dart';
 import '../settings/app_settings_controller.dart';
 import '../widgets/app_ui.dart';
 import '../widgets/profile_avatar.dart';
+import '../widgets/settings_gear_icon.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({
@@ -61,7 +62,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             onPressed: () => Navigator.of(context).pop(),
           ),
           trailing: IconButton(
-            icon: const Icon(Icons.settings),
+            icon: const SettingsGearIcon(),
             onPressed: () {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('Profile editing coming soon!')),
