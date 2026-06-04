@@ -5,63 +5,89 @@ class HallComment {
     required this.author,
     required this.message,
     required this.sentAt,
+    this.id,
     this.isMe = false,
+    this.likes = 0,
+    this.likedByMe = false,
     this.authorUid,
     this.authorPhotoUrl,
     this.createdAtMillis,
+    this.likedBy = const [],
   });
 
+  final String? id;
   final String author;
   final String message;
   final String sentAt;
   final bool isMe;
+  final int likes;
+  final bool likedByMe;
   final String? authorUid;
   final String? authorPhotoUrl;
   final int? createdAtMillis;
+  final List<String> likedBy;
 
   HallComment copyWith({
+    String? id,
     String? author,
     String? message,
     String? sentAt,
     bool? isMe,
+    int? likes,
+    bool? likedByMe,
     String? authorUid,
     String? authorPhotoUrl,
     int? createdAtMillis,
+    List<String>? likedBy,
   }) {
     return HallComment(
+      id: id ?? this.id,
       author: author ?? this.author,
       message: message ?? this.message,
       sentAt: sentAt ?? this.sentAt,
       isMe: isMe ?? this.isMe,
+      likes: likes ?? this.likes,
+      likedByMe: likedByMe ?? this.likedByMe,
       authorUid: authorUid ?? this.authorUid,
       authorPhotoUrl: authorPhotoUrl ?? this.authorPhotoUrl,
       createdAtMillis: createdAtMillis ?? this.createdAtMillis,
+      likedBy: likedBy ?? this.likedBy,
     );
   }
 
   Map<String, dynamic> toMap() {
     return {
+      'id': id,
       'author': author,
       'message': message,
       'authorUid': authorUid,
       'authorPhotoUrl': authorPhotoUrl,
       'createdAtMillis': createdAtMillis,
+      'likes': likes,
+      'likedBy': likedBy,
     };
   }
 
   factory HallComment.fromMap(Map<String, dynamic> map, {String? currentUid}) {
     final authorUid = map['authorUid'] as String?;
     final createdAtMillis = (map['createdAtMillis'] as num?)?.toInt();
+    final likedBy =
+        (map['likedBy'] as List?)?.whereType<String>().toList() ??
+        const <String>[];
     return HallComment(
+      id: map['id'] as String?,
       author: (map['author'] as String?) ?? 'Someone',
       message: (map['message'] as String?) ?? '',
       sentAt: createdAtMillis != null
           ? hallRelativeTime(createdAtMillis)
           : (map['sentAt'] as String? ?? ''),
       isMe: authorUid != null && authorUid == currentUid,
+      likes: (map['likes'] as num?)?.toInt() ?? likedBy.length,
+      likedByMe: currentUid != null && likedBy.contains(currentUid),
       authorUid: authorUid,
       authorPhotoUrl: map['authorPhotoUrl'] as String?,
       createdAtMillis: createdAtMillis,
+      likedBy: likedBy,
     );
   }
 }

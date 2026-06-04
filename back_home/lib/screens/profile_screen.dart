@@ -103,10 +103,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
             const SizedBox(height: 20),
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                SizedBox(
-                  width: MediaQuery.of(context).size.width * 0.28,
+                Expanded(
                   child: const InfoPill(
                     icon: Icons.favorite_rounded,
                     label: 'Likes',
@@ -114,8 +112,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     tint: Color(0xFFF7DFC8),
                   ),
                 ),
-                SizedBox(
-                  width: MediaQuery.of(context).size.width * 0.28,
+                const SizedBox(width: 10),
+                Expanded(
                   child: const InfoPill(
                     icon: Icons.person_rounded,
                     label: 'Friends',
@@ -123,8 +121,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     tint: Color(0xFFF7DFC8),
                   ),
                 ),
-                SizedBox(
-                  width: MediaQuery.of(context).size.width * 0.28,
+                const SizedBox(width: 10),
+                Expanded(
                   child: const InfoPill(
                     icon: Icons.local_fire_department_rounded,
                     label: 'Active',

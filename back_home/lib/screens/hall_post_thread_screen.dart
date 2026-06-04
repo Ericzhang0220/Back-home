@@ -127,6 +127,13 @@ class _HallPostThreadScreenState extends State<HallPostThreadScreen> {
                                           child: _CommentListItem(
                                             comment: comment,
                                             controller: _commentController,
+                                            onLikeTap: () =>
+                                                _toggleCommentLike(index),
+                                            onTap: () {
+                                              setState(() {
+                                                _composerExpanded = true;
+                                              });
+                                            },
                                           ),
                                         );
                                       },
@@ -221,14 +228,16 @@ class _HallPostThreadScreenState extends State<HallPostThreadScreen> {
       return;
     }
 
+    final createdAtMillis = DateTime.now().millisecondsSinceEpoch;
     final comment = HallComment(
+      id: 'comment_$createdAtMillis',
       author: widget.authorName,
       message: message,
       sentAt: 'Now',
       isMe: true,
       authorUid: widget.authorUid,
       authorPhotoUrl: widget.authorPhotoUrl,
-      createdAtMillis: DateTime.now().millisecondsSinceEpoch,
+      createdAtMillis: createdAtMillis,
     );
 
     setState(() {
@@ -236,12 +245,54 @@ class _HallPostThreadScreenState extends State<HallPostThreadScreen> {
       _commentController.clear();
     });
 
-    _postRef?.update({
-      'thread': FieldValue.arrayUnion([comment.toMap()]),
-    }).ignore();
+    _updateThreadInFirestore(_post.thread);
 
     _commentFocusNode.unfocus();
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+  }
+
+  void _toggleCommentLike(int index) {
+    if (index < 0 || index >= _post.thread.length) {
+      return;
+    }
+
+    final likerId = widget.authorUid;
+    if (likerId == null) {
+      return;
+    }
+
+    final comment = _post.thread[index];
+    final willLike = !comment.likedByMe;
+    final likedBy = [...comment.likedBy];
+    if (willLike) {
+      if (!likedBy.contains(likerId)) {
+        likedBy.add(likerId);
+      }
+    } else {
+      likedBy.remove(likerId);
+    }
+
+    final updatedComment = comment.copyWith(
+      likedBy: likedBy,
+      likedByMe: willLike,
+      likes: (_post.thread[index].likes + (willLike ? 1 : -1))
+          .clamp(0, 1 << 31)
+          .toInt(),
+    );
+    final updatedThread = [..._post.thread];
+    updatedThread[index] = updatedComment;
+
+    setState(() {
+      _post = _post.copyWith(thread: updatedThread);
+    });
+
+    _updateThreadInFirestore(updatedThread);
+  }
+
+  void _updateThreadInFirestore(List<HallComment> thread) {
+    _postRef?.update({
+      'thread': thread.map((comment) => comment.toMap()).toList(),
+    }).ignore();
   }
 
   void _scrollToBottom() {
@@ -456,7 +507,6 @@ class _ThreadPostSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    print('post relative time: ${post.relativeTime}');
 
     return Container(
       width: double.infinity,
@@ -489,13 +539,15 @@ class _ThreadPostSummary extends StatelessWidget {
           const SizedBox(height: 10),
           Row(
             children: [
-              _ThreadAction(
-                icon: post.likedByMe
-                    ? Icons.favorite_rounded
-                    : Icons.favorite_border_rounded,
-                label: '${post.likes}',
-                onTap: onLikeTap,
-                active: post.likedByMe,
+              Material(
+                child: _ThreadAction(
+                  icon: post.likedByMe
+                      ? Icons.favorite_rounded
+                      : Icons.favorite_border_rounded,
+                  label: '${post.likes}',
+                  onTap: onLikeTap,
+                  active: post.likedByMe,
+                ),
               ),
               const SizedBox(width: 18),
               _ThreadAction(
@@ -517,12 +569,16 @@ class _ThreadAction extends StatelessWidget {
     required this.label,
     required this.onTap,
     this.active = false,
+    this.iconSize = 16,
+    this.textSize = 16,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback onTap;
   final bool active;
+  final double? iconSize;
+  final double? textSize;
 
   @override
   Widget build(BuildContext context) {
@@ -534,13 +590,14 @@ class _ThreadAction extends StatelessWidget {
         children: [
           Icon(
             icon,
-            size: 18,
+            size: iconSize,
             color: active ? AppColors.clay : AppColors.muted,
           ),
           const SizedBox(width: 6),
           Text(
             label,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              fontSize: textSize,
               color: active ? AppColors.ink : AppColors.muted,
             ),
           ),
@@ -551,59 +608,95 @@ class _ThreadAction extends StatelessWidget {
 }
 
 class _CommentListItem extends StatelessWidget {
-  const _CommentListItem({required this.comment, this.controller});
+  const _CommentListItem({
+    required this.comment,
+    required this.onLikeTap,
+    this.controller,
+    this.onTap,
+  });
 
   final HallComment comment;
+  final VoidCallback onLikeTap;
   final TextEditingController? controller;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return InkWell(
-      onTap: () {
-        print('Tapped comment by ${comment.author}');
-        controller?.text = '@${comment.author} ';
-        controller?.selection = TextSelection.fromPosition(
-          TextPosition(offset: controller!.text.length),
-        );
-      },
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ProfileAvatar(
-            displayName: comment.author,
-            photoUrl: comment.authorPhotoUrl,
-            radius: 18,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
+    return Stack(
+      children: [
+        InkWell(
+          onTap: () {
+            final textController = controller;
+            if (textController != null) {
+              textController.text = '@${comment.author} ';
+              textController.selection = TextSelection.fromPosition(
+                TextPosition(offset: textController.text.length),
+              );
+            }
+            onTap?.call();
+          },
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 18),
+            child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        comment.author,
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                    Text(comment.sentAt, style: theme.textTheme.bodySmall),
-                  ],
+                ProfileAvatar(
+                  displayName: comment.author,
+                  photoUrl: comment.authorPhotoUrl,
+                  radius: 18,
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  comment.message,
-                  style: theme.textTheme.bodyLarge?.copyWith(height: 1.4),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              comment.author,
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            comment.sentAt,
+                            style: theme.textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        comment.message,
+                        style: theme.textTheme.bodyLarge?.copyWith(height: 1.4),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
           ),
-        ],
-      ),
+        ),
+        Positioned(
+          right: 0,
+          bottom: -2,
+          child: Material(
+            child: _ThreadAction(
+              icon: comment.likedByMe
+                  ? Icons.favorite_rounded
+                  : Icons.favorite_border_rounded,
+              label: '${comment.likes}',
+              onTap: onLikeTap,
+              active: comment.likedByMe,
+              iconSize: 12,
+              textSize: 12,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

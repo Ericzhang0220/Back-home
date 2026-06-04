@@ -304,13 +304,21 @@ class _HallScreenState extends State<HallScreen> {
   Map<String, Map<String, dynamic>> _sampleSeedPosts() {
     final now = DateTime.now().millisecondsSinceEpoch;
 
-    Map<String, dynamic> comment(String author, String message, int minutesAgo) {
+    Map<String, dynamic> comment(
+      String author,
+      String message,
+      int minutesAgo,
+    ) {
+      final createdAtMillis = now - minutesAgo * 60000;
       return {
+        'id': 'seed_${author}_$createdAtMillis',
         'author': author,
         'message': message,
         'authorUid': null,
         'authorPhotoUrl': null,
-        'createdAtMillis': now - minutesAgo * 60000,
+        'createdAtMillis': createdAtMillis,
+        'likes': 0,
+        'likedBy': <String>[],
       };
     }
 
@@ -352,7 +360,11 @@ class _HallScreenState extends State<HallScreen> {
         order: 1,
         thread: [
           comment('Jamie', 'That sounds like a really good reset.', 24),
-          comment('Rin', 'The light green mood always feels gentle to me too.', 18),
+          comment(
+            'Rin',
+            'The light green mood always feels gentle to me too.',
+            18,
+          ),
           comment(
             'Harper',
             'Soft rooms help more than people give them credit for.',
@@ -369,8 +381,16 @@ class _HallScreenState extends State<HallScreen> {
         likes: 42,
         order: 2,
         thread: [
-          comment('Rin', 'Changing the lamp color really does shift the whole mood.', 95),
-          comment('Harper', 'I open the curtains first and it helps every time.', 78),
+          comment(
+            'Rin',
+            'Changing the lamp color really does shift the whole mood.',
+            95,
+          ),
+          comment(
+            'Harper',
+            'I open the curtains first and it helps every time.',
+            78,
+          ),
         ],
       ),
       'seed_kind_note': post(
@@ -383,7 +403,11 @@ class _HallScreenState extends State<HallScreen> {
         order: 3,
         thread: [
           comment('Jamie', 'That is such a sweet little detail.', 88),
-          comment('Harper', 'Now I want a whole set of notes around the room.', 34),
+          comment(
+            'Harper',
+            'Now I want a whole set of notes around the room.',
+            34,
+          ),
         ],
       ),
       'seed_bottle_reward': post(
@@ -396,7 +420,11 @@ class _HallScreenState extends State<HallScreen> {
         order: 4,
         thread: [
           comment('Jamie', 'Three bottles in one week is impressive.', 73),
-          comment('Rin', 'The cat bed is one of the cutest rewards in the shop.', 51),
+          comment(
+            'Rin',
+            'The cat bed is one of the cutest rewards in the shop.',
+            51,
+          ),
         ],
       ),
     };

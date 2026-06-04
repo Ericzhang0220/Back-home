@@ -110,26 +110,24 @@ class _HallUserProfileView extends StatelessWidget {
                 ],
                 const SizedBox(height: 24),
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: const [
-                    SizedBox(
-                      width: 96,
+                    Expanded(
                       child: InfoPill(
                         icon: Icons.favorite_rounded,
                         label: 'Likes',
                         value: '100',
                       ),
                     ),
-                    SizedBox(
-                      width: 96,
+                    SizedBox(width: 10),
+                    Expanded(
                       child: InfoPill(
                         icon: Icons.person_rounded,
                         label: 'Friends',
                         value: '100',
                       ),
                     ),
-                    SizedBox(
-                      width: 96,
+                    SizedBox(width: 10),
+                    Expanded(
                       child: InfoPill(
                         icon: Icons.local_fire_department_rounded,
                         label: 'Active',
