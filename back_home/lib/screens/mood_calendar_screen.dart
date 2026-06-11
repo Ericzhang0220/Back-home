@@ -336,6 +336,7 @@ class _MoodDayCell extends StatelessWidget {
       children: [
         Text(
           '$dayNumber',
+          textScaler: TextScaler.noScaling,
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
             fontSize: 12,
             color: isFuture ? AppColors.muted : AppColors.ink,
@@ -357,14 +358,21 @@ class _MoodDayCell extends StatelessWidget {
               width: 1.5,
             ),
           ),
-          child: Padding(
-            padding: const EdgeInsets.only(
-              left: 1.24,
-            ), // slight nudge to better center the emoji
+          child: Center(
             child: Text(
               hasMood ? mood!.emoji : '',
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 23, height: 1.1),
+              textScaler: TextScaler.noScaling,
+              strutStyle: const StrutStyle(
+                fontSize: 23,
+                height: 1,
+                forceStrutHeight: true,
+              ),
+              style: const TextStyle(
+                fontSize: 23,
+                height: 1,
+                leadingDistribution: TextLeadingDistribution.even,
+              ),
             ),
           ),
         ),
