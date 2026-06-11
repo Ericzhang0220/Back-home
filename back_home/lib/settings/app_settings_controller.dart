@@ -5,8 +5,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 enum ReadingComfort {
   small(label: 'Small', textScale: 0.85),
-  medium(label: 'Medium', textScale: 0.95),
-  large(label: 'Large', textScale: 1.05);
+  medium(label: 'Medium', textScale: 1.0),
+  large(label: 'Large', textScale: 1.15);
 
   const ReadingComfort({required this.label, required this.textScale});
 
