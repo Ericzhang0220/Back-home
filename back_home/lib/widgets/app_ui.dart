@@ -109,7 +109,7 @@ class AppPage extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (leading != null) ...[leading!, const SizedBox(width: 16)],
+              if (leading != null) ...[leading!],
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -123,7 +123,7 @@ class AppPage extends StatelessWidget {
                           color: const Color.fromARGB(255, 0, 0, 0),
                         ),
                       ),
-                    const SizedBox(height: 8),
+                    if (subtitle.isNotEmpty) const SizedBox(height: 8),
                     if (subtitle.isNotEmpty)
                       Text(
                         subtitle,

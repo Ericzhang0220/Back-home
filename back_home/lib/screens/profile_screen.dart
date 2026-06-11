@@ -211,6 +211,13 @@ class _ProfileSettingsScreen extends StatelessWidget {
                   subtitle: '',
                   leading: BackButton(
                     onPressed: () => Navigator.of(context).pop(),
+                    style: ButtonStyle(
+                      iconSize: selectedTextSize == ReadingComfort.small
+                          ? WidgetStateProperty.all(20)
+                          : selectedTextSize == ReadingComfort.medium
+                          ? WidgetStateProperty.all(24)
+                          : WidgetStateProperty.all(28),
+                    ),
                   ),
                   padding: const EdgeInsets.fromLTRB(20, 0, 20, 36),
                   children: [

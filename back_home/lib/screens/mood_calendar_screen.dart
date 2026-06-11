@@ -343,7 +343,7 @@ class _MoodDayCell extends StatelessWidget {
             fontWeight: FontWeight.w600,
           ),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 5),
         Container(
           width: 30,
           height: 30,
@@ -364,13 +364,13 @@ class _MoodDayCell extends StatelessWidget {
               textAlign: TextAlign.center,
               textScaler: TextScaler.noScaling,
               strutStyle: const StrutStyle(
-                fontSize: 23,
-                height: 1,
+                fontSize: 23.5,
+                height: 1.035,
                 forceStrutHeight: true,
               ),
               style: const TextStyle(
-                fontSize: 23,
-                height: 1,
+                fontSize: 23.5,
+                height: 1.035,
                 leadingDistribution: TextLeadingDistribution.even,
               ),
             ),
@@ -384,8 +384,8 @@ class _MoodDayCell extends StatelessWidget {
     return switch (mood) {
       _MoodType.veryHappy => const Color.fromARGB(255, 0, 203, 10),
       _MoodType.happy => const Color.fromARGB(255, 170, 255, 73),
-      _MoodType.neutral => const Color.fromARGB(255, 255, 213, 97),
-      _MoodType.sad => const Color.fromARGB(255, 251, 130, 0),
+      _MoodType.neutral => const Color.fromARGB(255, 255, 255, 255),
+      _MoodType.sad => const Color.fromARGB(255, 243, 225, 61),
       _MoodType.crying => const Color.fromARGB(255, 245, 67, 67),
     };
   }

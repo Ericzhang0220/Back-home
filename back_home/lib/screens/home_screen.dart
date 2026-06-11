@@ -31,21 +31,26 @@ class _HomeScreenState extends State<HomeScreen> {
       id: 'very_happy',
       emoji: '😄',
       label: 'Very happy',
-      tint: Color(0xFF2E7D32),
+      tint: Color.fromARGB(255, 0, 203, 10),
     ),
     _MoodChoice(
       id: 'happy',
       emoji: '🙂',
       label: 'Good',
-      tint: Color(0xFF8BC34A),
+      tint: Color.fromARGB(255, 170, 255, 73),
     ),
     _MoodChoice(
       id: 'neutral',
       emoji: '😐',
       label: 'Neutral',
-      tint: Color(0xFFF3C75F),
+      tint: Color.fromARGB(255, 255, 255, 255),
     ),
-    _MoodChoice(id: 'sad', emoji: '☹️', label: 'Low', tint: Color(0xFFF39C3D)),
+    _MoodChoice(
+      id: 'sad',
+      emoji: '☹️',
+      label: 'Low',
+      tint: Color.fromARGB(255, 243, 225, 61),
+    ),
     _MoodChoice(
       id: 'crying',
       emoji: '😭',
@@ -67,63 +72,75 @@ class _HomeScreenState extends State<HomeScreen> {
       (choice) => choice.id == _selectedMoodId,
     );
 
-    return AppPage(
-      title: 'Welcome Back',
-      subtitle: 'Username',
-      trailing: const _HomeIllustration(),
-      padding: const EdgeInsets.only(top: 30, left: 23, right: 20, bottom: 140),
-      children: [
-        const SizedBox(height: 18),
-        _DailyCheckInCard(
-          moodChoices: _moodChoices,
-          needChoices: _needChoices,
-          selectedMoodId: _selectedMoodId,
-          selectedNeedId: _selectedNeedId,
-          onMoodSelected: (id) {
-            setState(() {
-              _selectedMoodId = id;
-            });
-          },
-          onNeedSelected: (id) {
-            setState(() {
-              _selectedNeedId = id;
-            });
-          },
-          summary:
-              'You marked ${selectedMood.label.toLowerCase()}. We can use this later for your calendar and weekly mood chart.',
-        ),
-        const SizedBox(height: 128),
-        Align(
-          alignment: Alignment.bottomRight,
-          child: SizedBox(
-            width: 165,
-            height: 60,
-            child: FilledButton.icon(
-              style: FilledButton.styleFrom(
-                padding: EdgeInsets.zero,
-                backgroundColor: const Color.fromARGB(255, 255, 210, 75),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18),
+    return SizedBox(
+      height: double.infinity,
+      child: Stack(
+        children: [
+          AppPage(
+            title: 'Welcome Back',
+            subtitle: 'Username',
+            trailing: const _HomeIllustration(),
+            padding: const EdgeInsets.only(
+              top: 30,
+              left: 23,
+              right: 20,
+              bottom: 140,
+            ),
+            children: [
+              const SizedBox(height: 18),
+              _DailyCheckInCard(
+                moodChoices: _moodChoices,
+                needChoices: _needChoices,
+                selectedMoodId: _selectedMoodId,
+                selectedNeedId: _selectedNeedId,
+                onMoodSelected: (id) {
+                  setState(() {
+                    _selectedMoodId = id;
+                  });
+                },
+                onNeedSelected: (id) {
+                  setState(() {
+                    _selectedNeedId = id;
+                  });
+                },
+                summary:
+                    'You marked ${selectedMood.label.toLowerCase()}. We can use this later for your calendar and weekly mood chart.',
+              ),
+            ],
+          ),
+          Positioned(
+            bottom: 25,
+            right: 30,
+            child: SizedBox(
+              width: 165,
+              height: 60,
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  padding: EdgeInsets.zero,
+                  backgroundColor: const Color.fromARGB(255, 255, 210, 75),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18),
+                  ),
                 ),
-              ),
-              onPressed: widget.onOpenRoom,
-              icon: Image.asset(
-                'assets/Arrow 2.png',
-                color: const Color.fromARGB(255, 0, 0, 0),
-                width: 28,
-              ),
-              label: const Text(
-                'Open room',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15,
-                  color: Color.fromARGB(255, 0, 0, 0),
+                onPressed: widget.onOpenRoom,
+                icon: Image.asset(
+                  'assets/Arrow 2.png',
+                  color: const Color.fromARGB(255, 0, 0, 0),
+                  width: 28,
+                ),
+                label: const Text(
+                  'Open room',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                    color: Color.fromARGB(255, 0, 0, 0),
+                  ),
                 ),
               ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

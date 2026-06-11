@@ -292,7 +292,7 @@ class _AppShellState extends State<AppShell> {
           ? Stack(
               children: [
                 AmbientBackground(showSideGlow: false),
-                SafeArea(child: _buildHomePage()),
+                SafeArea(bottom: false, child: _buildHomePage()),
               ],
             )
           : Stack(
