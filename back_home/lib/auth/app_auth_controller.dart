@@ -450,6 +450,29 @@ class AppAuthController extends ChangeNotifier {
     }
   }
 
+  Future<void> updatePublicProfileVisibility({
+    required bool showHappinessIndex,
+    required bool showLikesStat,
+    required bool showFriendsStat,
+    required bool showActiveStat,
+  }) async {
+    final user = _auth?.currentUser;
+    final firestore = _firestore;
+    if (user == null || firestore == null) {
+      return;
+    }
+
+    await firestore.collection('users').doc(user.uid).set({
+      'publicProfileVisibility': {
+        'showHappinessIndex': showHappinessIndex,
+        'showLikesStat': showLikesStat,
+        'showFriendsStat': showFriendsStat,
+        'showActiveStat': showActiveStat,
+      },
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
   Future<void> _upsertUserProfile({
     required String provider,
     String? displayName,

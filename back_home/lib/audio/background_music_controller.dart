@@ -64,6 +64,7 @@ class BackgroundMusicController extends ChangeNotifier {
       });
 
       _isInitialized = true;
+      await _applyPlaybackVolume();
       if (_settingsController.musicVolume > 0) {
         await _ensureFavoritesPlaying();
       }
@@ -113,6 +114,7 @@ class BackgroundMusicController extends ChangeNotifier {
     }
 
     try {
+      await _applyPlaybackVolume();
       if (_settingsController.musicVolume <= 0) {
         await _musicKit.pause();
         _setStatus('Apple Music is muted in Back Home.');
@@ -153,6 +155,7 @@ class BackgroundMusicController extends ChangeNotifier {
 
       await _musicKit.setShuffleMode(MusicPlayerShuffleMode.songs);
       await _musicKit.setRepeatMode(MusicPlayerRepeatMode.all);
+      await _applyPlaybackVolume();
       await _musicKit.play();
       _setStatus('Playing your Apple Music favorites.');
     } on MissingPluginException {
@@ -163,6 +166,23 @@ class BackgroundMusicController extends ChangeNotifier {
       _markUnavailable('Apple Music could not prepare songs.');
     } finally {
       _isPreparingQueue = false;
+    }
+  }
+
+  Future<void> _applyPlaybackVolume() async {
+    if (!_isAppleMusicAvailable || _isDisposed || !_supportsAppleMusic) {
+      return;
+    }
+
+    try {
+      await _favoritesChannel.invokeMethod<void>(
+        'setPlaybackVolume',
+        <String, Object?>{'volume': _settingsController.musicVolume},
+      );
+    } on MissingPluginException {
+      rethrow;
+    } on PlatformException {
+      // Keep playback available if iOS cannot expose the system volume slider.
     }
   }
 

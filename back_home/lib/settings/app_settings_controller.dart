@@ -26,17 +26,30 @@ class AppSettingsController extends ChangeNotifier {
 
   static const String _readingComfortKey = 'reading_comfort';
   static const String _musicVolumeKey = 'music_volume';
+  static const String _showHappinessIndexKey = 'show_happiness_index';
+  static const String _showLikesStatKey = 'show_likes_stat';
+  static const String _showFriendsStatKey = 'show_friends_stat';
+  static const String _showActiveStatKey = 'show_active_stat';
   static const double _defaultMusicVolume = 0.35;
 
   SharedPreferences? _preferences;
   ReadingComfort _readingComfort = ReadingComfort.medium;
   double _musicVolume = _defaultMusicVolume;
+  bool _showHappinessIndex = true;
+  bool _showLikesStat = true;
+  bool _showFriendsStat = true;
+  bool _showActiveStat = true;
   bool _readingComfortDirty = false;
   bool _musicVolumeDirty = false;
+  bool _profileVisibilityDirty = false;
 
   ReadingComfort get readingComfort => _readingComfort;
   double get musicVolume => _musicVolume;
   double get textScale => _readingComfort.textScale;
+  bool get showHappinessIndex => _showHappinessIndex;
+  bool get showLikesStat => _showLikesStat;
+  bool get showFriendsStat => _showFriendsStat;
+  bool get showActiveStat => _showActiveStat;
 
   Future<void> load() async {
     try {
@@ -64,6 +77,41 @@ class AppSettingsController extends ChangeNotifier {
             changed = true;
           }
         }
+      }
+
+      if (!_profileVisibilityDirty) {
+        changed =
+            _loadVisibilityPreference(
+              preferences,
+              _showHappinessIndexKey,
+              (value) => _showHappinessIndex = value,
+              _showHappinessIndex,
+            ) ||
+            changed;
+        changed =
+            _loadVisibilityPreference(
+              preferences,
+              _showLikesStatKey,
+              (value) => _showLikesStat = value,
+              _showLikesStat,
+            ) ||
+            changed;
+        changed =
+            _loadVisibilityPreference(
+              preferences,
+              _showFriendsStatKey,
+              (value) => _showFriendsStat = value,
+              _showFriendsStat,
+            ) ||
+            changed;
+        changed =
+            _loadVisibilityPreference(
+              preferences,
+              _showActiveStatKey,
+              (value) => _showActiveStat = value,
+              _showActiveStat,
+            ) ||
+            changed;
       }
 
       if (changed) {
@@ -97,7 +145,71 @@ class AppSettingsController extends ChangeNotifier {
     unawaited(_preferences?.setDouble(_musicVolumeKey, normalizedVolume));
   }
 
+  void setPublicProfileVisibility({
+    bool? showHappinessIndex,
+    bool? showLikesStat,
+    bool? showFriendsStat,
+    bool? showActiveStat,
+  }) {
+    var changed = false;
+
+    if (showHappinessIndex != null &&
+        _showHappinessIndex != showHappinessIndex) {
+      _showHappinessIndex = showHappinessIndex;
+      changed = true;
+      unawaited(
+        _preferences?.setBool(_showHappinessIndexKey, showHappinessIndex),
+      );
+    }
+    if (showLikesStat != null && _showLikesStat != showLikesStat) {
+      _showLikesStat = showLikesStat;
+      changed = true;
+      unawaited(_preferences?.setBool(_showLikesStatKey, showLikesStat));
+    }
+    if (showFriendsStat != null && _showFriendsStat != showFriendsStat) {
+      _showFriendsStat = showFriendsStat;
+      changed = true;
+      unawaited(_preferences?.setBool(_showFriendsStatKey, showFriendsStat));
+    }
+    if (showActiveStat != null && _showActiveStat != showActiveStat) {
+      _showActiveStat = showActiveStat;
+      changed = true;
+      unawaited(_preferences?.setBool(_showActiveStatKey, showActiveStat));
+    }
+
+    if (!changed) {
+      return;
+    }
+
+    _profileVisibilityDirty = true;
+    notifyListeners();
+  }
+
+  Map<String, bool> publicProfileVisibilityMap() {
+    return {
+      'showHappinessIndex': _showHappinessIndex,
+      'showLikesStat': _showLikesStat,
+      'showFriendsStat': _showFriendsStat,
+      'showActiveStat': _showActiveStat,
+    };
+  }
+
   double _normalizeVolume(double value) {
     return value.clamp(0.0, 1.0).toDouble();
+  }
+
+  bool _loadVisibilityPreference(
+    SharedPreferences preferences,
+    String key,
+    ValueChanged<bool> update,
+    bool currentValue,
+  ) {
+    final savedValue = preferences.getBool(key);
+    if (savedValue == null || savedValue == currentValue) {
+      return false;
+    }
+
+    update(savedValue);
+    return true;
   }
 }

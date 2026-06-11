@@ -231,156 +231,151 @@ class _SettingsPanel extends StatelessWidget {
               ),
             ],
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 44,
-                  height: 5,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFD3BAA9),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 14),
-              Row(
-                children: [
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Room settings',
-                          style: TextStyle(
-                            fontSize: 21,
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.ink,
-                          ),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          'Inventory, placement controls, and quick actions.',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: AppColors.muted,
-                          ),
-                        ),
-                      ],
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 44,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFD3BAA9),
+                      borderRadius: BorderRadius.circular(999),
                     ),
                   ),
-                  IconButton.filledTonal(
-                    onPressed: onOpenShop,
-                    icon: const Icon(Icons.shopping_bag_rounded),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton.filledTonal(
-                    onPressed: onClose,
-                    icon: const Icon(Icons.keyboard_arrow_down_rounded),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  InfoPill(
-                    icon: Icons.favorite_rounded,
-                    label: 'Likes',
-                    value: '${controller.likesBalance}',
-                    tint: const Color(0xFFF6E2CF),
-                  ),
-                  const InfoPill(
-                    icon: Icons.grid_4x4_rounded,
-                    label: 'Layout',
-                    value: '10 x 8',
-                    tint: Color(0xFFF1E9DC),
-                  ),
-                  InfoPill(
-                    icon: Icons.chair_alt_rounded,
-                    label: 'Placed',
-                    value: '${controller.placedItems.length}',
-                    tint: const Color(0xFFE7E1D6),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 18),
-              Text(
-                selectedDefinition == null
-                    ? 'Selection'
-                    : selectedDefinition!.title,
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 8),
-              Expanded(
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      SoftCard(
-                        color: const Color(0xFFFFF7EF),
-                        padding: const EdgeInsets.all(16),
-                        child: selectedItem == null
-                            ? const _EmptySelection()
-                            : _SelectionPanel(
-                                item: selectedItem!,
-                                definition: selectedDefinition!,
-                                onRotate: onRotateSelected!,
-                                onStore: onStoreSelected!,
-                              ),
-                      ),
-                      const SizedBox(height: 20),
-                      const Text(
-                        'Owned pieces',
-                        style: TextStyle(
-                          fontSize: 19,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.ink,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      const Text(
-                        'Add owned items directly into the room from here.',
-                        style: TextStyle(fontSize: 13, color: AppColors.muted),
-                      ),
-                      const SizedBox(height: 14),
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: [
-                            for (final definition
-                                in controller.ownedCatalog) ...[
-                              SizedBox(
-                                width: 168,
-                                child: _InventoryCard(
-                                  definition: definition,
-                                  availableCount: controller.availableToPlace(
-                                    definition.id,
-                                  ),
-                                  ownedCount: controller.ownedCount(
-                                    definition.id,
-                                  ),
-                                  onAdd:
-                                      controller.availableToPlace(
-                                            definition.id,
-                                          ) >
-                                          0
-                                      ? () => onAddOwnedItem(definition.id)
-                                      : null,
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                            ],
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
                 ),
-              ),
-            ],
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Room settings',
+                            style: TextStyle(
+                              fontSize: 21,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.ink,
+                            ),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            'Inventory, placement controls, and quick actions.',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: AppColors.muted,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton.filledTonal(
+                      onPressed: onOpenShop,
+                      icon: const Icon(Icons.shopping_bag_rounded),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton.filledTonal(
+                      onPressed: onClose,
+                      icon: const Icon(Icons.keyboard_arrow_down_rounded),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    InfoPill(
+                      icon: Icons.favorite_rounded,
+                      label: 'Likes',
+                      value: '${controller.likesBalance}',
+                      tint: const Color(0xFFF6E2CF),
+                    ),
+                    const InfoPill(
+                      icon: Icons.grid_4x4_rounded,
+                      label: 'Layout',
+                      value: '10 x 8',
+                      tint: Color(0xFFF1E9DC),
+                    ),
+                    InfoPill(
+                      icon: Icons.chair_alt_rounded,
+                      label: 'Placed',
+                      value: '${controller.placedItems.length}',
+                      tint: const Color(0xFFE7E1D6),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  selectedDefinition == null
+                      ? 'Selection'
+                      : selectedDefinition!.title,
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 8),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SoftCard(
+                      color: const Color(0xFFFFF7EF),
+                      padding: const EdgeInsets.all(16),
+                      child: selectedItem == null
+                          ? const _EmptySelection()
+                          : _SelectionPanel(
+                              item: selectedItem!,
+                              definition: selectedDefinition!,
+                              onRotate: onRotateSelected!,
+                              onStore: onStoreSelected!,
+                            ),
+                    ),
+                    const SizedBox(height: 20),
+                    const Text(
+                      'Owned pieces',
+                      style: TextStyle(
+                        fontSize: 19,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.ink,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Add owned items directly into the room from here.',
+                      style: TextStyle(fontSize: 13, color: AppColors.muted),
+                    ),
+                    const SizedBox(height: 14),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          for (final definition in controller.ownedCatalog) ...[
+                            SizedBox(
+                              width: 168,
+                              child: _InventoryCard(
+                                definition: definition,
+                                availableCount: controller.availableToPlace(
+                                  definition.id,
+                                ),
+                                ownedCount: controller.ownedCount(
+                                  definition.id,
+                                ),
+                                onAdd:
+                                    controller.availableToPlace(definition.id) >
+                                        0
+                                    ? () => onAddOwnedItem(definition.id)
+                                    : null,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),

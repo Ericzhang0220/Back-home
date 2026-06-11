@@ -1,9 +1,11 @@
 import Flutter
+import MediaPlayer
 import MusicKit
 import UIKit
 
 class SceneDelegate: FlutterSceneDelegate {
   private var appleMusicChannel: FlutterMethodChannel?
+  private var volumeView: MPVolumeView?
 
   override func scene(
     _ scene: UIScene,
@@ -37,11 +39,48 @@ class SceneDelegate: FlutterSceneDelegate {
         let arguments = call.arguments as? [String: Any]
         let limit = arguments?["limit"] as? Int ?? 30
         self.prepareFavoritesQueue(limit: limit, result: result)
+      case "setPlaybackVolume":
+        let arguments = call.arguments as? [String: Any]
+        let volume = arguments?["volume"] as? Double ?? 0.35
+        self.setPlaybackVolume(Float(volume), result: result)
       default:
         result(FlutterMethodNotImplemented)
       }
     }
     appleMusicChannel = channel
+  }
+
+  private func setPlaybackVolume(_ volume: Float, result: @escaping FlutterResult) {
+    let normalizedVolume = max(0.0, min(1.0, volume))
+    DispatchQueue.main.async {
+      guard let slider = self.systemVolumeSlider() else {
+        result(
+          FlutterError(
+            code: "volume_unavailable",
+            message: "System volume control is not available.",
+            details: nil
+          )
+        )
+        return
+      }
+
+      slider.setValue(normalizedVolume, animated: false)
+      slider.sendActions(for: .valueChanged)
+      result(nil)
+    }
+  }
+
+  private func systemVolumeSlider() -> UISlider? {
+    if volumeView == nil {
+      let view = MPVolumeView(frame: CGRect(x: -1000, y: -1000, width: 1, height: 1))
+      view.showsRouteButton = false
+      view.alpha = 0.01
+      window?.addSubview(view)
+      volumeView = view
+    }
+
+    volumeView?.layoutIfNeeded()
+    return volumeView?.subviews.compactMap { $0 as? UISlider }.first
   }
 
   private func prepareFavoritesQueue(limit: Int, result: @escaping FlutterResult) {
