@@ -187,39 +187,50 @@ class _ProfileSettingsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.cream,
-      body: Stack(
-        children: [
-          const AmbientBackground(showSideGlow: true),
-          SafeArea(
-            child: AnimatedBuilder(
-              animation: Listenable.merge([
-                settingsController,
-                musicController,
-                authController,
-              ]),
-              builder: (context, _) {
-                final selectedTextSize = settingsController.readingComfort;
-                final musicVolume = settingsController.musicVolume;
-                final currentTrackTitle = musicController.currentTrackTitle;
-                final currentTrackSubtitle =
-                    musicController.currentTrackSubtitle;
+    return AnimatedBuilder(
+      animation: Listenable.merge([
+        settingsController,
+        musicController,
+        authController,
+      ]),
+      builder: (context, _) {
+        final selectedTextSize = settingsController.readingComfort;
+        final musicVolume = settingsController.musicVolume;
+        final currentTrackTitle = musicController.currentTrackTitle;
+        final currentTrackSubtitle = musicController.currentTrackSubtitle;
 
-                return AppPage(
-                  title: 'Settings',
+        return Scaffold(
+          backgroundColor: AppColors.cream,
+          appBar: AppBar(
+            backgroundColor: AppColors.cream.withValues(alpha: 0.94),
+            foregroundColor: AppColors.ink,
+            surfaceTintColor: Colors.transparent,
+            elevation: 0,
+            scrolledUnderElevation: 0,
+            title: Text(
+              'Settings',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            leading: BackButton(
+              onPressed: () => Navigator.of(context).pop(),
+              style: ButtonStyle(
+                iconSize: selectedTextSize == ReadingComfort.small
+                    ? WidgetStateProperty.all(20)
+                    : selectedTextSize == ReadingComfort.medium
+                    ? WidgetStateProperty.all(24)
+                    : WidgetStateProperty.all(28),
+              ),
+            ),
+          ),
+          body: Stack(
+            children: [
+              const AmbientBackground(showSideGlow: true),
+              SafeArea(
+                top: false,
+                child: AppPage(
+                  title: '',
                   subtitle: '',
-                  leading: BackButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    style: ButtonStyle(
-                      iconSize: selectedTextSize == ReadingComfort.small
-                          ? WidgetStateProperty.all(20)
-                          : selectedTextSize == ReadingComfort.medium
-                          ? WidgetStateProperty.all(24)
-                          : WidgetStateProperty.all(28),
-                    ),
-                  ),
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 36),
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 36),
                   children: [
                     const SectionHeader(
                       title: 'Public profile visibility',
@@ -382,12 +393,12 @@ class _ProfileSettingsScreen extends StatelessWidget {
                       destructive: true,
                     ),
                   ],
-                );
-              },
-            ),
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
