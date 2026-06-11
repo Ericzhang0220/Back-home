@@ -135,15 +135,19 @@ class _HallScreenState extends State<HallScreen> {
 
               return Column(
                 children: [
-                  for (final post in posts) ...[
-                    HallPostCard(
-                      post: post,
-                      onLikeTap: () => _toggleLike(post),
-                      onCommentTap: () => _openPostThread(post),
-                      onAuthorTap: () => _openUserProfile(post),
-                      onEdit: post.canEdit
-                          ? () => _openCreatePost(existingPost: post)
-                          : null,
+                  for (var index = 0; index < posts.length; index++) ...[
+                    StaggeredFadeIn(
+                      key: ValueKey(_postAnimationKey(posts[index])),
+                      delay: _postFadeDelay(index),
+                      child: HallPostCard(
+                        post: posts[index],
+                        onLikeTap: () => _toggleLike(posts[index]),
+                        onCommentTap: () => _openPostThread(posts[index]),
+                        onAuthorTap: () => _openUserProfile(posts[index]),
+                        onEdit: posts[index].canEdit
+                            ? () => _openCreatePost(existingPost: posts[index])
+                            : null,
+                      ),
                     ),
                     const SizedBox(height: 12),
                   ],
@@ -176,6 +180,19 @@ class _HallScreenState extends State<HallScreen> {
               post.message.toLowerCase().contains(needle);
         })
         .toList(growable: false);
+  }
+
+  String _postAnimationKey(HallPost post) {
+    final id = post.id;
+    if (id != null) {
+      return 'hall-post-$id';
+    }
+
+    return 'hall-post-${post.author}-${post.lastUpdatedAt.millisecondsSinceEpoch}-${post.message.hashCode}';
+  }
+
+  Duration _postFadeDelay(int index) {
+    return Duration(milliseconds: (55 * index).clamp(0, 420));
   }
 
   Future<void> _openCreatePost({HallPost? existingPost}) async {

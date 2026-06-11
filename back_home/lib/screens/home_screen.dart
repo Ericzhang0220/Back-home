@@ -25,6 +25,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   String _selectedMoodId = 'happy';
   String _selectedNeedId = 'comfort';
+  bool _hasConfirmedMood = false;
 
   static const List<_MoodChoice> _moodChoices = [
     _MoodChoice(
@@ -32,30 +33,40 @@ class _HomeScreenState extends State<HomeScreen> {
       emoji: '😄',
       label: 'Very happy',
       tint: Color.fromARGB(255, 0, 203, 10),
+      message:
+          'Hold onto that brightness. Your room is ready whenever you want to settle in.',
     ),
     _MoodChoice(
       id: 'happy',
       emoji: '🙂',
       label: 'Good',
       tint: Color.fromARGB(255, 170, 255, 73),
+      message:
+          'Good is worth noticing. Step into your room and let the evening stay gentle.',
     ),
     _MoodChoice(
       id: 'neutral',
       emoji: '😐',
       label: 'Neutral',
       tint: Color.fromARGB(255, 255, 255, 255),
+      message:
+          'A quiet middle is still a real check-in. Your room can meet you there.',
     ),
     _MoodChoice(
       id: 'sad',
       emoji: '☹️',
       label: 'Low',
       tint: Color.fromARGB(255, 243, 225, 61),
+      message:
+          'Low days can move slowly. Your room is here for a softer landing.',
     ),
     _MoodChoice(
       id: 'crying',
       emoji: '😭',
       label: 'Bad',
       tint: Color(0xFFE45757),
+      message:
+          'That sounds heavy. Come back home and take one small breath at a time.',
     ),
   ];
 
@@ -77,9 +88,8 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Stack(
         children: [
           AppPage(
-            title: 'Welcome Back',
-            subtitle: 'Username',
-            trailing: const _HomeIllustration(),
+            title: '',
+            subtitle: '',
             padding: const EdgeInsets.only(
               top: 30,
               left: 23,
@@ -87,53 +97,96 @@ class _HomeScreenState extends State<HomeScreen> {
               bottom: 140,
             ),
             children: [
+              const StaggeredFadeIn(child: _HomeHeader()),
               const SizedBox(height: 18),
-              _DailyCheckInCard(
-                moodChoices: _moodChoices,
-                needChoices: _needChoices,
-                selectedMoodId: _selectedMoodId,
-                selectedNeedId: _selectedNeedId,
-                onMoodSelected: (id) {
-                  setState(() {
-                    _selectedMoodId = id;
-                  });
-                },
-                onNeedSelected: (id) {
-                  setState(() {
-                    _selectedNeedId = id;
-                  });
-                },
-                summary:
-                    'You marked ${selectedMood.label.toLowerCase()}. We can use this later for your calendar and weekly mood chart.',
+              StaggeredFadeIn(
+                delay: const Duration(milliseconds: 170),
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 320),
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeInCubic,
+                  transitionBuilder: (child, animation) {
+                    return FadeTransition(
+                      opacity: animation,
+                      child: SlideTransition(
+                        position: Tween<Offset>(
+                          begin: const Offset(0, 0.025),
+                          end: Offset.zero,
+                        ).animate(animation),
+                        child: child,
+                      ),
+                    );
+                  },
+                  child: _hasConfirmedMood
+                      ? _MoodConfirmationCard(
+                          key: ValueKey('confirmed-${selectedMood.id}'),
+                          mood: selectedMood,
+                        )
+                      : _DailyCheckInCard(
+                          key: const ValueKey('check-in-card'),
+                          moodChoices: _moodChoices,
+                          needChoices: _needChoices,
+                          selectedMoodId: _selectedMoodId,
+                          selectedNeedId: _selectedNeedId,
+                          onMoodSelected: _handleMoodTap,
+                          onNeedSelected: (id) {
+                            setState(() {
+                              _selectedNeedId = id;
+                            });
+                          },
+                          summary:
+                              'You marked ${selectedMood.label.toLowerCase()}. We can use this later for your calendar and weekly mood chart.',
+                        ),
+                ),
               ),
             ],
           ),
           Positioned(
             bottom: 25,
             right: 30,
-            child: SizedBox(
-              width: 165,
-              height: 60,
-              child: FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  padding: EdgeInsets.zero,
-                  backgroundColor: const Color.fromARGB(255, 255, 210, 75),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                ),
-                onPressed: widget.onOpenRoom,
-                icon: Image.asset(
-                  'assets/Arrow 2.png',
-                  color: const Color.fromARGB(255, 0, 0, 0),
-                  width: 28,
-                ),
-                label: const Text(
-                  'Open room',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 15,
-                    color: Color.fromARGB(255, 0, 0, 0),
+            child: IgnorePointer(
+              ignoring: !_hasConfirmedMood,
+              child: AnimatedOpacity(
+                opacity: _hasConfirmedMood ? 1 : 0,
+                duration: const Duration(milliseconds: 280),
+                curve: Curves.easeOutCubic,
+                child: AnimatedSlide(
+                  offset: _hasConfirmedMood
+                      ? Offset.zero
+                      : const Offset(0, 0.1),
+                  duration: const Duration(milliseconds: 280),
+                  curve: Curves.easeOutCubic,
+                  child: SizedBox(
+                    width: 165,
+                    height: 60,
+                    child: FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        backgroundColor: const Color.fromARGB(
+                          255,
+                          255,
+                          210,
+                          75,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(18),
+                        ),
+                      ),
+                      onPressed: widget.onOpenRoom,
+                      icon: Image.asset(
+                        'assets/Arrow 2.png',
+                        color: const Color.fromARGB(255, 0, 0, 0),
+                        width: 28,
+                      ),
+                      label: const Text(
+                        'Open room',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                          color: Color.fromARGB(255, 0, 0, 0),
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -143,10 +196,63 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+
+  void _handleMoodTap(String id) {
+    setState(() {
+      if (_selectedMoodId == id) {
+        _hasConfirmedMood = true;
+        return;
+      }
+
+      _selectedMoodId = id;
+      _hasConfirmedMood = false;
+    });
+  }
+}
+
+class _HomeHeader extends StatelessWidget {
+  const _HomeHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: const [
+              Text(
+                'Welcome Back',
+                style: TextStyle(
+                  fontSize: 29,
+                  fontWeight: FontWeight.bold,
+                  color: Color.fromARGB(255, 0, 0, 0),
+                ),
+              ),
+              SizedBox(height: 8),
+              Text(
+                'Username',
+                style: TextStyle(
+                  color: Color.fromARGB(255, 0, 0, 0),
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 16),
+        const _HomeIllustration(),
+      ],
+    );
+  }
 }
 
 class _DailyCheckInCard extends StatelessWidget {
   const _DailyCheckInCard({
+    super.key,
     required this.moodChoices,
     required this.needChoices,
     required this.selectedMoodId,
@@ -268,18 +374,71 @@ class _DailyCheckInCard extends StatelessWidget {
   }
 }
 
+class _MoodConfirmationCard extends StatelessWidget {
+  const _MoodConfirmationCard({super.key, required this.mood});
+
+  final _MoodChoice mood;
+
+  @override
+  Widget build(BuildContext context) {
+    return SoftCard(
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [mood.tint.withValues(alpha: 0.26), const Color(0xFFFFF8F1)],
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+      radius: 30,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 54,
+            height: 54,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(color: mood.tint, shape: BoxShape.circle),
+            child: Text(mood.emoji, style: const TextStyle(fontSize: 29)),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Checked in as ${mood.label.toLowerCase()}',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  mood.message,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodyLarge?.copyWith(color: AppColors.muted),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _MoodChoice {
   const _MoodChoice({
     required this.id,
     required this.emoji,
     required this.label,
     required this.tint,
+    required this.message,
   });
 
   final String id;
   final String emoji;
   final String label;
   final Color tint;
+  final String message;
 }
 
 class _NeedChoice {
