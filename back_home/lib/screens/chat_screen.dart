@@ -1,14 +1,42 @@
 import 'dart:typed_data';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../auth/app_auth_controller.dart';
+import '../chat/tutor_llm_client.dart';
 import '../widgets/app_ui.dart';
+import '../widgets/profile_avatar.dart';
 
 enum _ChatPage { ai, human, tutor }
 
+String _publicUserIdForUid(String uid) {
+  var hash = 0;
+  for (final unit in uid.codeUnits) {
+    hash = (hash * 31 + unit) & 0x7fffffff;
+  }
+  return (100000000 + (hash % 900000000)).toString();
+}
+
+Color _tintForUid(String uid) {
+  const colors = [
+    AppColors.blush,
+    AppColors.peach,
+    Color(0xFFDDE8DD),
+    Color(0xFFFFE3B4),
+    Color(0xFFEAD3BB),
+  ];
+  if (uid.isEmpty) {
+    return colors.first;
+  }
+  return colors[uid.codeUnitAt(0) % colors.length];
+}
+
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key});
+  const ChatScreen({super.key, required this.authController});
+
+  final AppAuthController authController;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -20,10 +48,12 @@ class _ChatScreenState extends State<ChatScreen> {
   final _tutorSearchController = TextEditingController();
   final _messageController = TextEditingController();
   final _imagePicker = ImagePicker();
+  final _tutorClient = TutorLlmClient();
 
   _ChatPage _selectedPage = _ChatPage.ai;
   int _selectedTutorSession = 0;
   int _nextGeneratedUserId = 500000000;
+  bool _isTutorSidebarOpen = true;
 
   final List<_AiCharacter> _aiCharacters = [
     const _AiCharacter(
@@ -49,43 +79,6 @@ class _ChatScreenState extends State<ChatScreen> {
       preview: 'Let us turn that stress into three smaller tasks.',
       tint: Color(0xFFFFE3B4),
       icon: Icons.school_rounded,
-    ),
-  ];
-
-  final List<_HumanContact> _humanContacts = [
-    _HumanContact(
-      userId: '482015739',
-      name: 'Maya',
-      handle: '@maya-room',
-      preview: 'Your room setup looks calmer already.',
-      time: '12:04 PM',
-      tint: Color(0xFFEAD3BB),
-      unreadCount: 2,
-    ),
-    _HumanContact(
-      userId: '615938204',
-      name: 'Jordan',
-      handle: '@jordan',
-      preview: 'I can join the study timer after dinner.',
-      time: '10:35 AM',
-      tint: Color(0xFFDDE8DD),
-    ),
-    _HumanContact(
-      userId: '790462318',
-      name: 'Sam',
-      handle: '@sam-care',
-      preview: 'Try the softer lamp from the shop.',
-      time: 'Yesterday',
-      tint: Color(0xFFF4D7C5),
-    ),
-    _HumanContact(
-      userId: '904136527',
-      name: 'Community help',
-      handle: 'Back Home users',
-      preview: 'A new bottle reply is waiting for you.',
-      time: 'Mon',
-      tint: Color(0xFFFFDDAF),
-      unreadCount: 1,
     ),
   ];
 
@@ -168,12 +161,14 @@ class _ChatScreenState extends State<ChatScreen> {
                   characters: _filteredAiCharacters,
                   onSearchChanged: (_) => setState(() {}),
                   onPickAvatar: _pickAiAvatar,
+                  onOpenCharacter: _openAiConversation,
                 ),
                 _ChatPage.human => _HumanContactsPage(
                   key: const ValueKey(_ChatPage.human),
                   searchController: _humanSearchController,
-                  contacts: _filteredHumanContacts,
                   onSearchChanged: (_) => setState(() {}),
+                  currentUid: widget.authController.currentUser?.uid,
+                  onOpenContact: _openHumanConversation,
                 ),
                 _ChatPage.tutor => _TutorChatPage(
                   key: const ValueKey(_ChatPage.tutor),
@@ -181,9 +176,15 @@ class _ChatScreenState extends State<ChatScreen> {
                   messageController: _messageController,
                   sessions: _filteredTutorSessions,
                   selectedSession: _selectedVisibleTutorSession,
+                  isSidebarOpen: _isTutorSidebarOpen,
                   onSearchChanged: (_) => setState(() {}),
                   onSessionSelected: _selectTutorSession,
                   onSendMessage: _sendTutorMessage,
+                  onSidebarChanged: (isOpen) {
+                    setState(() {
+                      _isTutorSidebarOpen = isOpen;
+                    });
+                  },
                 ),
               },
             ),
@@ -203,20 +204,6 @@ class _ChatScreenState extends State<ChatScreen> {
       return character.name.toLowerCase().contains(query) ||
           character.userId.contains(query) ||
           character.personality.toLowerCase().contains(query);
-    }).toList();
-  }
-
-  List<_HumanContact> get _filteredHumanContacts {
-    final query = _humanSearchController.text.trim().toLowerCase();
-    if (query.isEmpty) {
-      return _humanContacts;
-    }
-
-    return _humanContacts.where((contact) {
-      return contact.name.toLowerCase().contains(query) ||
-          contact.userId.contains(query) ||
-          contact.handle.toLowerCase().contains(query) ||
-          contact.preview.toLowerCase().contains(query);
     }).toList();
   }
 
@@ -249,7 +236,7 @@ class _ChatScreenState extends State<ChatScreen> {
       case _ChatPage.ai:
         _showAddAiCharacterDialog();
       case _ChatPage.human:
-        _showAddHumanContactDialog();
+        _showHumanDirectoryHint();
       case _ChatPage.tutor:
         _addTutorSession();
     }
@@ -285,36 +272,6 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  Future<void> _showAddHumanContactDialog() async {
-    final nameController = TextEditingController();
-    final handleController = TextEditingController();
-    final userId = _generateUserId();
-
-    try {
-      final contact = await showDialog<_HumanContact>(
-        context: context,
-        builder: (context) {
-          return _AddHumanDialog(
-            userId: userId,
-            nameController: nameController,
-            handleController: handleController,
-          );
-        },
-      );
-
-      if (contact == null || !mounted) {
-        return;
-      }
-
-      setState(() {
-        _humanContacts.insert(0, contact);
-      });
-    } finally {
-      nameController.dispose();
-      handleController.dispose();
-    }
-  }
-
   Future<void> _pickAiAvatar(_AiCharacter character) async {
     final image = await _imagePicker.pickImage(source: ImageSource.gallery);
     if (image == null || !mounted) {
@@ -337,6 +294,17 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _addTutorSession() {
+    if (!_selectedVisibleTutorSession.isDirty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Ask something in this new chat before starting another.',
+          ),
+        ),
+      );
+      return;
+    }
+
     setState(() {
       final sessionNumber = _tutorSessions.length + 1;
       _tutorSessions.insert(
@@ -354,6 +322,7 @@ class _ChatScreenState extends State<ChatScreen> {
       );
       _selectedTutorSession = 0;
       _selectedPage = _ChatPage.tutor;
+      _isTutorSidebarOpen = false;
       _tutorSearchController.clear();
     });
   }
@@ -369,7 +338,7 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  void _sendTutorMessage() {
+  Future<void> _sendTutorMessage() async {
     final message = _messageController.text.trim();
     if (message.isEmpty) {
       return;
@@ -381,21 +350,73 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
 
+    final requestMessages = [
+      ...session.messages,
+      _TutorMessage(isUser: true, text: message),
+    ];
+
     setState(() {
       _tutorSessions[index] = session.copyWith(
         subtitle: message,
         messages: [
-          ...session.messages,
-          _TutorMessage(isUser: true, text: message),
+          ...requestMessages,
           const _TutorMessage(
             isUser: false,
-            text:
-                'Let us make that concrete. What is the first small step you can take in the next ten minutes?',
+            text: 'Thinking...',
+            isPending: true,
           ),
         ],
       );
       _selectedTutorSession = index;
       _messageController.clear();
+    });
+
+    final reply = await _tutorClient.ask(
+      sessionTitle: session.title,
+      messages: requestMessages
+          .map(
+            (message) => TutorChatMessage(
+              role: message.isUser ? 'user' : 'assistant',
+              text: message.text,
+            ),
+          )
+          .toList(),
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    final latestIndex = _tutorSessions.indexWhere(
+      (candidate) => candidate.title == session.title,
+    );
+    if (latestIndex < 0) {
+      return;
+    }
+
+    final latestSession = _tutorSessions[latestIndex];
+    final updatedMessages = [...latestSession.messages];
+    final pendingIndex = updatedMessages.lastIndexWhere(
+      (message) => message.isPending,
+    );
+    final replyText = reply.usedFallback
+        ? '${reply.text}\n\nBackend: local fallback'
+        : reply.text;
+    if (pendingIndex >= 0) {
+      updatedMessages[pendingIndex] = _TutorMessage(
+        isUser: false,
+        text: replyText,
+      );
+    } else {
+      updatedMessages.add(_TutorMessage(isUser: false, text: replyText));
+    }
+
+    setState(() {
+      _tutorSessions[latestIndex] = latestSession.copyWith(
+        subtitle: message,
+        messages: updatedMessages,
+      );
+      _selectedTutorSession = latestIndex;
     });
   }
 
@@ -403,6 +424,51 @@ class _ChatScreenState extends State<ChatScreen> {
     final id = _nextGeneratedUserId;
     _nextGeneratedUserId += 1;
     return id.toString().padLeft(9, '0');
+  }
+
+  void _showHumanDirectoryHint() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Human chats come from Firebase users.')),
+    );
+  }
+
+  Future<void> _openAiConversation(_AiCharacter character) async {
+    final peer = _ChatPeer.ai(
+      id: character.userId,
+      displayName: character.name,
+      subtitle: character.personality,
+      photoUrl: null,
+      tint: character.tint,
+      icon: character.icon,
+      avatarBytes: character.avatarBytes,
+    );
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _DirectChatScreen(
+          peer: peer,
+          currentUid: widget.authController.currentUser?.uid,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openHumanConversation(_HumanContact contact) async {
+    final peer = _ChatPeer.human(
+      id: contact.uid,
+      displayName: contact.name,
+      subtitle: contact.handle,
+      publicUserId: contact.userId,
+      photoUrl: contact.photoUrl,
+      tint: contact.tint,
+    );
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _DirectChatScreen(
+          peer: peer,
+          currentUid: widget.authController.currentUser?.uid,
+        ),
+      ),
+    );
   }
 }
 
@@ -598,12 +664,14 @@ class _AiContactsPage extends StatelessWidget {
     required this.characters,
     required this.onSearchChanged,
     required this.onPickAvatar,
+    required this.onOpenCharacter,
   });
 
   final TextEditingController searchController;
   final List<_AiCharacter> characters;
   final ValueChanged<String> onSearchChanged;
   final ValueChanged<_AiCharacter> onPickAvatar;
+  final ValueChanged<_AiCharacter> onOpenCharacter;
 
   @override
   Widget build(BuildContext context) {
@@ -623,7 +691,11 @@ class _AiContactsPage extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         for (final character in characters)
-          _AiCharacterTile(character: character, onPickAvatar: onPickAvatar),
+          _AiCharacterTile(
+            character: character,
+            onPickAvatar: onPickAvatar,
+            onOpen: () => onOpenCharacter(character),
+          ),
         if (characters.isEmpty)
           const _EmptySearchResult(text: 'No AI characters match this search.'),
       ],
@@ -635,35 +707,65 @@ class _HumanContactsPage extends StatelessWidget {
   const _HumanContactsPage({
     super.key,
     required this.searchController,
-    required this.contacts,
     required this.onSearchChanged,
+    required this.currentUid,
+    required this.onOpenContact,
   });
 
   final TextEditingController searchController;
-  final List<_HumanContact> contacts;
   final ValueChanged<String> onSearchChanged;
+  final String? currentUid;
+  final ValueChanged<_HumanContact> onOpenContact;
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 122),
-      children: [
-        _SearchField(
-          controller: searchController,
-          hintText: 'Search app users or ID',
-          onChanged: onSearchChanged,
-        ),
-        const SizedBox(height: 12),
-        _DeviceStatusBanner(
-          icon: Icons.phone_iphone_rounded,
-          text: 'Regular chats with other Back Home users',
-        ),
-        const SizedBox(height: 8),
-        for (final contact in contacts) _HumanContactTile(contact: contact),
-        if (contacts.isEmpty)
-          const _EmptySearchResult(text: 'No people match this search.'),
-      ],
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance.collection('users').snapshots(),
+      builder: (context, snapshot) {
+        final query = searchController.text.trim().toLowerCase();
+        final contacts =
+            snapshot.data?.docs
+                .where((doc) => doc.id != currentUid)
+                .map(_HumanContact.fromUserDoc)
+                .where((contact) => contact.matches(query))
+                .toList() ??
+            <_HumanContact>[];
+        contacts.sort((a, b) => a.name.compareTo(b.name));
+
+        return ListView(
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 122),
+          children: [
+            _SearchField(
+              controller: searchController,
+              hintText: 'Search app users or ID',
+              onChanged: onSearchChanged,
+            ),
+            const SizedBox(height: 12),
+            _DeviceStatusBanner(
+              icon: Icons.phone_iphone_rounded,
+              text: snapshot.hasError
+                  ? 'Could not load Firebase users.'
+                  : 'Regular chats with other Back Home users',
+            ),
+            const SizedBox(height: 8),
+            if (snapshot.connectionState == ConnectionState.waiting)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 30),
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else ...[
+              for (final contact in contacts)
+                _HumanContactTile(
+                  contact: contact,
+                  onOpen: () => onOpenContact(contact),
+                ),
+              if (contacts.isEmpty)
+                const _EmptySearchResult(text: 'No people match this search.'),
+            ],
+          ],
+        );
+      },
     );
   }
 }
@@ -675,18 +777,22 @@ class _TutorChatPage extends StatelessWidget {
     required this.messageController,
     required this.sessions,
     required this.selectedSession,
+    required this.isSidebarOpen,
     required this.onSearchChanged,
     required this.onSessionSelected,
     required this.onSendMessage,
+    required this.onSidebarChanged,
   });
 
   final TextEditingController searchController;
   final TextEditingController messageController;
   final List<_TutorSession> sessions;
   final _TutorSession selectedSession;
+  final bool isSidebarOpen;
   final ValueChanged<String> onSearchChanged;
   final ValueChanged<_TutorSession> onSessionSelected;
   final VoidCallback onSendMessage;
+  final ValueChanged<bool> onSidebarChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -695,67 +801,154 @@ class _TutorChatPage extends StatelessWidget {
         final compact = constraints.maxWidth < 430;
         final sidebarWidth = compact ? 122.0 : 168.0;
 
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 122),
-          child: Row(
-            children: [
-              SizedBox(
-                width: sidebarWidth,
-                child: Column(
-                  children: [
-                    _SearchField(
-                      controller: searchController,
-                      hintText: compact ? 'History' : 'Search history',
-                      onChanged: onSearchChanged,
-                    ),
-                    const SizedBox(height: 10),
-                    Expanded(
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.58),
-                          borderRadius: BorderRadius.circular(18),
-                          border: Border.all(color: AppColors.stroke),
+        return GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onHorizontalDragEnd: (details) {
+            final velocity = details.primaryVelocity ?? 0;
+            if (velocity > 300) {
+              onSidebarChanged(true);
+            } else if (velocity < -300) {
+              onSidebarChanged(false);
+            }
+          },
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 122),
+            child: Row(
+              children: [
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOutCubic,
+                  width: isSidebarOpen ? sidebarWidth : 38,
+                  child: isSidebarOpen
+                      ? _TutorSidebar(
+                          searchController: searchController,
+                          sessions: sessions,
+                          selectedSession: selectedSession,
+                          compact: compact,
+                          onSearchChanged: onSearchChanged,
+                          onSessionSelected: onSessionSelected,
+                          onCollapse: () => onSidebarChanged(false),
+                        )
+                      : _CollapsedTutorSidebar(
+                          onExpand: () => onSidebarChanged(true),
                         ),
-                        child: ListView(
-                          padding: const EdgeInsets.symmetric(vertical: 6),
-                          children: [
-                            for (final session in sessions)
-                              _TutorHistoryTile(
-                                session: session,
-                                isSelected: session == selectedSession,
-                                onTap: () => onSessionSelected(session),
-                              ),
-                            if (sessions.isEmpty)
-                              const Padding(
-                                padding: EdgeInsets.all(12),
-                                child: Text(
-                                  'No saved chats',
-                                  style: TextStyle(
-                                    color: AppColors.muted,
-                                    fontSize: 12,
-                                    height: 1.3,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
                 ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _TutorConversation(
-                  session: selectedSession,
-                  messageController: messageController,
-                  onSendMessage: onSendMessage,
+                SizedBox(width: isSidebarOpen ? 10 : 8),
+                Expanded(
+                  child: _TutorConversation(
+                    session: selectedSession,
+                    messageController: messageController,
+                    onSendMessage: onSendMessage,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         );
       },
+    );
+  }
+}
+
+class _TutorSidebar extends StatelessWidget {
+  const _TutorSidebar({
+    required this.searchController,
+    required this.sessions,
+    required this.selectedSession,
+    required this.compact,
+    required this.onSearchChanged,
+    required this.onSessionSelected,
+    required this.onCollapse,
+  });
+
+  final TextEditingController searchController;
+  final List<_TutorSession> sessions;
+  final _TutorSession selectedSession;
+  final bool compact;
+  final ValueChanged<String> onSearchChanged;
+  final ValueChanged<_TutorSession> onSessionSelected;
+  final VoidCallback onCollapse;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _SearchField(
+                controller: searchController,
+                hintText: compact ? 'History' : 'Search history',
+                onChanged: onSearchChanged,
+              ),
+            ),
+            const SizedBox(width: 6),
+            IconButton(
+              tooltip: 'Hide history',
+              onPressed: onCollapse,
+              icon: const Icon(Icons.chevron_left_rounded),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Expanded(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.58),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: AppColors.stroke),
+            ),
+            child: ListView(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              children: [
+                for (final session in sessions)
+                  _TutorHistoryTile(
+                    session: session,
+                    isSelected: session == selectedSession,
+                    onTap: () => onSessionSelected(session),
+                  ),
+                if (sessions.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: Text(
+                      'No saved chats',
+                      style: TextStyle(
+                        color: AppColors.muted,
+                        fontSize: 12,
+                        height: 1.3,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CollapsedTutorSidebar extends StatelessWidget {
+  const _CollapsedTutorSidebar({required this.onExpand});
+
+  final VoidCallback onExpand;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.topCenter,
+      child: Tooltip(
+        message: 'Show history',
+        child: IconButton.filledTonal(
+          onPressed: onExpand,
+          icon: const Icon(Icons.chevron_right_rounded),
+          style: IconButton.styleFrom(
+            backgroundColor: Colors.white.withValues(alpha: 0.78),
+            foregroundColor: AppColors.ink,
+            side: const BorderSide(color: AppColors.stroke),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -794,17 +987,23 @@ class _DeviceStatusBanner extends StatelessWidget {
 }
 
 class _AiCharacterTile extends StatelessWidget {
-  const _AiCharacterTile({required this.character, required this.onPickAvatar});
+  const _AiCharacterTile({
+    required this.character,
+    required this.onPickAvatar,
+    required this.onOpen,
+  });
 
   final _AiCharacter character;
   final ValueChanged<_AiCharacter> onPickAvatar;
+  final VoidCallback onOpen;
 
   @override
   Widget build(BuildContext context) {
     return _ChatRow(
+      onTap: onOpen,
       avatar: _EditableAvatar(character: character, onPickAvatar: onPickAvatar),
       title: character.name,
-      subtitle: 'ID ${character.userId} • ${character.preview}',
+      subtitle: character.preview,
       meta: character.personality,
       trailing: character.isCustom
           ? const Icon(Icons.image_outlined, color: AppColors.muted, size: 20)
@@ -818,23 +1017,25 @@ class _AiCharacterTile extends StatelessWidget {
 }
 
 class _HumanContactTile extends StatelessWidget {
-  const _HumanContactTile({required this.contact});
+  const _HumanContactTile({required this.contact, required this.onOpen});
 
   final _HumanContact contact;
+  final VoidCallback onOpen;
 
   @override
   Widget build(BuildContext context) {
     return _ChatRow(
+      onTap: onOpen,
       avatar: _AvatarBox(
         color: contact.tint,
         icon: Icons.person_rounded,
-        badgeCount: contact.unreadCount,
+        photoUrl: contact.photoUrl,
       ),
       title: contact.name,
-      subtitle: 'ID ${contact.userId} • ${contact.preview}',
-      meta: contact.time,
+      subtitle: contact.preview,
+      meta: contact.handle,
       trailing: Text(
-        contact.handle,
+        'Profile',
         overflow: TextOverflow.ellipsis,
         textAlign: TextAlign.right,
         style: const TextStyle(color: AppColors.muted, fontSize: 12),
@@ -845,6 +1046,7 @@ class _HumanContactTile extends StatelessWidget {
 
 class _ChatRow extends StatelessWidget {
   const _ChatRow({
+    required this.onTap,
     required this.avatar,
     required this.title,
     required this.subtitle,
@@ -852,6 +1054,7 @@ class _ChatRow extends StatelessWidget {
     required this.trailing,
   });
 
+  final VoidCallback onTap;
   final Widget avatar;
   final String title;
   final String subtitle;
@@ -862,79 +1065,84 @@ class _ChatRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Container(
-      constraints: const BoxConstraints(minHeight: 82),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(bottom: BorderSide(color: AppColors.stroke)),
-      ),
-      child: Row(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(0, 12, 12, 12),
-            child: avatar,
+    return Material(
+      color: Colors.white,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 82),
+          decoration: const BoxDecoration(
+            border: Border(bottom: BorderSide(color: AppColors.stroke)),
           ),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+          child: Row(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(0, 12, 12, 12),
+                child: avatar,
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: Text(
-                          title,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontSize: 18,
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              title,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontSize: 18,
+                              ),
+                            ),
                           ),
-                        ),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              meta,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.right,
+                              style: const TextStyle(
+                                color: AppColors.muted,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 8),
-                      Flexible(
-                        child: Text(
-                          meta,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.right,
-                          style: const TextStyle(
-                            color: AppColors.muted,
-                            fontSize: 12,
+                      const SizedBox(height: 5),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              subtitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: const Color(0xFF9A8B83),
+                                fontSize: 15,
+                              ),
+                            ),
                           ),
-                        ),
+                          const SizedBox(width: 8),
+                          SizedBox(
+                            width: 76,
+                            child: Align(
+                              alignment: Alignment.centerRight,
+                              child: trailing,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                  const SizedBox(height: 5),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          subtitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: const Color(0xFF9A8B83),
-                            fontSize: 15,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      SizedBox(
-                        width: 76,
-                        child: Align(
-                          alignment: Alignment.centerRight,
-                          child: trailing,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+                ),
               ),
-            ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -997,13 +1205,13 @@ class _AvatarBox extends StatelessWidget {
     required this.color,
     required this.icon,
     this.imageBytes,
-    this.badgeCount = 0,
+    this.photoUrl,
   });
 
   final Color color;
   final IconData icon;
   final Uint8List? imageBytes;
-  final int badgeCount;
+  final String? photoUrl;
 
   @override
   Widget build(BuildContext context) {
@@ -1018,34 +1226,12 @@ class _AvatarBox extends StatelessWidget {
             color: color,
             borderRadius: BorderRadius.circular(14),
           ),
-          child: imageBytes == null
-              ? Icon(icon, color: AppColors.ink, size: 29)
-              : Image.memory(imageBytes!, fit: BoxFit.cover),
+          child: imageBytes != null
+              ? Image.memory(imageBytes!, fit: BoxFit.cover)
+              : (photoUrl != null && photoUrl!.isNotEmpty)
+              ? Image.network(photoUrl!, fit: BoxFit.cover)
+              : Icon(icon, color: AppColors.ink, size: 29),
         ),
-        if (badgeCount > 0)
-          Positioned(
-            right: -5,
-            top: -5,
-            child: Container(
-              height: 20,
-              constraints: const BoxConstraints(minWidth: 20),
-              alignment: Alignment.center,
-              padding: const EdgeInsets.symmetric(horizontal: 5),
-              decoration: BoxDecoration(
-                color: const Color(0xFFE45757),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.white, width: 2),
-              ),
-              child: Text(
-                '$badgeCount',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ),
-          ),
       ],
     );
   }
@@ -1231,6 +1417,364 @@ class _TutorBubble extends StatelessWidget {
   }
 }
 
+class _DirectChatScreen extends StatefulWidget {
+  const _DirectChatScreen({required this.peer, required this.currentUid});
+
+  final _ChatPeer peer;
+  final String? currentUid;
+
+  @override
+  State<_DirectChatScreen> createState() => _DirectChatScreenState();
+}
+
+class _DirectChatScreenState extends State<_DirectChatScreen> {
+  final _controller = TextEditingController();
+  late final List<_DirectMessage> _aiMessages = [
+    _DirectMessage(
+      isMine: false,
+      text: widget.peer.isAi
+          ? 'Hi, I am ${widget.peer.displayName}. What do you want to talk through?'
+          : '',
+      sentAt: DateTime.now(),
+    ),
+  ];
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.cream,
+      appBar: AppBar(
+        backgroundColor: AppColors.card.withValues(alpha: 0.94),
+        foregroundColor: AppColors.ink,
+        surfaceTintColor: Colors.transparent,
+        titleSpacing: 0,
+        title: Row(
+          children: [
+            _PeerAvatar(peer: widget.peer, size: 36),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                widget.peer.displayName,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          IconButton(
+            tooltip: 'Profile',
+            onPressed: _showPeerProfile,
+            icon: const Icon(Icons.info_outline_rounded),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            Expanded(child: _buildMessages()),
+            _MessageComposer(controller: _controller, onSend: _sendMessage),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMessages() {
+    if (widget.peer.isAi) {
+      return _MessageList(messages: _aiMessages);
+    }
+
+    final currentUid = widget.currentUid;
+    if (currentUid == null) {
+      return const Center(child: Text('Sign in to start chatting.'));
+    }
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('chats')
+          .doc(_chatIdFor(currentUid, widget.peer.id))
+          .collection('messages')
+          .orderBy('createdAt')
+          .snapshots(),
+      builder: (context, snapshot) {
+        final messages =
+            snapshot.data?.docs
+                .map((doc) {
+                  final data = doc.data();
+                  return _DirectMessage(
+                    isMine: data['senderUid'] == currentUid,
+                    text: _stringValue(data['text']) ?? '',
+                    sentAt: (data['createdAt'] as Timestamp?)?.toDate(),
+                  );
+                })
+                .where((message) => message.text.isNotEmpty)
+                .toList() ??
+            <_DirectMessage>[];
+
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (messages.isEmpty) {
+          return Center(
+            child: Text(
+              'Start a conversation with ${widget.peer.displayName}.',
+              style: Theme.of(context).textTheme.bodyMedium,
+              textAlign: TextAlign.center,
+            ),
+          );
+        }
+
+        return _MessageList(messages: messages);
+      },
+    );
+  }
+
+  Future<void> _sendMessage() async {
+    final text = _controller.text.trim();
+    if (text.isEmpty) {
+      return;
+    }
+
+    _controller.clear();
+
+    if (widget.peer.isAi) {
+      setState(() {
+        _aiMessages.add(
+          _DirectMessage(isMine: true, text: text, sentAt: DateTime.now()),
+        );
+        _aiMessages.add(
+          _DirectMessage(
+            isMine: false,
+            text:
+                'I hear you. Let us break that into one feeling, one fact, and one next step.',
+            sentAt: DateTime.now(),
+          ),
+        );
+      });
+      return;
+    }
+
+    final currentUid = widget.currentUid;
+    if (currentUid == null) {
+      return;
+    }
+
+    final chatId = _chatIdFor(currentUid, widget.peer.id);
+    final chatRef = FirebaseFirestore.instance.collection('chats').doc(chatId);
+    await chatRef.set({
+      'participantUids': [currentUid, widget.peer.id]..sort(),
+      'updatedAt': FieldValue.serverTimestamp(),
+      'lastMessage': text,
+    }, SetOptions(merge: true));
+    await chatRef.collection('messages').add({
+      'senderUid': currentUid,
+      'text': text,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  void _showPeerProfile() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.cream,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) => _PeerProfileSheet(peer: widget.peer),
+    );
+  }
+
+  static String _chatIdFor(String a, String b) {
+    final ids = [a, b]..sort();
+    return '${ids[0]}_${ids[1]}';
+  }
+
+  static String? _stringValue(Object? value) {
+    if (value is! String || value.trim().isEmpty) {
+      return null;
+    }
+    return value.trim();
+  }
+}
+
+class _MessageList extends StatelessWidget {
+  const _MessageList({required this.messages});
+
+  final List<_DirectMessage> messages;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
+      itemCount: messages.length,
+      itemBuilder: (context, index) {
+        final message = messages[index];
+        return Align(
+          alignment: message.isMine
+              ? Alignment.centerRight
+              : Alignment.centerLeft,
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 290),
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+            decoration: BoxDecoration(
+              color: message.isMine ? AppColors.blush : Colors.white,
+              borderRadius: BorderRadius.circular(17),
+              border: Border.all(color: AppColors.stroke),
+            ),
+            child: Text(message.text),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _MessageComposer extends StatelessWidget {
+  const _MessageComposer({required this.controller, required this.onSend});
+
+  final TextEditingController controller;
+  final VoidCallback onSend;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+      decoration: const BoxDecoration(
+        color: AppColors.card,
+        border: Border(top: BorderSide(color: AppColors.stroke)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: controller,
+              minLines: 1,
+              maxLines: 3,
+              onSubmitted: (_) => onSend(),
+              decoration: InputDecoration(
+                hintText: 'Message',
+                filled: true,
+                fillColor: Colors.white,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          IconButton.filled(
+            onPressed: onSend,
+            icon: const Icon(Icons.arrow_upward_rounded),
+            style: IconButton.styleFrom(
+              backgroundColor: AppColors.clay,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PeerProfileSheet extends StatelessWidget {
+  const _PeerProfileSheet({required this.peer});
+
+  final _ChatPeer peer;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 22, 24, 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _PeerAvatar(peer: peer, size: 74),
+            const SizedBox(height: 12),
+            Text(
+              peer.displayName,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              peer.subtitle,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 18),
+            SoftCard(
+              padding: const EdgeInsets.all(14),
+              radius: 18,
+              child: Row(
+                children: [
+                  const Icon(Icons.badge_outlined, color: AppColors.clay),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'User ID',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                  Text(
+                    peer.publicUserId,
+                    style: const TextStyle(
+                      color: AppColors.muted,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PeerAvatar extends StatelessWidget {
+  const _PeerAvatar({required this.peer, required this.size});
+
+  final _ChatPeer peer;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!peer.isAi) {
+      return ProfileAvatar(
+        displayName: peer.displayName,
+        photoUrl: peer.photoUrl,
+        radius: size / 2,
+        heroTag: 'chat-peer-${peer.id}',
+      );
+    }
+
+    return Container(
+      width: size,
+      height: size,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: peer.tint,
+        borderRadius: BorderRadius.circular(size * 0.24),
+      ),
+      child: peer.avatarBytes != null
+          ? Image.memory(peer.avatarBytes!, fit: BoxFit.cover)
+          : Icon(peer.icon, color: AppColors.ink, size: size * 0.48),
+    );
+  }
+}
+
 class _AddCharacterDialog extends StatelessWidget {
   const _AddCharacterDialog({
     required this.userId,
@@ -1295,68 +1839,6 @@ class _AddCharacterDialog extends StatelessWidget {
   }
 }
 
-class _AddHumanDialog extends StatelessWidget {
-  const _AddHumanDialog({
-    required this.userId,
-    required this.nameController,
-    required this.handleController,
-  });
-
-  final String userId;
-  final TextEditingController nameController;
-  final TextEditingController handleController;
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Add human chat'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: nameController,
-            autofocus: true,
-            textCapitalization: TextCapitalization.words,
-            decoration: const InputDecoration(labelText: 'Name'),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: handleController,
-            decoration: const InputDecoration(labelText: 'Handle'),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () {
-            final name = nameController.text.trim();
-            final handle = handleController.text.trim();
-            if (name.isEmpty || handle.isEmpty) {
-              return;
-            }
-
-            Navigator.of(context).pop(
-              _HumanContact(
-                userId: userId,
-                name: name,
-                handle: handle,
-                preview: 'New conversation',
-                time: 'Now',
-                tint: AppColors.sage.withValues(alpha: 0.35),
-              ),
-            );
-          },
-          child: const Text('Add'),
-        ),
-      ],
-    );
-  }
-}
-
 class _EmptySearchResult extends StatelessWidget {
   const _EmptySearchResult({required this.text});
 
@@ -1375,6 +1857,84 @@ class _EmptySearchResult extends StatelessWidget {
       ),
     );
   }
+}
+
+class _ChatPeer {
+  const _ChatPeer._({
+    required this.id,
+    required this.publicUserId,
+    required this.displayName,
+    required this.subtitle,
+    required this.isAi,
+    required this.tint,
+    required this.icon,
+    this.photoUrl,
+    this.avatarBytes,
+  });
+
+  factory _ChatPeer.ai({
+    required String id,
+    required String displayName,
+    required String subtitle,
+    required Color tint,
+    required IconData icon,
+    Uint8List? avatarBytes,
+    String? photoUrl,
+  }) {
+    return _ChatPeer._(
+      id: id,
+      publicUserId: id,
+      displayName: displayName,
+      subtitle: subtitle,
+      isAi: true,
+      tint: tint,
+      icon: icon,
+      photoUrl: photoUrl,
+      avatarBytes: avatarBytes,
+    );
+  }
+
+  factory _ChatPeer.human({
+    required String id,
+    required String publicUserId,
+    required String displayName,
+    required String subtitle,
+    required Color tint,
+    String? photoUrl,
+  }) {
+    return _ChatPeer._(
+      id: id,
+      publicUserId: publicUserId,
+      displayName: displayName,
+      subtitle: subtitle,
+      isAi: false,
+      tint: tint,
+      icon: Icons.person_rounded,
+      photoUrl: photoUrl,
+    );
+  }
+
+  final String id;
+  final String publicUserId;
+  final String displayName;
+  final String subtitle;
+  final bool isAi;
+  final Color tint;
+  final IconData icon;
+  final String? photoUrl;
+  final Uint8List? avatarBytes;
+}
+
+class _DirectMessage {
+  const _DirectMessage({
+    required this.isMine,
+    required this.text,
+    required this.sentAt,
+  });
+
+  final bool isMine;
+  final String text;
+  final DateTime? sentAt;
 }
 
 class _AiCharacter {
@@ -1414,22 +1974,61 @@ class _AiCharacter {
 
 class _HumanContact {
   const _HumanContact({
+    required this.uid,
     required this.userId,
     required this.name,
     required this.handle,
     required this.preview,
-    required this.time,
     required this.tint,
-    this.unreadCount = 0,
+    this.photoUrl,
   });
 
+  final String uid;
   final String userId;
   final String name;
   final String handle;
   final String preview;
-  final String time;
   final Color tint;
-  final int unreadCount;
+  final String? photoUrl;
+
+  factory _HumanContact.fromUserDoc(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final data = doc.data();
+    final displayName = _readString(data['displayName']);
+    final email = _readString(data['email']);
+    final phone = _readString(data['phoneNumber']);
+    final photoUrl = _readString(data['photoUrl']);
+    final name = displayName ?? email ?? phone ?? 'Back Home user';
+    final handle = email ?? phone ?? '@${doc.id.substring(0, 6)}';
+
+    return _HumanContact(
+      uid: doc.id,
+      userId: _publicUserIdForUid(doc.id),
+      name: name,
+      handle: handle,
+      preview: 'Tap to start a conversation',
+      tint: _tintForUid(doc.id),
+      photoUrl: photoUrl,
+    );
+  }
+
+  bool matches(String query) {
+    if (query.isEmpty) {
+      return true;
+    }
+
+    return name.toLowerCase().contains(query) ||
+        handle.toLowerCase().contains(query) ||
+        userId.contains(query);
+  }
+
+  static String? _readString(Object? value) {
+    if (value is! String || value.trim().isEmpty) {
+      return null;
+    }
+    return value.trim();
+  }
 }
 
 class _TutorSession {
@@ -1443,6 +2042,8 @@ class _TutorSession {
   final String subtitle;
   final List<_TutorMessage> messages;
 
+  bool get isDirty => messages.any((message) => message.isUser);
+
   _TutorSession copyWith({String? subtitle, List<_TutorMessage>? messages}) {
     return _TutorSession(
       title: title,
@@ -1453,8 +2054,13 @@ class _TutorSession {
 }
 
 class _TutorMessage {
-  const _TutorMessage({required this.isUser, required this.text});
+  const _TutorMessage({
+    required this.isUser,
+    required this.text,
+    this.isPending = false,
+  });
 
   final bool isUser;
   final String text;
+  final bool isPending;
 }

@@ -32,7 +32,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
 
     expect(find.text('AI chats'), findsOneWidget);
-    expect(find.textContaining('ID 128406731'), findsOneWidget);
+    expect(
+      find.text('Want music first, or a quiet unpacking of the day?'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('opens the monthly mood calendar from the profile chart', (

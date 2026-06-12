@@ -252,9 +252,11 @@ class _AppShellState extends State<AppShell> {
           ),
         );
       case AppTab.chat:
-        return const KeyedSubtree(
-          key: ValueKey(AppTab.chat),
-          child: SafeArea(child: ChatScreen()),
+        return KeyedSubtree(
+          key: const ValueKey(AppTab.chat),
+          child: SafeArea(
+            child: ChatScreen(authController: widget.authController),
+          ),
         );
       case AppTab.profile:
         return KeyedSubtree(
@@ -285,6 +287,7 @@ class _AppShellState extends State<AppShell> {
     final isRoomTab = _currentTab == AppTab.room;
 
     return Scaffold(
+      extendBody: true,
       backgroundColor: isRoomTab
           ? const Color(0xFF080706)
           : const Color.fromARGB(0, 212, 255, 18),
@@ -302,43 +305,40 @@ class _AppShellState extends State<AppShell> {
               ],
             ),
       bottomNavigationBar: (_currentTab != AppTab.home)
-          ? Container(
-              color: const Color.fromARGB(255, 255, 221, 198),
-              child: SafeArea(
-                top: false,
-                minimum: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(28),
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                    child: NavigationBar(
-                      selectedIndex: _currentTab.index - 1,
-                      onDestinationSelected: (index) {
-                        _selectTab(AppTab.values[index + 1]);
-                      },
-                      destinations: const [
-                        NavigationDestination(
-                          icon: Icon(Icons.weekend_outlined),
-                          selectedIcon: Icon(Icons.weekend_rounded),
-                          label: 'Room',
-                        ),
-                        NavigationDestination(
-                          icon: Icon(Icons.forum_outlined),
-                          selectedIcon: Icon(Icons.forum_rounded),
-                          label: 'Hall',
-                        ),
-                        NavigationDestination(
-                          icon: Icon(Icons.chat_bubble_outline_rounded),
-                          selectedIcon: Icon(Icons.chat_bubble_rounded),
-                          label: 'Chat',
-                        ),
-                        NavigationDestination(
-                          icon: Icon(Icons.person_outline_rounded),
-                          selectedIcon: Icon(Icons.person_rounded),
-                          label: 'Profile',
-                        ),
-                      ],
-                    ),
+          ? SafeArea(
+              top: false,
+              minimum: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(28),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                  child: NavigationBar(
+                    selectedIndex: _currentTab.index - 1,
+                    onDestinationSelected: (index) {
+                      _selectTab(AppTab.values[index + 1]);
+                    },
+                    destinations: const [
+                      NavigationDestination(
+                        icon: Icon(Icons.weekend_outlined),
+                        selectedIcon: Icon(Icons.weekend_rounded),
+                        label: 'Room',
+                      ),
+                      NavigationDestination(
+                        icon: Icon(Icons.forum_outlined),
+                        selectedIcon: Icon(Icons.forum_rounded),
+                        label: 'Hall',
+                      ),
+                      NavigationDestination(
+                        icon: Icon(Icons.chat_bubble_outline_rounded),
+                        selectedIcon: Icon(Icons.chat_bubble_rounded),
+                        label: 'Chat',
+                      ),
+                      NavigationDestination(
+                        icon: Icon(Icons.person_outline_rounded),
+                        selectedIcon: Icon(Icons.person_rounded),
+                        label: 'Profile',
+                      ),
+                    ],
                   ),
                 ),
               ),
