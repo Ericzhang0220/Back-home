@@ -31,7 +31,8 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
 
-    expect(find.text('Recent conversations'), findsOneWidget);
+    expect(find.text('AI chats'), findsOneWidget);
+    expect(find.textContaining('ID 128406731'), findsOneWidget);
   });
 
   testWidgets('opens the monthly mood calendar from the profile chart', (
