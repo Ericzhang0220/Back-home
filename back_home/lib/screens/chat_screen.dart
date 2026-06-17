@@ -137,58 +137,72 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     return ColoredBox(
       color: AppColors.cream.withValues(alpha: 0.88),
-      child: Column(
+      child: Stack(
         children: [
-          _ChatHeader(
-            selectedPage: _selectedPage,
-            onAddPressed: _handleAddPressed,
-          ),
-          _TopTabs(
-            selectedPage: _selectedPage,
-            onChanged: (page) {
-              setState(() {
-                _selectedPage = page;
-              });
-            },
-          ),
-          Expanded(
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 180),
-              child: switch (_selectedPage) {
-                _ChatPage.ai => _AiContactsPage(
-                  key: const ValueKey(_ChatPage.ai),
-                  searchController: _aiSearchController,
-                  characters: _filteredAiCharacters,
-                  onSearchChanged: (_) => setState(() {}),
-                  onPickAvatar: _pickAiAvatar,
-                  onOpenCharacter: _openAiConversation,
-                ),
-                _ChatPage.human => _HumanContactsPage(
-                  key: const ValueKey(_ChatPage.human),
-                  searchController: _humanSearchController,
-                  onSearchChanged: (_) => setState(() {}),
-                  currentUid: widget.authController.currentUser?.uid,
-                  onOpenContact: _openHumanConversation,
-                ),
-                _ChatPage.tutor => _TutorChatPage(
-                  key: const ValueKey(_ChatPage.tutor),
-                  searchController: _tutorSearchController,
-                  messageController: _messageController,
-                  sessions: _filteredTutorSessions,
-                  selectedSession: _selectedVisibleTutorSession,
-                  isSidebarOpen: _isTutorSidebarOpen,
-                  onSearchChanged: (_) => setState(() {}),
-                  onSessionSelected: _selectTutorSession,
-                  onSendMessage: _sendTutorMessage,
-                  onSidebarChanged: (isOpen) {
-                    setState(() {
-                      _isTutorSidebarOpen = isOpen;
-                    });
+          Column(
+            children: [
+              _ChatHeader(
+                selectedPage: _selectedPage,
+                onAddPressed: _handleAddPressed,
+              ),
+              _TopTabs(
+                selectedPage: _selectedPage,
+                onChanged: (page) {
+                  setState(() {
+                    _selectedPage = page;
+                  });
+                },
+              ),
+              Expanded(
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 180),
+                  child: switch (_selectedPage) {
+                    _ChatPage.ai => _AiContactsPage(
+                      key: const ValueKey(_ChatPage.ai),
+                      searchController: _aiSearchController,
+                      characters: _filteredAiCharacters,
+                      onSearchChanged: (_) => setState(() {}),
+                      onPickAvatar: _pickAiAvatar,
+                      onOpenCharacter: _openAiConversation,
+                    ),
+                    _ChatPage.human => _HumanContactsPage(
+                      key: const ValueKey(_ChatPage.human),
+                      searchController: _humanSearchController,
+                      onSearchChanged: (_) => setState(() {}),
+                      currentUid: widget.authController.currentUser?.uid,
+                      onOpenContact: _openHumanConversation,
+                    ),
+                    _ChatPage.tutor => _TutorChatPage(
+                      key: const ValueKey(_ChatPage.tutor),
+                      messageController: _messageController,
+                      selectedSession: _selectedVisibleTutorSession,
+                      onSendMessage: _sendTutorMessage,
+                      onOpenHistory: () =>
+                          setState(() => _isTutorSidebarOpen = true),
+                      onCloseHistory: () =>
+                          setState(() => _isTutorSidebarOpen = false),
+                    ),
                   },
                 ),
-              },
-            ),
+              ),
+            ],
           ),
+          // The tutor history drawer overlays the entire chat screen — header,
+          // tabs and all — so it dominates the screen rather than sitting beside
+          // the conversation card.
+          if (_selectedPage == _ChatPage.tutor)
+            _TutorHistoryDrawer(
+              isOpen: _isTutorSidebarOpen,
+              searchController: _tutorSearchController,
+              sessions: _filteredTutorSessions,
+              selectedSession: _selectedVisibleTutorSession,
+              onSearchChanged: (_) => setState(() {}),
+              onSessionSelected: (session) {
+                _selectTutorSession(session);
+                setState(() => _isTutorSidebarOpen = false);
+              },
+              onClose: () => setState(() => _isTutorSidebarOpen = false),
+            ),
         ],
       ),
     );
@@ -773,97 +787,113 @@ class _HumanContactsPage extends StatelessWidget {
 class _TutorChatPage extends StatelessWidget {
   const _TutorChatPage({
     super.key,
-    required this.searchController,
     required this.messageController,
-    required this.sessions,
     required this.selectedSession,
-    required this.isSidebarOpen,
-    required this.onSearchChanged,
-    required this.onSessionSelected,
     required this.onSendMessage,
-    required this.onSidebarChanged,
+    required this.onOpenHistory,
+    required this.onCloseHistory,
   });
 
-  final TextEditingController searchController;
   final TextEditingController messageController;
+  final _TutorSession selectedSession;
+  final VoidCallback onSendMessage;
+  final VoidCallback onOpenHistory;
+  final VoidCallback onCloseHistory;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onHorizontalDragEnd: (details) {
+        final velocity = details.primaryVelocity ?? 0;
+        if (velocity > 300) {
+          onOpenHistory();
+        } else if (velocity < -300) {
+          onCloseHistory();
+        }
+      },
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 100),
+        child: _TutorConversation(
+          session: selectedSession,
+          messageController: messageController,
+          onSendMessage: onSendMessage,
+          onOpenHistory: onOpenHistory,
+        ),
+      ),
+    );
+  }
+}
+
+class _TutorHistoryDrawer extends StatelessWidget {
+  const _TutorHistoryDrawer({
+    required this.isOpen,
+    required this.searchController,
+    required this.sessions,
+    required this.selectedSession,
+    required this.onSearchChanged,
+    required this.onSessionSelected,
+    required this.onClose,
+  });
+
+  final bool isOpen;
+  final TextEditingController searchController;
   final List<_TutorSession> sessions;
   final _TutorSession selectedSession;
-  final bool isSidebarOpen;
   final ValueChanged<String> onSearchChanged;
   final ValueChanged<_TutorSession> onSessionSelected;
-  final VoidCallback onSendMessage;
-  final ValueChanged<bool> onSidebarChanged;
+  final VoidCallback onClose;
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final compact = constraints.maxWidth < 430;
-        // The drawer dominates the screen: it covers most of the available
-        // width and slides in over the conversation instead of pushing it.
-        final drawerWidth = (constraints.maxWidth * 0.86).clamp(0.0, 460.0);
+        // Spans almost the full width so the drawer dominates the screen,
+        // leaving a slim strip of scrim to tap (or swipe) it closed.
+        final drawerWidth = (constraints.maxWidth * 0.9).clamp(0.0, 560.0);
 
-        return GestureDetector(
-          behavior: HitTestBehavior.translucent,
-          onHorizontalDragEnd: (details) {
-            final velocity = details.primaryVelocity ?? 0;
-            if (velocity > 300) {
-              onSidebarChanged(true);
-            } else if (velocity < -300) {
-              onSidebarChanged(false);
-            }
-          },
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 122),
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: _TutorConversation(
-                    session: selectedSession,
-                    messageController: messageController,
-                    onSendMessage: onSendMessage,
-                    onOpenHistory: () => onSidebarChanged(true),
-                  ),
-                ),
-                Positioned.fill(
-                  child: IgnorePointer(
-                    ignoring: !isSidebarOpen,
-                    child: AnimatedOpacity(
-                      duration: const Duration(milliseconds: 220),
-                      curve: Curves.easeOut,
-                      opacity: isSidebarOpen ? 1 : 0,
-                      child: GestureDetector(
-                        onTap: () => onSidebarChanged(false),
-                        child: ColoredBox(
-                          color: AppColors.ink.withValues(alpha: 0.32),
-                        ),
-                      ),
+        return Stack(
+          children: [
+            Positioned.fill(
+              child: IgnorePointer(
+                ignoring: !isOpen,
+                child: GestureDetector(
+                  onTap: onClose,
+                  onHorizontalDragEnd: (details) {
+                    if ((details.primaryVelocity ?? 0) < -200) {
+                      onClose();
+                    }
+                  },
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOut,
+                    opacity: isOpen ? 1 : 0,
+                    child: ColoredBox(
+                      color: AppColors.ink.withValues(alpha: 0.38),
                     ),
                   ),
                 ),
-                AnimatedPositioned(
-                  duration: const Duration(milliseconds: 240),
-                  curve: Curves.easeOutCubic,
-                  top: 0,
-                  bottom: 0,
-                  left: isSidebarOpen ? 0 : -(drawerWidth + 24),
-                  width: drawerWidth,
-                  child: _TutorSidebar(
-                    searchController: searchController,
-                    sessions: sessions,
-                    selectedSession: selectedSession,
-                    compact: compact,
-                    onSearchChanged: onSearchChanged,
-                    onSessionSelected: (session) {
-                      onSessionSelected(session);
-                      onSidebarChanged(false);
-                    },
-                    onCollapse: () => onSidebarChanged(false),
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 260),
+              curve: Curves.easeOutCubic,
+              top: 0,
+              bottom: 0,
+              left: isOpen ? 0 : -(drawerWidth + 32),
+              width: drawerWidth,
+              child: _TutorSidebar(
+                searchController: searchController,
+                sessions: sessions,
+                selectedSession: selectedSession,
+                compact: compact,
+                onSearchChanged: onSearchChanged,
+                onSessionSelected: onSessionSelected,
+                onCollapse: onClose,
+              ),
+            ),
+          ],
         );
       },
     );
@@ -898,7 +928,8 @@ class _TutorSidebar extends StatelessWidget {
       borderRadius: const BorderRadius.horizontal(right: Radius.circular(24)),
       clipBehavior: Clip.antiAlias,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 16, 14, 14),
+        // Extra bottom inset keeps the list clear of the floating nav bar.
+        padding: const EdgeInsets.fromLTRB(16, 18, 16, 96),
         child: Column(
           children: [
             Row(
