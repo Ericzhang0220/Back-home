@@ -53,7 +53,7 @@ class _ChatScreenState extends State<ChatScreen> {
   _ChatPage _selectedPage = _ChatPage.ai;
   int _selectedTutorSession = 0;
   int _nextGeneratedUserId = 500000000;
-  bool _isTutorSidebarOpen = true;
+  bool _isTutorSidebarOpen = false;
 
   final List<_AiCharacter> _aiCharacters = [
     const _AiCharacter(
@@ -799,7 +799,9 @@ class _TutorChatPage extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final compact = constraints.maxWidth < 430;
-        final sidebarWidth = compact ? 122.0 : 168.0;
+        // The drawer dominates the screen: it covers most of the available
+        // width and slides in over the conversation instead of pushing it.
+        final drawerWidth = (constraints.maxWidth * 0.86).clamp(0.0, 460.0);
 
         return GestureDetector(
           behavior: HitTestBehavior.translucent,
@@ -813,32 +815,50 @@ class _TutorChatPage extends StatelessWidget {
           },
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 122),
-            child: Row(
+            child: Stack(
               children: [
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 220),
-                  curve: Curves.easeOutCubic,
-                  width: isSidebarOpen ? sidebarWidth : 38,
-                  child: isSidebarOpen
-                      ? _TutorSidebar(
-                          searchController: searchController,
-                          sessions: sessions,
-                          selectedSession: selectedSession,
-                          compact: compact,
-                          onSearchChanged: onSearchChanged,
-                          onSessionSelected: onSessionSelected,
-                          onCollapse: () => onSidebarChanged(false),
-                        )
-                      : _CollapsedTutorSidebar(
-                          onExpand: () => onSidebarChanged(true),
-                        ),
-                ),
-                SizedBox(width: isSidebarOpen ? 10 : 8),
-                Expanded(
+                Positioned.fill(
                   child: _TutorConversation(
                     session: selectedSession,
                     messageController: messageController,
                     onSendMessage: onSendMessage,
+                    onOpenHistory: () => onSidebarChanged(true),
+                  ),
+                ),
+                Positioned.fill(
+                  child: IgnorePointer(
+                    ignoring: !isSidebarOpen,
+                    child: AnimatedOpacity(
+                      duration: const Duration(milliseconds: 220),
+                      curve: Curves.easeOut,
+                      opacity: isSidebarOpen ? 1 : 0,
+                      child: GestureDetector(
+                        onTap: () => onSidebarChanged(false),
+                        child: ColoredBox(
+                          color: AppColors.ink.withValues(alpha: 0.32),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                AnimatedPositioned(
+                  duration: const Duration(milliseconds: 240),
+                  curve: Curves.easeOutCubic,
+                  top: 0,
+                  bottom: 0,
+                  left: isSidebarOpen ? 0 : -(drawerWidth + 24),
+                  width: drawerWidth,
+                  child: _TutorSidebar(
+                    searchController: searchController,
+                    sessions: sessions,
+                    selectedSession: selectedSession,
+                    compact: compact,
+                    onSearchChanged: onSearchChanged,
+                    onSessionSelected: (session) {
+                      onSessionSelected(session);
+                      onSidebarChanged(false);
+                    },
+                    onCollapse: () => onSidebarChanged(false),
                   ),
                 ),
               ],
@@ -871,82 +891,75 @@ class _TutorSidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Row(
+    return Material(
+      elevation: 16,
+      shadowColor: AppColors.ink.withValues(alpha: 0.3),
+      color: AppColors.cream,
+      borderRadius: const BorderRadius.horizontal(right: Radius.circular(24)),
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 16, 14, 14),
+        child: Column(
           children: [
-            Expanded(
-              child: _SearchField(
-                controller: searchController,
-                hintText: compact ? 'History' : 'Search history',
-                onChanged: onSearchChanged,
-              ),
-            ),
-            const SizedBox(width: 6),
-            IconButton(
-              tooltip: 'Hide history',
-              onPressed: onCollapse,
-              icon: const Icon(Icons.chevron_left_rounded),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        Expanded(
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.58),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: AppColors.stroke),
-            ),
-            child: ListView(
-              padding: const EdgeInsets.symmetric(vertical: 6),
+            Row(
               children: [
-                for (final session in sessions)
-                  _TutorHistoryTile(
-                    session: session,
-                    isSelected: session == selectedSession,
-                    onTap: () => onSessionSelected(session),
-                  ),
-                if (sessions.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.all(12),
-                    child: Text(
-                      'No saved chats',
-                      style: TextStyle(
-                        color: AppColors.muted,
-                        fontSize: 12,
-                        height: 1.3,
-                      ),
+                Expanded(
+                  child: Text(
+                    'Chat history',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: AppColors.ink,
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
+                ),
+                IconButton(
+                  tooltip: 'Close history',
+                  onPressed: onCollapse,
+                  icon: const Icon(Icons.close_rounded),
+                  color: AppColors.ink,
+                ),
               ],
             ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _CollapsedTutorSidebar extends StatelessWidget {
-  const _CollapsedTutorSidebar({required this.onExpand});
-
-  final VoidCallback onExpand;
-
-  @override
-  Widget build(BuildContext context) {
-    return Align(
-      alignment: Alignment.topCenter,
-      child: Tooltip(
-        message: 'Show history',
-        child: IconButton.filledTonal(
-          onPressed: onExpand,
-          icon: const Icon(Icons.chevron_right_rounded),
-          style: IconButton.styleFrom(
-            backgroundColor: Colors.white.withValues(alpha: 0.78),
-            foregroundColor: AppColors.ink,
-            side: const BorderSide(color: AppColors.stroke),
-          ),
+            const SizedBox(height: 10),
+            _SearchField(
+              controller: searchController,
+              hintText: compact ? 'Search history' : 'Search chat history',
+              onChanged: onSearchChanged,
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.7),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: AppColors.stroke),
+                ),
+                child: ListView(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  children: [
+                    for (final session in sessions)
+                      _TutorHistoryTile(
+                        session: session,
+                        isSelected: session == selectedSession,
+                        onTap: () => onSessionSelected(session),
+                      ),
+                    if (sessions.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: Text(
+                          'No saved chats',
+                          style: TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 12,
+                            height: 1.3,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -1251,7 +1264,7 @@ class _TutorHistoryTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Material(
         color: isSelected ? AppColors.blush : Colors.transparent,
         borderRadius: BorderRadius.circular(14),
@@ -1259,7 +1272,7 @@ class _TutorHistoryTile extends StatelessWidget {
           onTap: onTap,
           borderRadius: BorderRadius.circular(14),
           child: Padding(
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -1269,7 +1282,7 @@ class _TutorHistoryTile extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: AppColors.ink,
-                    fontSize: 13,
+                    fontSize: 16,
                     fontWeight: isSelected ? FontWeight.w800 : FontWeight.w700,
                   ),
                 ),
@@ -1280,8 +1293,8 @@ class _TutorHistoryTile extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: AppColors.muted,
-                    fontSize: 11,
-                    height: 1.2,
+                    fontSize: 13,
+                    height: 1.25,
                   ),
                 ),
               ],
@@ -1298,11 +1311,13 @@ class _TutorConversation extends StatelessWidget {
     required this.session,
     required this.messageController,
     required this.onSendMessage,
+    required this.onOpenHistory,
   });
 
   final _TutorSession session;
   final TextEditingController messageController;
   final VoidCallback onSendMessage;
+  final VoidCallback onOpenHistory;
 
   @override
   Widget build(BuildContext context) {
@@ -1316,12 +1331,18 @@ class _TutorConversation extends StatelessWidget {
         children: [
           Container(
             height: 54,
-            padding: const EdgeInsets.symmetric(horizontal: 14),
+            padding: const EdgeInsets.fromLTRB(6, 0, 14, 0),
             decoration: const BoxDecoration(
               border: Border(bottom: BorderSide(color: AppColors.stroke)),
             ),
             child: Row(
               children: [
+                IconButton(
+                  tooltip: 'Chat history',
+                  onPressed: onOpenHistory,
+                  icon: const Icon(Icons.menu_rounded),
+                  color: AppColors.clay,
+                ),
                 const Icon(Icons.school_rounded, color: AppColors.clay),
                 const SizedBox(width: 8),
                 Expanded(
