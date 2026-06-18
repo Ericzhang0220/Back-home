@@ -135,76 +135,76 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return ColoredBox(
-      color: AppColors.cream.withValues(alpha: 0.88),
-      child: Stack(
-        children: [
-          Column(
-            children: [
-              _ChatHeader(
-                selectedPage: _selectedPage,
-                onAddPressed: _handleAddPressed,
-              ),
-              _TopTabs(
-                selectedPage: _selectedPage,
-                onChanged: (page) {
-                  setState(() {
-                    _selectedPage = page;
-                  });
+    // No opaque background here: let the shared AmbientBackground gradient
+    // (painted behind every tab) show through, matching the Hall and Profile
+    // screens.
+    return Stack(
+      children: [
+        Column(
+          children: [
+            _ChatHeader(
+              selectedPage: _selectedPage,
+              onAddPressed: _handleAddPressed,
+            ),
+            _TopTabs(
+              selectedPage: _selectedPage,
+              onChanged: (page) {
+                setState(() {
+                  _selectedPage = page;
+                });
+              },
+            ),
+            Expanded(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 180),
+                child: switch (_selectedPage) {
+                  _ChatPage.ai => _AiContactsPage(
+                    key: const ValueKey(_ChatPage.ai),
+                    searchController: _aiSearchController,
+                    characters: _filteredAiCharacters,
+                    onSearchChanged: (_) => setState(() {}),
+                    onPickAvatar: _pickAiAvatar,
+                    onOpenCharacter: _openAiConversation,
+                  ),
+                  _ChatPage.human => _HumanContactsPage(
+                    key: const ValueKey(_ChatPage.human),
+                    searchController: _humanSearchController,
+                    onSearchChanged: (_) => setState(() {}),
+                    currentUid: widget.authController.currentUser?.uid,
+                    onOpenContact: _openHumanConversation,
+                  ),
+                  _ChatPage.tutor => _TutorChatPage(
+                    key: const ValueKey(_ChatPage.tutor),
+                    messageController: _messageController,
+                    selectedSession: _selectedVisibleTutorSession,
+                    onSendMessage: _sendTutorMessage,
+                    onOpenHistory: () =>
+                        setState(() => _isTutorSidebarOpen = true),
+                    onCloseHistory: () =>
+                        setState(() => _isTutorSidebarOpen = false),
+                  ),
                 },
               ),
-              Expanded(
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 180),
-                  child: switch (_selectedPage) {
-                    _ChatPage.ai => _AiContactsPage(
-                      key: const ValueKey(_ChatPage.ai),
-                      searchController: _aiSearchController,
-                      characters: _filteredAiCharacters,
-                      onSearchChanged: (_) => setState(() {}),
-                      onPickAvatar: _pickAiAvatar,
-                      onOpenCharacter: _openAiConversation,
-                    ),
-                    _ChatPage.human => _HumanContactsPage(
-                      key: const ValueKey(_ChatPage.human),
-                      searchController: _humanSearchController,
-                      onSearchChanged: (_) => setState(() {}),
-                      currentUid: widget.authController.currentUser?.uid,
-                      onOpenContact: _openHumanConversation,
-                    ),
-                    _ChatPage.tutor => _TutorChatPage(
-                      key: const ValueKey(_ChatPage.tutor),
-                      messageController: _messageController,
-                      selectedSession: _selectedVisibleTutorSession,
-                      onSendMessage: _sendTutorMessage,
-                      onOpenHistory: () =>
-                          setState(() => _isTutorSidebarOpen = true),
-                      onCloseHistory: () =>
-                          setState(() => _isTutorSidebarOpen = false),
-                    ),
-                  },
-                ),
-              ),
-            ],
-          ),
-          // The tutor history drawer overlays the entire chat screen — header,
-          // tabs and all — so it dominates the screen rather than sitting beside
-          // the conversation card.
-          if (_selectedPage == _ChatPage.tutor)
-            _TutorHistoryDrawer(
-              isOpen: _isTutorSidebarOpen,
-              searchController: _tutorSearchController,
-              sessions: _filteredTutorSessions,
-              selectedSession: _selectedVisibleTutorSession,
-              onSearchChanged: (_) => setState(() {}),
-              onSessionSelected: (session) {
-                _selectTutorSession(session);
-                setState(() => _isTutorSidebarOpen = false);
-              },
-              onClose: () => setState(() => _isTutorSidebarOpen = false),
             ),
-        ],
-      ),
+          ],
+        ),
+        // The tutor history drawer overlays the entire chat screen — header,
+        // tabs and all — so it dominates the screen rather than sitting beside
+        // the conversation card.
+        if (_selectedPage == _ChatPage.tutor)
+          _TutorHistoryDrawer(
+            isOpen: _isTutorSidebarOpen,
+            searchController: _tutorSearchController,
+            sessions: _filteredTutorSessions,
+            selectedSession: _selectedVisibleTutorSession,
+            onSearchChanged: (_) => setState(() {}),
+            onSessionSelected: (session) {
+              _selectTutorSession(session);
+              setState(() => _isTutorSidebarOpen = false);
+            },
+            onClose: () => setState(() => _isTutorSidebarOpen = false),
+          ),
+      ],
     );
   }
 
