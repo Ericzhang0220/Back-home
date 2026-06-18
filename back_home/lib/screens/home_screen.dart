@@ -27,7 +27,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  String _selectedMoodId = 'happy';
+  String? _selectedMoodId;
   String _selectedNeedId = 'comfort';
   bool _hasConfirmedMood = false;
 
@@ -83,9 +83,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final selectedMood = _moodChoices.firstWhere(
-      (choice) => choice.id == _selectedMoodId,
-    );
+    final selectedMoodId = _selectedMoodId;
+    final selectedMood = selectedMoodId == null
+        ? null
+        : _moodChoices.firstWhere((choice) => choice.id == selectedMoodId);
 
     return SizedBox(
       height: double.infinity,
@@ -121,7 +122,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     );
                   },
-                  child: _hasConfirmedMood
+                  child: (_hasConfirmedMood && selectedMood != null)
                       ? _MoodConfirmationCard(
                           key: ValueKey('confirmed-${selectedMood.id}'),
                           mood: selectedMood,
@@ -138,8 +139,9 @@ class _HomeScreenState extends State<HomeScreen> {
                               _selectedNeedId = id;
                             });
                           },
-                          summary:
-                              'You marked ${selectedMood.label.toLowerCase()}. We can use this later for your calendar and weekly mood chart.',
+                          summary: selectedMood == null
+                              ? ''
+                              : 'You marked ${selectedMood.label.toLowerCase()}. We can use this later for your calendar and weekly mood chart.',
                         ),
                 ),
               ),
@@ -286,7 +288,7 @@ class _DailyCheckInCard extends StatelessWidget {
 
   final List<_MoodChoice> moodChoices;
   final List<_NeedChoice> needChoices;
-  final String selectedMoodId;
+  final String? selectedMoodId;
   final String selectedNeedId;
   final ValueChanged<String> onMoodSelected;
   final ValueChanged<String> onNeedSelected;

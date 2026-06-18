@@ -77,27 +77,40 @@ class MoodRepository {
         .orderBy('date', descending: true)
         .limit(days)
         .snapshots()
-        .map((snapshot) {
-          final entries = <String, MoodEntry>{};
-          for (final doc in snapshot.docs) {
-            final data = doc.data();
-            final dateString = (data['date'] as String?) ?? doc.id;
-            final parsed = DateTime.tryParse(dateString);
-            if (parsed == null) {
-              continue;
-            }
-            final moodId = (data['moodId'] as String?) ?? 'neutral';
-            entries[dateString] = MoodEntry(
-              date: parsed,
-              moodId: moodId,
-              value:
-                  (data['value'] as num?)?.toDouble() ??
-                  MoodScale.valueFor(moodId),
-              emoji: (data['emoji'] as String?) ?? MoodScale.emojiFor(moodId),
-            );
-          }
-          return entries;
-        });
+        .map(_entriesFromSnapshot);
+  }
+
+  /// Streams every check-in within [year], keyed by their `yyyy-MM-dd` id.
+  Stream<Map<String, MoodEntry>> watchYear(int year) {
+    final padded = year.toString().padLeft(4, '0');
+    return _entries
+        .where('date', isGreaterThanOrEqualTo: '$padded-01-01')
+        .where('date', isLessThanOrEqualTo: '$padded-12-31')
+        .snapshots()
+        .map(_entriesFromSnapshot);
+  }
+
+  static Map<String, MoodEntry> _entriesFromSnapshot(
+    QuerySnapshot<Map<String, dynamic>> snapshot,
+  ) {
+    final entries = <String, MoodEntry>{};
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+      final dateString = (data['date'] as String?) ?? doc.id;
+      final parsed = DateTime.tryParse(dateString);
+      if (parsed == null) {
+        continue;
+      }
+      final moodId = (data['moodId'] as String?) ?? 'neutral';
+      entries[dateString] = MoodEntry(
+        date: parsed,
+        moodId: moodId,
+        value:
+            (data['value'] as num?)?.toDouble() ?? MoodScale.valueFor(moodId),
+        emoji: (data['emoji'] as String?) ?? MoodScale.emojiFor(moodId),
+      );
+    }
+    return entries;
   }
 }
 

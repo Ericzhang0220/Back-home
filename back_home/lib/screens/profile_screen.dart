@@ -116,7 +116,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               onTap: () async {
                 await Navigator.of(context).push(
                   MaterialPageRoute<void>(
-                    builder: (_) => const MoodCalendarScreen(),
+                    builder: (_) => MoodCalendarScreen(uid: currentUser?.uid),
                   ),
                 );
               },

@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 
+import '../mood/mood_repository.dart';
 import '../widgets/app_ui.dart';
 
 class MoodCalendarScreen extends StatefulWidget {
-  const MoodCalendarScreen({super.key});
+  const MoodCalendarScreen({super.key, this.uid});
+
+  final String? uid;
 
   @override
   State<MoodCalendarScreen> createState() => _MoodCalendarScreenState();
@@ -128,19 +131,16 @@ class _MoodCalendarScreenState extends State<MoodCalendarScreen> {
                 ),
                 const SizedBox(height: 10),
                 Expanded(
-                  child: ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(20, 6, 20, 28),
-                    itemCount: _monthLabels.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 20),
-                    itemBuilder: (context, index) {
-                      final month = index + 1;
-                      final monthDate = DateTime(_selectedYear, month);
-                      return _MonthSection(
-                        title: _monthLabels[index],
-                        cells: _buildMonthCells(monthDate),
-                      );
-                    },
-                  ),
+                  child: widget.uid == null
+                      ? _buildMonthList(const {})
+                      : StreamBuilder<Map<String, MoodEntry>>(
+                          stream: MoodRepository(
+                            widget.uid!,
+                          ).watchYear(_selectedYear),
+                          builder: (context, snapshot) {
+                            return _buildMonthList(snapshot.data ?? const {});
+                          },
+                        ),
                 ),
               ],
             ),
@@ -150,23 +150,48 @@ class _MoodCalendarScreenState extends State<MoodCalendarScreen> {
     );
   }
 
-  List<_MoodDay?> _buildMonthCells(DateTime month) {
+  Widget _buildMonthList(Map<String, MoodEntry> entries) {
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(20, 6, 20, 28),
+      itemCount: _monthLabels.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 20),
+      itemBuilder: (context, index) {
+        final month = index + 1;
+        final monthDate = DateTime(_selectedYear, month);
+        return _MonthSection(
+          title: _monthLabels[index],
+          cells: _buildMonthCells(monthDate, entries),
+        );
+      },
+    );
+  }
+
+  List<_MoodDay?> _buildMonthCells(
+    DateTime month,
+    Map<String, MoodEntry> entries,
+  ) {
     final firstDayOfMonth = DateTime(month.year, month.month, 1);
     final lastDayOfMonth = DateTime(month.year, month.month + 1, 0);
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final leadingEmptyCells = firstDayOfMonth.weekday - 1;
     final totalDays = lastDayOfMonth.day;
-    final cells = <_MoodDay?>[
-      for (var index = 0; index < leadingEmptyCells; index++) null,
-      for (var day = 1; day <= totalDays; day++)
-        _MoodDay(
-          date: DateTime(month.year, month.month, day),
-          mood: _mockMoodForDate(DateTime(month.year, month.month, day)),
-          isFuture: DateTime(month.year, month.month, day).isAfter(today),
-        ),
-    ];
 
+    final cells = <_MoodDay?>[];
+    for (var index = 0; index < leadingEmptyCells; index++) {
+      cells.add(null);
+    }
+    for (var day = 1; day <= totalDays; day++) {
+      final date = DateTime(month.year, month.month, day);
+      final entry = entries[MoodRepository.dateId(date)];
+      cells.add(
+        _MoodDay(
+          date: date,
+          mood: entry == null ? null : _moodTypeForId(entry.moodId),
+          isFuture: date.isAfter(today),
+        ),
+      );
+    }
     while (cells.length % 7 != 0) {
       cells.add(null);
     }
@@ -174,20 +199,14 @@ class _MoodCalendarScreenState extends State<MoodCalendarScreen> {
     return cells;
   }
 
-  _MoodType? _mockMoodForDate(DateTime date) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    if (date.isAfter(today)) {
-      return null;
-    }
-
-    final seed = (date.year * 13 + date.month * 7 + date.day * 17) % 11;
-    return switch (seed) {
-      0 || 1 => _MoodType.veryHappy,
-      2 || 3 => _MoodType.happy,
-      4 || 5 || 6 => _MoodType.neutral,
-      7 || 8 => _MoodType.sad,
-      _ => _MoodType.crying,
+  _MoodType? _moodTypeForId(String moodId) {
+    return switch (moodId) {
+      'very_happy' => _MoodType.veryHappy,
+      'happy' => _MoodType.happy,
+      'neutral' => _MoodType.neutral,
+      'sad' => _MoodType.sad,
+      'crying' => _MoodType.crying,
+      _ => null,
     };
   }
 }
