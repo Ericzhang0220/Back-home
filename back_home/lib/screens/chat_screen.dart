@@ -735,52 +735,130 @@ class _HumanContactsPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance.collection('users').snapshots(),
-      builder: (context, snapshot) {
-        final query = searchController.text.trim().toLowerCase();
-        final contacts =
-            snapshot.data?.docs
-                .where((doc) => doc.id != currentUid)
-                .map(_HumanContact.fromUserDoc)
-                .where((contact) => contact.matches(query))
-                .toList() ??
-            <_HumanContact>[];
-        contacts.sort((a, b) => a.name.compareTo(b.name));
+      builder: (context, usersSnapshot) {
+        return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: currentUid == null
+              ? null
+              : FirebaseFirestore.instance
+                    .collection('chats')
+                    .where('participantUids', arrayContains: currentUid)
+                    .snapshots(),
+          builder: (context, chatsSnapshot) {
+            final previews = _previewsByPeer(chatsSnapshot.data?.docs);
 
-        return ListView(
-          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 122),
-          children: [
-            _SearchField(
-              controller: searchController,
-              hintText: 'Search app users or ID',
-              onChanged: onSearchChanged,
-            ),
-            const SizedBox(height: 12),
-            _DeviceStatusBanner(
-              icon: Icons.phone_iphone_rounded,
-              text: snapshot.hasError
-                  ? 'Could not load Firebase users.'
-                  : 'Regular chats with other Back Home users',
-            ),
-            const SizedBox(height: 8),
-            if (snapshot.connectionState == ConnectionState.waiting)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 30),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else ...[
-              for (final contact in contacts)
-                _HumanContactTile(
-                  contact: contact,
-                  onOpen: () => onOpenContact(contact),
+            final query = searchController.text.trim().toLowerCase();
+            final contacts =
+                usersSnapshot.data?.docs
+                    .where((doc) => doc.id != currentUid)
+                    .map(_HumanContact.fromUserDoc)
+                    .where((contact) => contact.matches(query))
+                    .map((contact) {
+                      final preview = previews[contact.uid];
+                      if (preview == null) {
+                        return contact;
+                      }
+                      return contact.copyWith(
+                        preview: preview.lastMessage,
+                        lastActivity: preview.updatedAt,
+                        hasConversation: true,
+                      );
+                    })
+                    .toList() ??
+                <_HumanContact>[];
+            contacts.sort(_compareContacts);
+
+            return ListView(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 122),
+              children: [
+                _SearchField(
+                  controller: searchController,
+                  hintText: 'Search app users or ID',
+                  onChanged: onSearchChanged,
                 ),
-              if (contacts.isEmpty)
-                const _EmptySearchResult(text: 'No people match this search.'),
-            ],
-          ],
+                const SizedBox(height: 12),
+                _DeviceStatusBanner(
+                  icon: Icons.phone_iphone_rounded,
+                  text: usersSnapshot.hasError
+                      ? 'Could not load Firebase users.'
+                      : 'Regular chats with other Back Home users',
+                ),
+                const SizedBox(height: 8),
+                if (usersSnapshot.connectionState == ConnectionState.waiting)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 30),
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                else ...[
+                  for (final contact in contacts)
+                    _HumanContactTile(
+                      contact: contact,
+                      onOpen: () => onOpenContact(contact),
+                    ),
+                  if (contacts.isEmpty)
+                    const _EmptySearchResult(
+                      text: 'No people match this search.',
+                    ),
+                ],
+              ],
+            );
+          },
         );
       },
     );
+  }
+
+  Map<String, _ChatPreview> _previewsByPeer(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>>? chatDocs,
+  ) {
+    final previews = <String, _ChatPreview>{};
+    for (final doc in chatDocs ?? const []) {
+      final data = doc.data();
+      final participants =
+          (data['participantUids'] as List<dynamic>?)
+              ?.whereType<String>()
+              .toList() ??
+          const <String>[];
+      final otherUid = participants.firstWhere(
+        (uid) => uid != currentUid,
+        orElse: () => '',
+      );
+      if (otherUid.isEmpty) {
+        continue;
+      }
+      final lastMessage = (data['lastMessage'] as String?)?.trim() ?? '';
+      if (lastMessage.isEmpty) {
+        continue;
+      }
+      previews[otherUid] = _ChatPreview(
+        lastMessage: lastMessage,
+        updatedAt: (data['updatedAt'] as Timestamp?)?.toDate(),
+      );
+    }
+    return previews;
+  }
+
+  static int _compareContacts(_HumanContact a, _HumanContact b) {
+    if (a.hasConversation != b.hasConversation) {
+      // Active conversations rise above the rest of the directory.
+      return a.hasConversation ? -1 : 1;
+    }
+    if (a.hasConversation && b.hasConversation) {
+      final aTime = a.lastActivity;
+      final bTime = b.lastActivity;
+      if (aTime != null && bTime != null) {
+        return bTime.compareTo(aTime);
+      }
+      // A null timestamp is a just-sent message awaiting the server clock;
+      // keep it at the top so the newest chat does not jump around.
+      if (aTime == null && bTime != null) {
+        return -1;
+      }
+      if (aTime != null && bTime == null) {
+        return 1;
+      }
+    }
+    return a.name.toLowerCase().compareTo(b.name.toLowerCase());
   }
 }
 
@@ -2024,6 +2102,13 @@ class _AiCharacter {
   }
 }
 
+class _ChatPreview {
+  const _ChatPreview({required this.lastMessage, this.updatedAt});
+
+  final String lastMessage;
+  final DateTime? updatedAt;
+}
+
 class _HumanContact {
   const _HumanContact({
     required this.uid,
@@ -2033,6 +2118,8 @@ class _HumanContact {
     required this.preview,
     required this.tint,
     this.photoUrl,
+    this.lastActivity,
+    this.hasConversation = false,
   });
 
   final String uid;
@@ -2042,6 +2129,26 @@ class _HumanContact {
   final String preview;
   final Color tint;
   final String? photoUrl;
+  final DateTime? lastActivity;
+  final bool hasConversation;
+
+  _HumanContact copyWith({
+    String? preview,
+    DateTime? lastActivity,
+    bool? hasConversation,
+  }) {
+    return _HumanContact(
+      uid: uid,
+      userId: userId,
+      name: name,
+      handle: handle,
+      preview: preview ?? this.preview,
+      tint: tint,
+      photoUrl: photoUrl,
+      lastActivity: lastActivity ?? this.lastActivity,
+      hasConversation: hasConversation ?? this.hasConversation,
+    );
+  }
 
   factory _HumanContact.fromUserDoc(
     QueryDocumentSnapshot<Map<String, dynamic>> doc,

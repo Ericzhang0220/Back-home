@@ -287,7 +287,6 @@ class _AppShellState extends State<AppShell> {
     final isRoomTab = _currentTab == AppTab.room;
 
     return Scaffold(
-      extendBody: true,
       backgroundColor: isRoomTab
           ? const Color(0xFF080706)
           : const Color.fromARGB(0, 212, 255, 18),
@@ -301,49 +300,94 @@ class _AppShellState extends State<AppShell> {
           : Stack(
               children: [
                 if (!isRoomTab) const AmbientBackground(showSideGlow: true),
+                // The content fills the whole screen and flows under the
+                // floating nav card below.
                 Positioned.fill(child: _buildTabbedPages()),
-              ],
-            ),
-      bottomNavigationBar: (_currentTab != AppTab.home)
-          ? SafeArea(
-              top: false,
-              minimum: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(28),
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                  child: NavigationBar(
-                    selectedIndex: _currentTab.index - 1,
-                    onDestinationSelected: (index) {
-                      _selectTab(AppTab.values[index + 1]);
-                    },
-                    destinations: const [
-                      NavigationDestination(
-                        icon: Icon(Icons.weekend_outlined),
-                        selectedIcon: Icon(Icons.weekend_rounded),
-                        label: 'Room',
-                      ),
-                      NavigationDestination(
-                        icon: Icon(Icons.forum_outlined),
-                        selectedIcon: Icon(Icons.forum_rounded),
-                        label: 'Hall',
-                      ),
-                      NavigationDestination(
-                        icon: Icon(Icons.chat_bubble_outline_rounded),
-                        selectedIcon: Icon(Icons.chat_bubble_rounded),
-                        label: 'Chat',
-                      ),
-                      NavigationDestination(
-                        icon: Icon(Icons.person_outline_rounded),
-                        selectedIcon: Icon(Icons.person_rounded),
-                        label: 'Profile',
-                      ),
-                    ],
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: _FloatingNavBar(
+                    currentTab: _currentTab,
+                    onSelect: _selectTab,
                   ),
                 ),
+              ],
+            ),
+    );
+  }
+}
+
+class _FloatingNavBar extends StatelessWidget {
+  const _FloatingNavBar({required this.currentTab, required this.onSelect});
+
+  final AppTab currentTab;
+  final ValueChanged<AppTab> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      minimum: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(30),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.ink.withValues(alpha: 0.18),
+              blurRadius: 28,
+              offset: const Offset(0, 12),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(30),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.62),
+                borderRadius: BorderRadius.circular(30),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.7),
+                ),
               ),
-            )
-          : null,
+              child: NavigationBar(
+                backgroundColor: Colors.transparent,
+                surfaceTintColor: Colors.transparent,
+                shadowColor: Colors.transparent,
+                elevation: 0,
+                selectedIndex: currentTab.index - 1,
+                onDestinationSelected: (index) {
+                  onSelect(AppTab.values[index + 1]);
+                },
+                destinations: const [
+                  NavigationDestination(
+                    icon: Icon(Icons.weekend_outlined),
+                    selectedIcon: Icon(Icons.weekend_rounded),
+                    label: 'Room',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.forum_outlined),
+                    selectedIcon: Icon(Icons.forum_rounded),
+                    label: 'Hall',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.chat_bubble_outline_rounded),
+                    selectedIcon: Icon(Icons.chat_bubble_rounded),
+                    label: 'Chat',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.person_outline_rounded),
+                    selectedIcon: Icon(Icons.person_rounded),
+                    label: 'Profile',
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
