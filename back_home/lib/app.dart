@@ -352,37 +352,47 @@ class _FloatingNavBar extends StatelessWidget {
                   color: Colors.white.withValues(alpha: 0.7),
                 ),
               ),
-              child: NavigationBar(
-                backgroundColor: Colors.transparent,
-                surfaceTintColor: Colors.transparent,
-                shadowColor: Colors.transparent,
-                elevation: 0,
-                selectedIndex: currentTab.index - 1,
-                onDestinationSelected: (index) {
-                  onSelect(AppTab.values[index + 1]);
-                },
-                destinations: const [
-                  NavigationDestination(
-                    icon: Icon(Icons.weekend_outlined),
-                    selectedIcon: Icon(Icons.weekend_rounded),
-                    label: 'Room',
-                  ),
-                  NavigationDestination(
-                    icon: Icon(Icons.forum_outlined),
-                    selectedIcon: Icon(Icons.forum_rounded),
-                    label: 'Hall',
-                  ),
-                  NavigationDestination(
-                    icon: Icon(Icons.chat_bubble_outline_rounded),
-                    selectedIcon: Icon(Icons.chat_bubble_rounded),
-                    label: 'Chat',
-                  ),
-                  NavigationDestination(
-                    icon: Icon(Icons.person_outline_rounded),
-                    selectedIcon: Icon(Icons.person_rounded),
-                    label: 'Profile',
-                  ),
-                ],
+              // NavigationBar wraps its content in a SafeArea (top: true), so
+              // outside the Scaffold bottom slot it inherits the status-bar
+              // inset and adds it as empty space above the icons. Strip the
+              // padding here so the bar hugs its destinations.
+              child: MediaQuery.removePadding(
+                context: context,
+                removeTop: true,
+                removeBottom: true,
+                child: NavigationBar(
+                  backgroundColor: Colors.transparent,
+                  surfaceTintColor: Colors.transparent,
+                  shadowColor: Colors.transparent,
+                  elevation: 0,
+                  height: 64,
+                  selectedIndex: currentTab.index - 1,
+                  onDestinationSelected: (index) {
+                    onSelect(AppTab.values[index + 1]);
+                  },
+                  destinations: const [
+                    NavigationDestination(
+                      icon: Icon(Icons.weekend_outlined),
+                      selectedIcon: Icon(Icons.weekend_rounded),
+                      label: 'Room',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(Icons.forum_outlined),
+                      selectedIcon: Icon(Icons.forum_rounded),
+                      label: 'Hall',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(Icons.chat_bubble_outline_rounded),
+                      selectedIcon: Icon(Icons.chat_bubble_rounded),
+                      label: 'Chat',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(Icons.person_outline_rounded),
+                      selectedIcon: Icon(Icons.person_rounded),
+                      label: 'Profile',
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
