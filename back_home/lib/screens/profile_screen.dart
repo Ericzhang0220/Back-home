@@ -6,6 +6,8 @@ import 'package:image_picker/image_picker.dart';
 
 import '../audio/background_music_controller.dart';
 import '../auth/app_auth_controller.dart';
+import '../mood/mood_repository.dart';
+import '../profile/profile_stats.dart';
 import '../settings/app_settings_controller.dart';
 import '../widgets/app_ui.dart';
 import '../widgets/profile_avatar.dart';
@@ -95,11 +97,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
             ),
             const SizedBox(height: 20),
-            const _ProfileStatsRow(
+            _ProfileStatsRow(
+              uid: currentUser?.uid,
               showLikes: true,
               showFriends: true,
               showActive: true,
-              tint: Color(0xFFF7DFC8),
+              tint: const Color(0xFFF7DFC8),
             ),
             const SizedBox(height: 28),
             const SectionHeader(
@@ -109,6 +112,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
             _HappinessIndexCard(
               isInteractive: true,
+              uid: currentUser?.uid,
               onTap: () async {
                 await Navigator.of(context).push(
                   MaterialPageRoute<void>(
@@ -495,12 +499,14 @@ class _ProfileSettingsScreen extends StatelessWidget {
 
 class _ProfileStatsRow extends StatelessWidget {
   const _ProfileStatsRow({
+    required this.uid,
     required this.showLikes,
     required this.showFriends,
     required this.showActive,
     this.tint = AppColors.blush,
   });
 
+  final String? uid;
   final bool showLikes;
   final bool showFriends;
   final bool showActive;
@@ -508,26 +514,32 @@ class _ProfileStatsRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final uid = this.uid;
+    final stats = uid == null ? null : ProfileStats(uid);
+
     final pills = <Widget>[
       if (showLikes)
-        InfoPill(
+        _StatPill(
           icon: Icons.favorite_rounded,
           label: 'Likes',
-          value: '100',
+          stream: stats?.likesReceived(),
+          format: (value) => '$value',
           tint: tint,
         ),
       if (showFriends)
-        InfoPill(
+        _StatPill(
           icon: Icons.person_rounded,
           label: 'Friends',
-          value: '100',
+          stream: stats?.friendsCount(),
+          format: (value) => '$value',
           tint: tint,
         ),
       if (showActive)
-        InfoPill(
+        _StatPill(
           icon: Icons.local_fire_department_rounded,
           label: 'Active',
-          value: '11 days',
+          stream: stats?.activeDays(),
+          format: (value) => value == 1 ? '1 day' : '$value days',
           tint: tint,
         ),
     ];
@@ -547,15 +559,85 @@ class _ProfileStatsRow extends StatelessWidget {
   }
 }
 
+class _StatPill extends StatelessWidget {
+  const _StatPill({
+    required this.icon,
+    required this.label,
+    required this.stream,
+    required this.format,
+    required this.tint,
+  });
+
+  final IconData icon;
+  final String label;
+  final Stream<int>? stream;
+  final String Function(int) format;
+  final Color tint;
+
+  @override
+  Widget build(BuildContext context) {
+    final stream = this.stream;
+    if (stream == null) {
+      return InfoPill(icon: icon, label: label, value: '—', tint: tint);
+    }
+
+    return StreamBuilder<int>(
+      stream: stream,
+      builder: (context, snapshot) {
+        final String value;
+        if (snapshot.hasData) {
+          value = format(snapshot.data!);
+        } else if (snapshot.hasError) {
+          value = '—';
+        } else {
+          value = '…';
+        }
+        return InfoPill(icon: icon, label: label, value: value, tint: tint);
+      },
+    );
+  }
+}
+
 class _HappinessIndexCard extends StatelessWidget {
-  const _HappinessIndexCard({required this.isInteractive, this.onTap});
+  const _HappinessIndexCard({
+    required this.isInteractive,
+    required this.uid,
+    this.onTap,
+  });
 
   final bool isInteractive;
+  final String? uid;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    final card = SoftCard(
+    final uid = this.uid;
+    if (uid == null) {
+      return _wrap(
+        _card(
+          context,
+          WeeklyMoodSummary.fromEntries(const {}, today: DateTime.now()),
+        ),
+      );
+    }
+
+    return StreamBuilder<Map<String, MoodEntry>>(
+      stream: MoodRepository(uid).watchRecent(),
+      builder: (context, snapshot) {
+        final summary = WeeklyMoodSummary.fromEntries(
+          snapshot.data ?? const {},
+          today: DateTime.now(),
+        );
+        return _wrap(_card(context, summary));
+      },
+    );
+  }
+
+  Widget _wrap(Widget card) =>
+      isInteractive ? GestureDetector(onTap: onTap, child: card) : card;
+
+  Widget _card(BuildContext context, WeeklyMoodSummary summary) {
+    return SoftCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -578,14 +660,16 @@ class _HappinessIndexCard extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           MoodBarChart(
-            values: [0.55, 0.72, 0.46, 0.82, 0.68, 0.76, 0.88],
-            labels: ['M', 'T', 'W', 'T', 'F', 'S', 'S'],
-            emoji: const ['🙂', '😊', '😐', '😄', '🙂', '😌', '😁'],
+            values: summary.values,
+            labels: summary.labels,
+            emoji: summary.emoji,
           ),
           const SizedBox(height: 18),
-          const Text(
-            'Average happiness level: 74%',
-            style: TextStyle(
+          Text(
+            summary.hasData
+                ? 'Average happiness level: ${summary.averagePercent}%'
+                : 'No mood check-ins yet this week',
+            style: const TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.w700,
               color: AppColors.ink,
@@ -594,12 +678,6 @@ class _HappinessIndexCard extends StatelessWidget {
         ],
       ),
     );
-
-    if (!isInteractive) {
-      return card;
-    }
-
-    return GestureDetector(onTap: onTap, child: card);
   }
 }
 

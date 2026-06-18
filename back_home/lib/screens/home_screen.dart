@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 
+import '../auth/app_auth_controller.dart';
+import '../mood/mood_repository.dart';
 import '../widgets/app_ui.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
     super.key,
+    required this.authController,
     required this.onOpenRoom,
     required this.onOpenHall,
     required this.onOpenChat,
@@ -12,6 +15,7 @@ class HomeScreen extends StatefulWidget {
     required this.onOpenAchievements,
   });
 
+  final AppAuthController authController;
   final VoidCallback onOpenRoom;
   final VoidCallback onOpenHall;
   final VoidCallback onOpenChat;
@@ -198,15 +202,33 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _handleMoodTap(String id) {
+    final isConfirming = _selectedMoodId == id;
+    final wasConfirmed = _hasConfirmedMood;
     setState(() {
-      if (_selectedMoodId == id) {
+      if (isConfirming) {
         _hasConfirmedMood = true;
-        return;
+      } else {
+        _selectedMoodId = id;
+        _hasConfirmedMood = false;
       }
-
-      _selectedMoodId = id;
-      _hasConfirmedMood = false;
     });
+
+    // Persist the mood once, on the transition into a confirmed check-in.
+    if (isConfirming && !wasConfirmed) {
+      _persistMood(id);
+    }
+  }
+
+  Future<void> _persistMood(String moodId) async {
+    final uid = widget.authController.currentUser?.uid;
+    if (uid == null) {
+      return;
+    }
+    try {
+      await MoodRepository(uid).saveMood(date: DateTime.now(), moodId: moodId);
+    } catch (error) {
+      debugPrint('Could not save mood check-in: $error');
+    }
   }
 }
 

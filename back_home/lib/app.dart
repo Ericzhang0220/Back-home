@@ -223,6 +223,7 @@ class _AppShellState extends State<AppShell> {
 
   Widget _buildHomePage() {
     return HomeScreen(
+      authController: widget.authController,
       onOpenRoom: () => _selectTab(AppTab.room),
       onOpenHall: () => _selectTab(AppTab.hall),
       onOpenChat: () => _selectTab(AppTab.chat),
@@ -348,9 +349,7 @@ class _FloatingNavBar extends StatelessWidget {
               decoration: BoxDecoration(
                 color: Colors.white.withValues(alpha: 0.62),
                 borderRadius: BorderRadius.circular(30),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.7),
-                ),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.7)),
               ),
               // NavigationBar wraps its content in a SafeArea (top: true), so
               // outside the Scaffold bottom slot it inherits the status-bar

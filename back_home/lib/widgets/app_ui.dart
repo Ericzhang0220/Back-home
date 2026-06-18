@@ -445,7 +445,9 @@ class MoodBarChart extends StatelessWidget {
     this.emoji,
   }) : assert(values.length == labels.length);
 
-  final List<double> values;
+  /// One entry per bar. A `null` value marks a day with no check-in, which is
+  /// drawn as a faded placeholder bar rather than a zero-height one.
+  final List<double?> values;
   final List<String> labels;
   final List<String>? emoji;
 
@@ -456,8 +458,10 @@ class MoodBarChart extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: List.generate(values.length, (index) {
-        final clamped = values[index].clamp(0.0, 1.0);
-        final height = 28 + (clamped * 54);
+        final value = values[index];
+        final hasData = value != null;
+        final clamped = (value ?? 0).clamp(0.0, 1.0);
+        final height = hasData ? 28 + (clamped * 54) : 28.0;
 
         return Expanded(
           child: Padding(
@@ -466,17 +470,31 @@ class MoodBarChart extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 if (emoji != null) ...[
-                  Text(emoji![index], style: const TextStyle(fontSize: 18)),
+                  Text(
+                    emoji![index],
+                    style: TextStyle(
+                      fontSize: 18,
+                      color: hasData ? null : AppColors.muted,
+                    ),
+                  ),
                   const SizedBox(height: 8),
                 ],
                 Container(
                   height: height,
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      begin: Alignment.bottomCenter,
-                      end: Alignment.topCenter,
-                      colors: [AppColors.clay, AppColors.peach],
-                    ),
+                    gradient: hasData
+                        ? const LinearGradient(
+                            begin: Alignment.bottomCenter,
+                            end: Alignment.topCenter,
+                            colors: [AppColors.clay, AppColors.peach],
+                          )
+                        : null,
+                    color: hasData
+                        ? null
+                        : Colors.white.withValues(alpha: 0.45),
+                    border: hasData
+                        ? null
+                        : Border.all(color: AppColors.stroke),
                     borderRadius: BorderRadius.circular(18),
                   ),
                 ),

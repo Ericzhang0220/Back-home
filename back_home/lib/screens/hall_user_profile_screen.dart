@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import '../mood/mood_repository.dart';
 import '../widgets/app_ui.dart';
 import '../widgets/profile_avatar.dart';
 
@@ -125,7 +126,7 @@ class _HallUserProfileView extends StatelessWidget {
                   const SizedBox(height: 28),
                   const SectionHeader(title: 'Happiness index'),
                   const SizedBox(height: 12),
-                  const _PublicHappinessIndexCard(),
+                  _PublicHappinessIndexCard(uid: uid),
                 ],
               ],
             ),
@@ -351,10 +352,35 @@ class _TimelineButton extends StatelessWidget {
 }
 
 class _PublicHappinessIndexCard extends StatelessWidget {
-  const _PublicHappinessIndexCard();
+  const _PublicHappinessIndexCard({this.uid});
+
+  final String? uid;
 
   @override
   Widget build(BuildContext context) {
+    final uid = this.uid;
+    if (uid == null) {
+      return _card(
+        context,
+        WeeklyMoodSummary.fromEntries(const {}, today: DateTime.now()),
+      );
+    }
+
+    return StreamBuilder<Map<String, MoodEntry>>(
+      stream: MoodRepository(uid).watchRecent(),
+      builder: (context, snapshot) {
+        return _card(
+          context,
+          WeeklyMoodSummary.fromEntries(
+            snapshot.data ?? const {},
+            today: DateTime.now(),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _card(BuildContext context, WeeklyMoodSummary summary) {
     return SoftCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -365,14 +391,16 @@ class _PublicHappinessIndexCard extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           MoodBarChart(
-            values: [0.55, 0.72, 0.46, 0.82, 0.68, 0.76, 0.88],
-            labels: ['M', 'T', 'W', 'T', 'F', 'S', 'S'],
-            emoji: const ['🙂', '😊', '😐', '😄', '🙂', '😌', '😁'],
+            values: summary.values,
+            labels: summary.labels,
+            emoji: summary.emoji,
           ),
           const SizedBox(height: 18),
-          const Text(
-            'Average happiness level: 74%',
-            style: TextStyle(
+          Text(
+            summary.hasData
+                ? 'Average happiness level: ${summary.averagePercent}%'
+                : 'No mood check-ins yet this week',
+            style: const TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.w700,
               color: AppColors.ink,
