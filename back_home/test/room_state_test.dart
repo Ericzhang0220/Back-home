@@ -17,11 +17,11 @@ void main() {
   test('movePlacedItem rejects collisions with existing furniture', () {
     final controller = RoomEditorController();
 
-    final result = controller.movePlacedItem('item-2', const GridPoint(1, 2));
+    final result = controller.movePlacedItem('item-2', const GridPoint(3, 3));
 
     expect(result.isSuccess, isFalse);
     expect(result.message, contains('blocked'));
-    expect(controller.placedItemById('item-2')?.origin, const GridPoint(0, 4));
+    expect(controller.placedItemById('item-2')?.origin, const GridPoint(2, 5));
   });
 
   test('rotatePlacedItem rotates when the footprint still fits', () {

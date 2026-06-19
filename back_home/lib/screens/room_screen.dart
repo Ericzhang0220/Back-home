@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+import '../rooms/isometric_room_view.dart';
 import '../rooms/room_state.dart';
 import '../rooms/room_visuals.dart';
 import '../widgets/app_ui.dart';
@@ -30,9 +32,19 @@ class RoomScreen extends StatefulWidget {
 }
 
 class _RoomScreenState extends State<RoomScreen> {
+  static const Duration _nightHintFadeDelay = Duration(milliseconds: 900);
+
+  Timer? _nightHintFadeTimer;
   bool _panelOpen = false;
   bool _deskFocused = false;
   bool _nightMode = false;
+  bool _nightHintVisible = false;
+
+  @override
+  void dispose() {
+    _nightHintFadeTimer?.cancel();
+    super.dispose();
+  }
 
   void _togglePanel() {
     setState(() {
@@ -50,9 +62,11 @@ class _RoomScreenState extends State<RoomScreen> {
   }
 
   void _focusDesk() {
+    _nightHintFadeTimer?.cancel();
     setState(() {
       _deskFocused = true;
       _nightMode = false;
+      _nightHintVisible = false;
       _panelOpen = false;
     });
   }
@@ -61,14 +75,18 @@ class _RoomScreenState extends State<RoomScreen> {
     setState(() {
       _deskFocused = false;
       _nightMode = true;
+      _nightHintVisible = true;
       _panelOpen = false;
     });
+    _scheduleNightHintFade();
   }
 
   void _restoreRoomLight() {
+    _nightHintFadeTimer?.cancel();
     setState(() {
       _nightMode = false;
       _deskFocused = false;
+      _nightHintVisible = false;
     });
     widget.onRevealChrome();
   }
@@ -84,11 +102,16 @@ class _RoomScreenState extends State<RoomScreen> {
     widget.onRevealChrome();
   }
 
-  void _handleHorizontalDragEnd(DragEndDetails details) {
-    final velocity = details.primaryVelocity ?? 0;
-    if (velocity > 180) {
-      widget.onRevealChrome();
-    }
+  void _scheduleNightHintFade() {
+    _nightHintFadeTimer?.cancel();
+    _nightHintFadeTimer = Timer(_nightHintFadeDelay, () {
+      if (!mounted || !_nightMode) {
+        return;
+      }
+      setState(() {
+        _nightHintVisible = false;
+      });
+    });
   }
 
   void _showResult(RoomActionResult result) {
@@ -118,11 +141,12 @@ class _RoomScreenState extends State<RoomScreen> {
           behavior: HitTestBehavior.opaque,
           onDoubleTap: _handleDoubleTap,
           onLongPress: _togglePanel,
-          onHorizontalDragEnd: _handleHorizontalDragEnd,
           child: Stack(
             children: [
               Positioned.fill(
-                child: _PhotoRoomScene(
+                child: IsometricRoomView(
+                  controller: widget.controller,
+                  isActive: widget.isActive,
                   deskFocused: _deskFocused,
                   nightMode: _nightMode,
                   onTapDesk: _focusDesk,
@@ -202,7 +226,7 @@ class _RoomScreenState extends State<RoomScreen> {
                     duration: const Duration(milliseconds: 1600),
                     curve: Curves.easeInOutCubic,
                     opacity: _nightMode ? 1 : 0,
-                    child: const _GoodNightOverlay(),
+                    child: _GoodNightOverlay(showHint: _nightHintVisible),
                   ),
                 ),
               ),
@@ -266,322 +290,10 @@ class _RoomScreenState extends State<RoomScreen> {
   }
 }
 
-class _PhotoRoomScene extends StatelessWidget {
-  const _PhotoRoomScene({
-    required this.deskFocused,
-    required this.nightMode,
-    required this.onTapDesk,
-    required this.onTapBed,
-  });
-
-  final bool deskFocused;
-  final bool nightMode;
-  final VoidCallback onTapDesk;
-  final VoidCallback onTapBed;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final size = Size(constraints.maxWidth, constraints.maxHeight);
-        final scale = deskFocused ? 2.15 : 1.0;
-        final offset = deskFocused
-            ? Offset(-size.width * 0.12, size.height * 0.11)
-            : Offset.zero;
-
-        return ClipRect(
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              AnimatedSlide(
-                duration: const Duration(milliseconds: 760),
-                curve: Curves.easeInOutCubic,
-                offset: Offset(offset.dx / size.width, offset.dy / size.height),
-                child: AnimatedScale(
-                  duration: const Duration(milliseconds: 760),
-                  curve: Curves.easeInOutCubic,
-                  scale: scale,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      Image.asset(
-                        'assets/room/room_start.png',
-                        key: const ValueKey('room-start-background'),
-                        fit: BoxFit.cover,
-                        alignment: Alignment.center,
-                        filterQuality: FilterQuality.high,
-                      ),
-                      if (deskFocused) const _DeskAccessories(),
-                    ],
-                  ),
-                ),
-              ),
-              if (!deskFocused && !nightMode) ...[
-                _RoomHotspot(
-                  left: size.width * 0.08,
-                  top: size.height * 0.29,
-                  width: size.width * 0.9,
-                  height: size.height * 0.24,
-                  onTap: onTapDesk,
-                ),
-                _RoomHotspot(
-                  left: 0,
-                  top: size.height * 0.54,
-                  width: size.width * 0.94,
-                  height: size.height * 0.35,
-                  onTap: onTapBed,
-                ),
-              ],
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _RoomHotspot extends StatelessWidget {
-  const _RoomHotspot({
-    required this.left,
-    required this.top,
-    required this.width,
-    required this.height,
-    required this.onTap,
-  });
-
-  final double left;
-  final double top;
-  final double width;
-  final double height;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Positioned(
-      left: left,
-      top: top,
-      width: width,
-      height: height,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          splashColor: Colors.white.withValues(alpha: 0.08),
-          highlightColor: Colors.white.withValues(alpha: 0.04),
-          onTap: onTap,
-        ),
-      ),
-    );
-  }
-}
-
-class _DeskAccessories extends StatelessWidget {
-  const _DeskAccessories();
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final width = constraints.maxWidth;
-        final height = constraints.maxHeight;
-
-        return Stack(
-          children: [
-            Positioned(
-              left: width * 0.26,
-              top: height * 0.39,
-              child: const _PenCup(),
-            ),
-            Positioned(
-              left: width * 0.5,
-              top: height * 0.405,
-              child: const _SoftRadio(),
-            ),
-            Positioned(
-              left: width * 0.66,
-              top: height * 0.41,
-              child: const _DeskTray(),
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _PenCup extends StatelessWidget {
-  const _PenCup();
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 50,
-      height: 78,
-      child: Stack(
-        alignment: Alignment.bottomCenter,
-        children: [
-          Positioned(
-            top: 2,
-            left: 16,
-            child: Transform.rotate(
-              angle: -0.18,
-              child: Container(
-                width: 5,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFB8775D),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            top: 0,
-            right: 14,
-            child: Transform.rotate(
-              angle: 0.16,
-              child: Container(
-                width: 5,
-                height: 47,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF43524B),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-              ),
-            ),
-          ),
-          Container(
-            width: 34,
-            height: 42,
-            decoration: BoxDecoration(
-              color: const Color(0xFFD9D8D1).withValues(alpha: 0.94),
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(7),
-                bottom: Radius.circular(11),
-              ),
-              boxShadow: const [
-                BoxShadow(
-                  color: Color(0x33000000),
-                  blurRadius: 10,
-                  offset: Offset(0, 6),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SoftRadio extends StatelessWidget {
-  const _SoftRadio();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 92,
-      height: 54,
-      decoration: BoxDecoration(
-        color: const Color(0xFF8FA092).withValues(alpha: 0.96),
-        borderRadius: BorderRadius.circular(10),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x33000000),
-            blurRadius: 12,
-            offset: Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Stack(
-        children: [
-          Positioned(
-            left: 10,
-            top: 12,
-            child: Container(
-              width: 26,
-              height: 26,
-              decoration: BoxDecoration(
-                color: const Color(0xFF53645C),
-                borderRadius: BorderRadius.circular(999),
-              ),
-            ),
-          ),
-          Positioned(
-            right: 12,
-            top: 14,
-            child: Column(
-              children: List.generate(
-                3,
-                (index) => Container(
-                  margin: const EdgeInsets.only(bottom: 5),
-                  width: 34,
-                  height: 3,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE7E3DA).withValues(alpha: 0.72),
-                    borderRadius: BorderRadius.circular(99),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DeskTray extends StatelessWidget {
-  const _DeskTray();
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 86,
-      height: 42,
-      child: Stack(
-        children: [
-          Positioned(
-            left: 0,
-            bottom: 0,
-            child: Transform.rotate(
-              angle: -0.05,
-              child: Container(
-                width: 76,
-                height: 28,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFC9B8A4),
-                  borderRadius: BorderRadius.circular(5),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Color(0x26000000),
-                      blurRadius: 8,
-                      offset: Offset(0, 5),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            right: 2,
-            top: 2,
-            child: Container(
-              width: 24,
-              height: 24,
-              decoration: BoxDecoration(
-                color: const Color(0xFFE6E1D7),
-                borderRadius: BorderRadius.circular(999),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _GoodNightOverlay extends StatelessWidget {
-  const _GoodNightOverlay();
+  const _GoodNightOverlay({required this.showHint});
+
+  final bool showHint;
 
   @override
   Widget build(BuildContext context) {
@@ -621,13 +333,13 @@ class _GoodNightOverlay extends StatelessWidget {
               ),
             ),
           ),
-          const Center(
+          Center(
             child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 36),
+              padding: const EdgeInsets.symmetric(horizontal: 36),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text(
+                  const Text(
                     'Have a good night! See you tomorrow.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
@@ -637,14 +349,19 @@ class _GoodNightOverlay extends StatelessWidget {
                       height: 1.25,
                     ),
                   ),
-                  Text(
-                    '(Your room is now in night mode. If you want to go back, just double click the scene.)',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Color(0xFFF5F0E8),
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                      height: 1.25,
+                  AnimatedOpacity(
+                    duration: const Duration(seconds: 2),
+                    curve: Curves.easeInOutCubic,
+                    opacity: showHint ? 1 : 0,
+                    child: const Text(
+                      '(Your room is now in night mode. If you want to go back, just double click the scene.)',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Color(0xFFF5F0E8),
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        height: 1.25,
+                      ),
                     ),
                   ),
                 ],

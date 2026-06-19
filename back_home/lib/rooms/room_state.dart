@@ -231,13 +231,13 @@ class RoomEditorController extends ChangeNotifier {
         const PlacedRoomItem(
           instanceId: 'item-1',
           definitionId: 'sunset-bed',
-          origin: GridPoint(1, 2),
+          origin: GridPoint(3, 3),
           rotationQuarterTurns: 0,
         ),
         const PlacedRoomItem(
           instanceId: 'item-2',
           definitionId: 'soft-nightstand',
-          origin: GridPoint(0, 4),
+          origin: GridPoint(2, 5),
           rotationQuarterTurns: 0,
         ),
         const PlacedRoomItem(
@@ -261,7 +261,7 @@ class RoomEditorController extends ChangeNotifier {
         const PlacedRoomItem(
           instanceId: 'item-6',
           definitionId: 'dusk-lamp',
-          origin: GridPoint(0, 6),
+          origin: GridPoint(1, 6),
           rotationQuarterTurns: 0,
         ),
       ] {

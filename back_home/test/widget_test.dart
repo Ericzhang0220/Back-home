@@ -1,7 +1,7 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:back_home/app.dart';
+import 'package:back_home/rooms/isometric_room_view.dart';
 import 'package:back_home/widgets/app_ui.dart';
 
 void main() {
@@ -21,9 +21,8 @@ void main() {
 
     await tester.tap(find.text('Open room'));
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 400));
 
-    expect(find.byKey(const ValueKey('room-start-background')), findsOneWidget);
+    expect(find.byType(IsometricRoomView), findsOneWidget);
 
     await tester.tap(find.text('Chat').last);
     await tester.pump();
@@ -50,7 +49,6 @@ void main() {
 
     await tester.tap(find.text('Open room'));
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 400));
 
     await tester.tap(find.text('Profile').last);
     await tester.pump();

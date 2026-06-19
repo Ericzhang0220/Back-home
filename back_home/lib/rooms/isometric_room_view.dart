@@ -6,15 +6,25 @@ import 'package:three_js/three_js.dart' as three;
 
 import 'room_state.dart';
 
+enum _RoomTapTarget { desk, bed }
+
 class IsometricRoomView extends StatefulWidget {
   const IsometricRoomView({
     super.key,
     required this.controller,
     required this.isActive,
+    this.deskFocused = false,
+    this.nightMode = false,
+    this.onTapDesk,
+    this.onTapBed,
   });
 
   final RoomEditorController controller;
   final bool isActive;
+  final bool deskFocused;
+  final bool nightMode;
+  final VoidCallback? onTapDesk;
+  final VoidCallback? onTapBed;
 
   @override
   State<IsometricRoomView> createState() => _IsometricRoomViewState();
@@ -22,6 +32,9 @@ class IsometricRoomView extends StatefulWidget {
 
 class _IsometricRoomViewState extends State<IsometricRoomView> {
   static const Duration _sceneWarmupDelay = Duration(milliseconds: 350);
+  static const double _cameraTiltStartThreshold = 10;
+  static const double _cameraTiltSensitivity = 0.0065;
+  static const double _maxCameraLookOffsetX = 2.25;
 
   three.ThreeJS? _threeJs;
   late final three.PerspectiveCamera _camera;
@@ -32,6 +45,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   final three.Plane _dragPlane = three.Plane();
   final three.Vector3 _dragIntersection = three.Vector3.zero();
   final three.Vector3 _dragOffset = three.Vector3.zero();
+  final List<three.Object3D> _roomTapTargets = [];
 
   Timer? _sceneStartTimer;
   bool _sceneReady = false;
@@ -41,6 +55,16 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   String? _activeDragItemId;
   GridPoint? _dragPreviewOrigin;
   bool _dragPreviewValid = true;
+  _RoomTapTarget? _pendingTapTarget;
+  double _pointerDownX = 0;
+  double _pointerDownY = 0;
+  double _pointerLastX = 0;
+  double _pointerLastY = 0;
+  bool _cameraTiltCandidate = false;
+  bool _cameraTiltActive = false;
+  double _cameraLookOffsetX = 0;
+  double _cameraTiltStartX = 0;
+  double _cameraTiltPointerStartX = 0;
 
   @override
   void initState() {
@@ -59,6 +83,15 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   @override
   void didUpdateWidget(covariant IsometricRoomView oldWidget) {
     super.didUpdateWidget(oldWidget);
+
+    final focusChanged =
+        widget.deskFocused != oldWidget.deskFocused ||
+        widget.nightMode != oldWidget.nightMode;
+    if (focusChanged && _threeConfigured && _threeJs != null) {
+      final width = _threeJs!.width <= 0 ? 1.0 : _threeJs!.width;
+      final height = _threeJs!.height <= 0 ? 1.0 : _threeJs!.height;
+      _configureCamera(Size(width, height));
+    }
 
     if (widget.isActive == oldWidget.isActive) {
       return;
@@ -181,8 +214,35 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _camera.aspect = safeWidth / safeHeight;
     _camera.near = 0.1;
     _camera.far = 80;
-    _camera.position.setValues(0.0, 2.55, 8.8);
-    _camera.lookAt(three.Vector3(0, 1.55, 0.2));
+
+    final lookOffsetX = widget.deskFocused || widget.nightMode
+        ? 0.0
+        : _cameraLookOffsetX;
+
+    if (widget.deskFocused) {
+      final deskWide = _camera.aspect > 1.1;
+      _camera.position.setValues(
+        deskWide ? 1.1 : 1.25,
+        deskWide ? 2.35 : 2.05,
+        deskWide ? 6.2 : 4.55,
+      );
+      _camera.lookAt(three.Vector3(1.45, 1.45, -3.2));
+    } else if (widget.nightMode) {
+      final nightWide = _camera.aspect > 1.1;
+      _camera.position.setValues(
+        nightWide ? -0.4 : -0.7,
+        nightWide ? 2.25 : 1.9,
+        nightWide ? 8.4 : 6.4,
+      );
+      _camera.lookAt(three.Vector3(-1.4, 0.85, -0.15));
+    } else {
+      final wide = _camera.aspect > 1.1;
+      _camera.position.setValues(0.0, wide ? 3.35 : 2.95, wide ? 12.9 : 10.85);
+      _camera.lookAt(
+        three.Vector3(lookOffsetX, wide ? 1.35 : 1.05, wide ? -0.55 : -0.12),
+      );
+    }
+
     _camera.updateProjectionMatrix();
   }
 
@@ -199,7 +259,6 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
 
       final threeJs = three.ThreeJS(
         settings: three.Settings(
-          useSourceTexture: true,
           antialias: true,
           alpha: true,
           clearColor: 0x090807,
@@ -226,18 +285,34 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         RoomEditorController.roomDepth * RoomEditorController.cellSize;
     final scene = _threeJs!.scene;
 
-    final ambient = three.AmbientLight(0xf3e7d7, 1.0);
+    final ambient = three.AmbientLight(0xe8d8c8, 0.3);
     scene.add(ambient);
 
-    final hemi = three.HemisphereLight(0xf7eadc, 0x2e221c, 1.1);
+    final hemi = three.HemisphereLight(0xf0deca, 0x2e221c, 0.44);
     hemi.position.setValues(0, 10, 0);
     scene.add(hemi);
 
-    final keyLight = three.DirectionalLight(0xffebd2, 1.0);
-    keyLight.position.setValues(0, 6, 8);
+    final keyLight = three.DirectionalLight(0xffead0, 1.18);
+    keyLight.position.setValues(-3.4, 7.2, 5.8);
+    keyLight.castShadow = true;
+    keyLight.target!.position.setValues(0, 0.2, -0.4);
+    keyLight.shadow!.mapSize.setValues(2048, 2048);
+    keyLight.shadow!.bias = -0.0008;
+    keyLight.shadow!.normalBias = 0.02;
+    keyLight.shadow!.radius = 3;
+    final shadowCamera = keyLight.shadow!.camera as three.OrthographicCamera;
+    shadowCamera
+      ..left = -7.5
+      ..right = 7.5
+      ..top = 6.5
+      ..bottom = -5.0
+      ..near = 0.5
+      ..far = 22;
+    shadowCamera.updateProjectionMatrix();
     scene.add(keyLight);
+    scene.add(keyLight.target!);
 
-    final warmLamp = three.PointLight(0xf9c8a9, 1.5, 14, 2);
+    final warmLamp = three.PointLight(0xf3bea0, 0.72, 14, 2);
     warmLamp.position.setValues(2.4, 3.7, -0.8);
     scene.add(warmLamp);
 
@@ -245,7 +320,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       width: roomWidth + 1.4,
       height: 0.36,
       depth: roomDepth + 1.2,
-      color: const Color(0xFF4A342B),
+      color: const Color(0xFF453127),
       receiveShadow: true,
     )..position.setValues(0, -0.26, 0.3);
     scene.add(platform);
@@ -254,7 +329,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       width: roomWidth,
       height: 0.12,
       depth: roomDepth,
-      color: const Color(0xFF6A4E41),
+      color: const Color(0xFF60483C),
       receiveShadow: true,
     )..position.setValues(0, -0.04, 0);
     scene.add(floor);
@@ -264,7 +339,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         width: 0.9,
         height: 0.02,
         depth: roomDepth - 0.08,
-        color: x.isEven ? const Color(0xFF785848) : const Color(0xFF6C5143),
+        color: x.isEven ? const Color(0xFF6E5143) : const Color(0xFF5E463B),
         receiveShadow: true,
       )..position.setValues(-roomWidth / 2 + 0.5 + x.toDouble(), 0.03, 0);
       scene.add(plank);
@@ -279,7 +354,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       width: roomWidth,
       height: 5.0,
       depth: 0.22,
-      color: const Color(0xFFEEE7DE),
+      color: const Color(0xFFD4CCC2),
       receiveShadow: true,
     )..position.setValues(0, 2.4, -roomDepth / 2 + 0.1);
     scene.add(backWall);
@@ -288,7 +363,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       width: 0.22,
       height: 5.0,
       depth: roomDepth,
-      color: const Color(0xFFD8CEC3),
+      color: const Color(0xFFC8BDB2),
       receiveShadow: true,
     )..position.setValues(-roomWidth / 2 + 0.1, 2.4, 0);
     scene.add(leftWall);
@@ -297,10 +372,12 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       width: 0.22,
       height: 5.0,
       depth: roomDepth,
-      color: const Color(0xFFD3C9BE),
+      color: const Color(0xFFC1B5AA),
       receiveShadow: true,
     )..position.setValues(roomWidth / 2 - 0.1, 2.4, 0);
     scene.add(rightWall);
+
+    _addSlopedCeilingDetails(scene, roomDepth);
 
     final ceilingBeam = _box(
       width: roomWidth + 0.5,
@@ -357,16 +434,19 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       width: 5.2,
       height: 0.78,
       depth: 1.04,
-      color: const Color(0xFFC7B6A6),
+      color: const Color(0xFFB7A695),
       receiveShadow: true,
     )..position.setValues(1.0, 0.25, -roomDepth / 2 + 0.6);
     scene.add(windowSeatBase);
+
+    _addRadiator(scene, roomDepth);
+    _addDeskTapTarget(scene, roomDepth);
 
     final laptopBase = _box(
       width: 0.64,
       height: 0.05,
       depth: 0.42,
-      color: const Color(0xFFD3CBC4),
+      color: const Color(0xFFB8AFA7),
     )..position.setValues(2.55, 0.9, -roomDepth / 2 + 0.38);
     scene.add(laptopBase);
 
@@ -389,11 +469,13 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     )..position.setValues(2.55, 1.12, -roomDepth / 2 + 0.26);
     scene.add(screenGlow);
 
+    _addDeskAccessories(scene, roomDepth);
+
     final frame = _box(
       width: 0.55,
       height: 0.82,
       depth: 0.06,
-      color: const Color(0xFFD4D0CB),
+      color: const Color(0xFFC3B9AE),
     )..position.setValues(0.7, 1.18, -roomDepth / 2 + 0.43);
     scene.add(frame);
 
@@ -401,7 +483,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         three.Mesh(
             three.CylinderGeometry(0.09, 0.09, 0.16, 14),
             three.MeshPhongMaterial.fromMap({
-              'color': _hex(const Color(0xFFE5DFD8)),
+              'color': _hex(const Color(0xFFD5CCC0)),
             }),
           )
           ..position.setValues(1.45, 0.92, -roomDepth / 2 + 0.38)
@@ -420,14 +502,225 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         three.Mesh(
             three.SphereGeometry(0.3, 18, 18),
             three.MeshPhongMaterial.fromMap({
-              'color': _hex(const Color(0xFFF7D6C8)),
+              'color': _hex(const Color(0xFFE0BDAD)),
               'emissive': 0xf0b89e,
-              'emissiveIntensity': 0.3,
+              'emissiveIntensity': 0.18,
             }),
           )
           ..position.setValues(2.4, 3.55, -0.9)
           ..castShadow = true;
     scene.add(pendant);
+  }
+
+  void _addSlopedCeilingDetails(three.Scene scene, double roomDepth) {
+    final rearZ = -roomDepth / 2 + 0.24;
+
+    final leftSkylight =
+        three.Mesh(
+            three.BoxGeometry(1.42, 0.46, 0.04),
+            three.MeshPhongMaterial.fromMap({
+              'color': _hex(const Color(0xFF151718)),
+              'transparent': true,
+              'opacity': 0.86,
+            }),
+          )
+          ..position.setValues(-4.22, 4.44, rearZ + 0.03)
+          ..rotation.z = -0.88
+          ..receiveShadow = true;
+    scene.add(leftSkylight);
+
+    final topRail = _box(
+      width: 4.6,
+      height: 0.08,
+      depth: 0.08,
+      color: const Color(0xFF2C2927),
+    )..position.setValues(1.65, 4.36, rearZ + 0.06);
+    scene.add(topRail);
+  }
+
+  void _addRadiator(three.Scene scene, double roomDepth) {
+    final rearZ = -roomDepth / 2 + 0.78;
+    final body = _box(
+      width: 4.7,
+      height: 0.46,
+      depth: 0.12,
+      color: const Color(0xFFC8C0B6),
+      y: 0.28,
+      z: rearZ,
+      receiveShadow: true,
+    )..position.x = 0.92;
+    scene.add(body);
+
+    for (var index = 0; index < 13; index += 1) {
+      final x = -1.26 + index * 0.18;
+      final fin = _box(
+        width: 0.035,
+        height: 0.4,
+        depth: 0.04,
+        color: const Color(0xFFABA39B),
+      )..position.setValues(x + 1.0, 0.29, rearZ + 0.08);
+      scene.add(fin);
+    }
+  }
+
+  void _addDeskTapTarget(three.Scene scene, double roomDepth) {
+    _addRoomTapTarget(
+      scene,
+      target: _RoomTapTarget.desk,
+      width: 5.8,
+      height: 1.6,
+      depth: 1.2,
+      x: 1.0,
+      y: 1.25,
+      z: -roomDepth / 2 + 0.48,
+    );
+  }
+
+  void _addDeskAccessories(three.Scene scene, double roomDepth) {
+    final deskZ = -roomDepth / 2 + 0.36;
+
+    for (var index = 0; index < 5; index += 1) {
+      final book =
+          _box(
+              width: 0.09,
+              height: 0.54 + index * 0.02,
+              depth: 0.34,
+              color: index.isEven
+                  ? const Color(0xFFCDBFAF)
+                  : const Color(0xFFAEB8B6),
+            )
+            ..position.setValues(-1.2 + index * 0.11, 1.03, deskZ + 0.02)
+            ..rotation.z = -0.08 + index * 0.025;
+      scene.add(book);
+    }
+
+    final penCup =
+        three.Mesh(
+            three.CylinderGeometry(0.13, 0.15, 0.34, 14),
+            three.MeshPhongMaterial.fromMap({
+              'color': _hex(const Color(0xFFC0B9AF)),
+            }),
+          )
+          ..position.setValues(0.95, 1.08, deskZ)
+          ..castShadow = true;
+    scene.add(penCup);
+
+    for (final pen in const [
+      (x: 0.9, color: Color(0xFFB8775D), angle: -0.22),
+      (x: 1.0, color: Color(0xFF43524B), angle: 0.18),
+    ]) {
+      final mesh =
+          _box(width: 0.035, height: 0.5, depth: 0.035, color: pen.color)
+            ..position.setValues(pen.x, 1.38, deskZ)
+            ..rotation.z = pen.angle;
+      scene.add(mesh);
+    }
+
+    final radioBody = _box(
+      width: 0.68,
+      height: 0.34,
+      depth: 0.24,
+      color: const Color(0xFF8FA092),
+      x: 1.52,
+      y: 1.06,
+      z: deskZ,
+    );
+    scene.add(radioBody);
+
+    final radioDial =
+        three.Mesh(
+            three.CylinderGeometry(0.085, 0.085, 0.035, 18),
+            three.MeshPhongMaterial.fromMap({
+              'color': _hex(const Color(0xFF53645C)),
+            }),
+          )
+          ..position.setValues(1.28, 1.06, deskZ + 0.14)
+          ..rotation.x = math.pi / 2
+          ..castShadow = true;
+    scene.add(radioDial);
+
+    for (var index = 0; index < 3; index += 1) {
+      final grille = _box(
+        width: 0.24,
+        height: 0.02,
+        depth: 0.018,
+        color: const Color(0xFFC9C0B4),
+        x: 1.66,
+        y: 1.13 - index * 0.08,
+        z: deskZ + 0.14,
+      );
+      scene.add(grille);
+    }
+
+    final tray =
+        _box(
+            width: 0.76,
+            height: 0.06,
+            depth: 0.32,
+            color: const Color(0xFFC9B8A4),
+          )
+          ..position.setValues(2.06, 0.96, deskZ + 0.02)
+          ..rotation.y = -0.08;
+    scene.add(tray);
+
+    final roundDish =
+        three.Mesh(
+            three.CylinderGeometry(0.14, 0.14, 0.04, 22),
+            three.MeshPhongMaterial.fromMap({
+              'color': _hex(const Color(0xFFD1C8BB)),
+            }),
+          )
+          ..position.setValues(2.24, 1.03, deskZ + 0.05)
+          ..castShadow = true;
+    scene.add(roundDish);
+
+    final stool =
+        three.Mesh(
+            three.CylinderGeometry(0.34, 0.38, 0.32, 22),
+            three.MeshPhongMaterial.fromMap({
+              'color': _hex(const Color(0xFF6F7E69)),
+            }),
+          )
+          ..position.setValues(0.65, 0.66, -roomDepth / 2 + 1.35)
+          ..castShadow = true;
+    scene.add(stool);
+
+    for (final x in const [0.43, 0.87]) {
+      final leg = _box(
+        width: 0.06,
+        height: 0.34,
+        depth: 0.06,
+        color: const Color(0xFF3A2A24),
+        x: x,
+        y: 0.34,
+        z: -roomDepth / 2 + 1.35,
+      );
+      scene.add(leg);
+    }
+  }
+
+  void _addRoomTapTarget(
+    three.Scene scene, {
+    required _RoomTapTarget target,
+    required double width,
+    required double height,
+    required double depth,
+    required double x,
+    required double y,
+    required double z,
+  }) {
+    final material = three.MeshBasicMaterial.fromMap({
+      'color': 0xffffff,
+      'transparent': true,
+      'opacity': 0.0,
+      'depthWrite': false,
+    });
+    final mesh = three.Mesh(three.BoxGeometry(width, height, depth), material)
+      ..position.setValues(x, y, z)
+      ..userData['roomTapTarget'] = target
+      ..renderOrder = 20;
+    _roomTapTargets.add(mesh);
+    scene.add(mesh);
   }
 
   void _attachPointerEvents() {
@@ -479,6 +772,10 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   }
 
   void _onPointerDown(dynamic event) {
+    _recordPointerPosition(event, isDown: true);
+    _pendingTapTarget = null;
+    _cameraTiltCandidate = false;
+    _cameraTiltActive = false;
     _updatePointer(event);
     _raycaster.setFromCamera(_pointer, _camera);
     final intersections = _raycaster.intersectObjects(
@@ -487,7 +784,21 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     );
 
     if (intersections.isEmpty) {
+      final roomIntersections = _raycaster.intersectObjects(
+        _roomTapTargets,
+        true,
+      );
+      if (roomIntersections.isNotEmpty) {
+        _pendingTapTarget = _resolveRoomTapTarget(
+          roomIntersections.first.object,
+        );
+        widget.controller.selectItem(null);
+        _beginCameraTiltCandidate(event);
+        return;
+      }
+
       widget.controller.selectItem(null);
+      _beginCameraTiltCandidate(event);
       return;
     }
 
@@ -501,6 +812,12 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     widget.controller.selectItem(sceneFurniture.itemId);
     _activeDragItemId = sceneFurniture.itemId;
     _dragPreviewValid = true;
+    final placed = widget.controller.placedItemById(sceneFurniture.itemId);
+    if (placed != null) {
+      _pendingTapTarget = _tapTargetForDefinition(
+        widget.controller.definitionFor(placed.definitionId),
+      );
+    }
 
     if (_raycaster.ray.intersectPlane(_dragPlane, _dragIntersection) != null) {
       _dragOffset
@@ -512,7 +829,13 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   }
 
   void _onPointerMove(dynamic event) {
+    _recordPointerPosition(event, isDown: false);
+    if (_pointerTravel > 10) {
+      _pendingTapTarget = null;
+    }
+
     if (_activeDragItemId == null) {
+      _updateCameraTilt(event);
       return;
     }
 
@@ -546,8 +869,22 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _syncSceneWithController();
   }
 
-  void _onPointerUp([dynamic _]) {
+  void _onPointerUp([dynamic event]) {
+    if (event != null) {
+      _recordPointerPosition(event, isDown: false);
+    }
+
+    final tapTarget = _pointerTravel <= 10 ? _pendingTapTarget : null;
+
     if (_activeDragItemId == null) {
+      final wasTilting = _cameraTiltActive;
+      _cameraTiltCandidate = false;
+      _cameraTiltActive = false;
+      _pendingTapTarget = null;
+      if (wasTilting) {
+        return;
+      }
+      _handleRoomTapTarget(tapTarget);
       return;
     }
 
@@ -558,7 +895,47 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _activeDragItemId = null;
     _dragPreviewOrigin = null;
     _dragPreviewValid = true;
+    _pendingTapTarget = null;
+    _cameraTiltCandidate = false;
+    _cameraTiltActive = false;
     _syncSceneWithController();
+    _handleRoomTapTarget(tapTarget);
+  }
+
+  void _beginCameraTiltCandidate(dynamic event) {
+    _cameraTiltCandidate = true;
+    _cameraTiltActive = false;
+    _cameraTiltStartX = _cameraLookOffsetX;
+    _cameraTiltPointerStartX = _eventClientX(event);
+  }
+
+  void _updateCameraTilt(dynamic event) {
+    if (!_cameraTiltCandidate || widget.deskFocused || widget.nightMode) {
+      return;
+    }
+
+    final deltaX = _eventClientX(event) - _cameraTiltPointerStartX;
+    if (!_cameraTiltActive && deltaX.abs() < _cameraTiltStartThreshold) {
+      return;
+    }
+
+    _cameraTiltActive = true;
+    _pendingTapTarget = null;
+    _cameraLookOffsetX = (_cameraTiltStartX - deltaX * _cameraTiltSensitivity)
+        .clamp(-_maxCameraLookOffsetX, _maxCameraLookOffsetX)
+        .toDouble();
+    _refreshCamera();
+  }
+
+  void _refreshCamera() {
+    final threeJs = _threeJs;
+    if (threeJs == null) {
+      return;
+    }
+
+    final width = threeJs.width <= 0 ? 1.0 : threeJs.width;
+    final height = threeJs.height <= 0 ? 1.0 : threeJs.height;
+    _configureCamera(Size(width, height));
   }
 
   void _syncSceneWithController() {
@@ -688,6 +1065,56 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     return null;
   }
 
+  _RoomTapTarget? _resolveRoomTapTarget(three.Object3D? object) {
+    var current = object;
+    while (current != null) {
+      final value = current.userData['roomTapTarget'];
+      if (value is _RoomTapTarget) {
+        return value;
+      }
+      current = current.parent;
+    }
+    return null;
+  }
+
+  _RoomTapTarget? _tapTargetForDefinition(RoomItemDefinition definition) {
+    return switch (definition.visualKind) {
+      RoomItemVisualKind.bed => _RoomTapTarget.bed,
+      RoomItemVisualKind.vanity => _RoomTapTarget.desk,
+      _ => null,
+    };
+  }
+
+  void _handleRoomTapTarget(_RoomTapTarget? target) {
+    switch (target) {
+      case _RoomTapTarget.desk:
+        widget.onTapDesk?.call();
+        return;
+      case _RoomTapTarget.bed:
+        widget.onTapBed?.call();
+        return;
+      case null:
+        return;
+    }
+  }
+
+  void _recordPointerPosition(dynamic event, {required bool isDown}) {
+    final x = _eventClientX(event);
+    final y = _eventClientY(event);
+    if (isDown) {
+      _pointerDownX = x;
+      _pointerDownY = y;
+    }
+    _pointerLastX = x;
+    _pointerLastY = y;
+  }
+
+  double get _pointerTravel {
+    final dx = _pointerLastX - _pointerDownX;
+    final dy = _pointerLastY - _pointerDownY;
+    return math.sqrt(dx * dx + dy * dy);
+  }
+
   void _updatePointer(dynamic event) {
     final threeJs = _threeJs;
     if (threeJs == null) {
@@ -702,9 +1129,20 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
 
     final width = box.size.width;
     final height = box.size.height;
-    _pointer.x = (event.clientX as double) / width * 2 - 1;
-    _pointer.y = -(event.clientY as double) / height * 2 + 1;
+    if (width <= 0 || height <= 0) {
+      return;
+    }
+
+    final localPosition = box.globalToLocal(
+      Offset(_eventClientX(event), _eventClientY(event)),
+    );
+    _pointer.x = localPosition.dx / width * 2 - 1;
+    _pointer.y = -(localPosition.dy / height) * 2 + 1;
   }
+
+  double _eventClientX(dynamic event) => (event.clientX as num).toDouble();
+
+  double _eventClientY(dynamic event) => (event.clientY as num).toDouble();
 
   GridPoint _worldToGridOrigin({
     required String definitionId,
@@ -782,7 +1220,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         width: 2.7,
         height: 0.42,
         depth: 3.6,
-        color: const Color(0xFFE7E0D7),
+        color: const Color(0xFFD1C8BD),
         y: 0.22,
       ),
     );
@@ -791,7 +1229,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         width: 2.76,
         height: 1.02,
         depth: 0.18,
-        color: const Color(0xFFDDDDD8),
+        color: const Color(0xFFC6C1B8),
         y: 0.72,
         z: -1.68,
       ),
@@ -801,7 +1239,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         width: 2.56,
         height: 0.18,
         depth: 3.0,
-        color: const Color(0xFFD2D0CC),
+        color: const Color(0xFFBFB8AF),
         y: 0.54,
       ),
     );
@@ -810,7 +1248,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         width: 2.54,
         height: 0.2,
         depth: 3.0,
-        color: const Color(0xFFDDD8D2),
+        color: const Color(0xFFCFC7BD),
         y: 0.78,
       ),
     );
@@ -819,7 +1257,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         width: 2.34,
         height: 0.16,
         depth: 2.82,
-        color: const Color(0xFFECE8E2),
+        color: const Color(0xFFD9D2C7),
         y: 0.91,
       ),
     );
@@ -828,7 +1266,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         width: 0.86,
         height: 0.18,
         depth: 0.58,
-        color: const Color(0xFFF8F2EB),
+        color: const Color(0xFFE2DBD0),
         y: 1.05,
         x: -0.48,
         z: -1.18,
@@ -839,7 +1277,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         width: 0.86,
         height: 0.18,
         depth: 0.58,
-        color: const Color(0xFFF8F2EB),
+        color: const Color(0xFFE2DBD0),
         y: 1.05,
         x: 0.48,
         z: -1.18,
@@ -864,7 +1302,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         width: 0.82,
         height: 0.08,
         depth: 0.82,
-        color: const Color(0xFFE8DDCF),
+        color: const Color(0xFFC8B8A5),
         y: 0.78,
       ),
     );
@@ -878,7 +1316,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         width: 1.72,
         height: 2.88,
         depth: 0.78,
-        color: const Color(0xFFD7C9B7),
+        color: const Color(0xFFBCA992),
         y: 1.44,
       ),
     );
@@ -923,7 +1361,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
             width: 0.08,
             height: 0.72,
             depth: 0.08,
-            color: const Color(0xFFE9E1D7),
+            color: const Color(0xFFC7B7A6),
             x: x,
             y: 0.36,
             z: z,
@@ -936,7 +1374,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         width: 0.82,
         height: 1.0,
         depth: 0.08,
-        color: const Color(0xFFE1E5EC),
+        color: const Color(0xFFB5BDC5),
         y: 1.34,
         z: -0.3,
       ),
@@ -960,7 +1398,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         width: 0.64,
         height: 0.12,
         depth: 0.64,
-        color: const Color(0xFFD8BBAF),
+        color: const Color(0xFFC59F92),
         y: 0.54,
       ),
     );
@@ -992,7 +1430,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         width: 0.56,
         height: 0.46,
         depth: 0.56,
-        color: const Color(0xFFF2D7BC),
+        color: const Color(0xFFD7B693),
         y: 1.58,
       ),
     );
@@ -1038,7 +1476,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     double y = 0,
     double z = 0,
     bool castShadow = true,
-    bool receiveShadow = false,
+    bool receiveShadow = true,
   }) {
     return three.Mesh(
         three.BoxGeometry(width, height, depth),
