@@ -624,15 +624,30 @@ class _GoodNightOverlay extends StatelessWidget {
           const Center(
             child: Padding(
               padding: EdgeInsets.symmetric(horizontal: 36),
-              child: Text(
-                '晚安，有个好梦',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Color(0xFFF5F0E8),
-                  fontSize: 28,
-                  fontWeight: FontWeight.w700,
-                  height: 1.25,
-                ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    'Have a good night! See you tomorrow.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Color(0xFFF5F0E8),
+                      fontSize: 28,
+                      fontWeight: FontWeight.w700,
+                      height: 1.25,
+                    ),
+                  ),
+                  Text(
+                    '(Your room is now in night mode. If you want to go back, just double click the scene.)',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Color(0xFFF5F0E8),
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      height: 1.25,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
