@@ -306,16 +306,23 @@ class InfoPill extends StatelessWidget {
         border: Border.all(color: AppColors.stroke),
       ),
       child: Row(
+        mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Icon(icon, size: 18, color: AppColors.clay),
           const SizedBox(width: 10),
-          Flexible(
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 112),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label, style: theme.textTheme.bodySmall),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall,
+                ),
                 Text(
                   value,
                   maxLines: 1,

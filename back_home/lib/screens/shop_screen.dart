@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../rooms/room_state.dart';
@@ -15,135 +17,111 @@ class ShopScreen extends StatelessWidget {
       backgroundColor: Colors.transparent,
       body: Stack(
         children: [
-          const AmbientBackground(),
-          SafeArea(
-            child: AnimatedBuilder(
-              animation: controller,
-              builder: (context, _) {
-                return AppPage(
-                  eyebrow: 'Store',
-                  title: 'Comfort shop',
-                  subtitle:
-                      'Buy more furniture, then place it directly into the room.',
-                  trailing: IconButton.filledTonal(
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close_rounded),
-                  ),
-                  padding: const EdgeInsets.fromLTRB(20, 18, 20, 32),
-                  children: [
-                    SoftCard(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFFFFF8F0), Color(0xFFF4D8C7)],
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'Likes balance',
-                                  style: TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppColors.muted,
+          const Positioned.fill(child: AmbientBackground()),
+          Positioned.fill(
+            child: SafeArea(
+              child: AnimatedBuilder(
+                animation: controller,
+                builder: (context, _) {
+                  return AppPage(
+                    eyebrow: 'Store',
+                    title: 'Comfort shop',
+                    subtitle:
+                        'Buy more furniture, then place it directly into the room.',
+                    trailing: IconButton.filledTonal(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                    padding: const EdgeInsets.fromLTRB(20, 18, 20, 32),
+                    children: [
+                      SoftCard(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFFFFF8F0), Color(0xFFF4D8C7)],
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Likes balance',
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.muted,
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  '${controller.likesBalance}',
-                                  style: const TextStyle(
-                                    fontSize: 34,
-                                    fontWeight: FontWeight.w700,
-                                    color: AppColors.ink,
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    '${controller.likesBalance}',
+                                    style: const TextStyle(
+                                      fontSize: 34,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.ink,
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(height: 6),
-                                const Text(
-                                  'Purchases drop straight into the bedroom editor.',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    color: AppColors.muted,
+                                  const SizedBox(height: 6),
+                                  const Text(
+                                    'Purchases drop straight into the bedroom editor.',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      color: AppColors.muted,
+                                    ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
+                            const SizedBox(width: 14),
+                            InfoPill(
+                              icon: Icons.grid_on_rounded,
+                              label: 'Room grid',
+                              value:
+                                  '${RoomEditorController.roomWidth} x ${RoomEditorController.roomDepth}',
+                              tint: const Color(0xFFF6E2C3),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 28),
+                      const SectionHeader(
+                        title: 'Categories',
+                        subtitle:
+                            'Statement pieces first, then small fillers for empty tiles.',
+                      ),
+                      const SizedBox(height: 14),
+                      const Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: [
+                          TopicChip(
+                            label: 'Statement',
+                            icon: Icons.bed_rounded,
+                            highlight: true,
                           ),
-                          const SizedBox(width: 14),
-                          InfoPill(
-                            icon: Icons.grid_on_rounded,
-                            label: 'Room grid',
-                            value:
-                                '${RoomEditorController.roomWidth} x ${RoomEditorController.roomDepth}',
-                            tint: const Color(0xFFF6E2C3),
+                          TopicChip(
+                            label: 'Storage',
+                            icon: Icons.inventory_2_rounded,
+                          ),
+                          TopicChip(
+                            label: 'Lighting',
+                            icon: Icons.light_rounded,
+                          ),
+                          TopicChip(
+                            label: 'Decor',
+                            icon: Icons.local_florist_rounded,
                           ),
                         ],
                       ),
-                    ),
-                    const SizedBox(height: 28),
-                    const SectionHeader(
-                      title: 'Categories',
-                      subtitle:
-                          'Statement pieces first, then small fillers for empty tiles.',
-                    ),
-                    const SizedBox(height: 14),
-                    const Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      children: [
-                        TopicChip(
-                          label: 'Statement',
-                          icon: Icons.bed_rounded,
-                          highlight: true,
-                        ),
-                        TopicChip(
-                          label: 'Storage',
-                          icon: Icons.inventory_2_rounded,
-                        ),
-                        TopicChip(label: 'Lighting', icon: Icons.light_rounded),
-                        TopicChip(
-                          label: 'Decor',
-                          icon: Icons.local_florist_rounded,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-                    GridView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: controller.catalog.length,
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 2,
-                            mainAxisSpacing: 12,
-                            crossAxisSpacing: 12,
-                            childAspectRatio: 0.72,
-                          ),
-                      itemBuilder: (context, index) {
-                        final item = controller.catalog[index];
-                        return _ShopItemCard(
-                          definition: item,
-                          likesBalance: controller.likesBalance,
-                          ownedCount: controller.ownedCount(item.id),
-                          availableToPlace: controller.availableToPlace(
-                            item.id,
-                          ),
-                          onBuyAndPlace: () => _showResult(
-                            context,
-                            controller.buyAndAddItem(item.id),
-                          ),
-                          onPlaceOwned: controller.availableToPlace(item.id) > 0
-                              ? () => _showResult(
-                                  context,
-                                  controller.addOwnedItem(item.id),
-                                )
-                              : null,
-                        );
-                      },
-                    ),
-                  ],
-                );
-              },
+                      const SizedBox(height: 20),
+                      _ShopCatalogGrid(
+                        controller: controller,
+                        onResult: (result) => _showResult(context, result),
+                      ),
+                    ],
+                  );
+                },
+              ),
             ),
           ),
         ],
@@ -155,6 +133,60 @@ class ShopScreen extends StatelessWidget {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(result.message)));
+  }
+}
+
+class _ShopCatalogGrid extends StatelessWidget {
+  const _ShopCatalogGrid({required this.controller, required this.onResult});
+
+  final RoomEditorController controller;
+  final ValueChanged<RoomActionResult> onResult;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const spacing = 12.0;
+        final availableWidth = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : MediaQuery.sizeOf(context).width - 40;
+        final columnCount = availableWidth < 560
+            ? 1
+            : availableWidth >= 960
+            ? 3
+            : 2;
+        final itemWidth =
+            (availableWidth - spacing * (columnCount - 1)) / columnCount;
+        final itemHeight = switch (columnCount) {
+          1 => math.max(390.0, itemWidth * 0.82),
+          2 => math.max(414.0, itemWidth * 1.16),
+          _ => math.max(394.0, itemWidth * 1.2),
+        };
+
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: [
+            for (final item in controller.catalog)
+              SizedBox(
+                width: itemWidth,
+                height: itemHeight,
+                child: _ShopItemCard(
+                  definition: item,
+                  likesBalance: controller.likesBalance,
+                  ownedCount: controller.ownedCount(item.id),
+                  availableToPlace: controller.availableToPlace(item.id),
+                  onBuyAndPlace: () =>
+                      onResult(controller.buyAndAddItem(item.id)),
+                  onPlaceOwned: controller.availableToPlace(item.id) > 0
+                      ? () => onResult(controller.addOwnedItem(item.id))
+                      : null,
+                ),
+              ),
+          ],
+        );
+      },
+    );
   }
 }
 

@@ -237,9 +237,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       _camera.lookAt(three.Vector3(-1.4, 0.85, -0.15));
     } else {
       final wide = _camera.aspect > 1.1;
-      _camera.position.setValues(0.0, wide ? 3.35 : 2.95, wide ? 12.9 : 10.85);
+      _camera.position.setValues(0.0, wide ? 3.35 : 2.88, wide ? 12.9 : 10.25);
       _camera.lookAt(
-        three.Vector3(lookOffsetX, wide ? 1.35 : 1.05, wide ? -0.55 : -0.12),
+        three.Vector3(lookOffsetX, wide ? 1.35 : 1.0, wide ? -0.55 : -0.12),
       );
     }
 

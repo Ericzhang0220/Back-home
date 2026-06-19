@@ -1,7 +1,11 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:back_home/app.dart';
 import 'package:back_home/rooms/isometric_room_view.dart';
+import 'package:back_home/rooms/room_state.dart';
+import 'package:back_home/screens/shop_screen.dart';
+import 'package:back_home/theme/app_theme.dart';
 import 'package:back_home/widgets/app_ui.dart';
 
 void main() {
@@ -61,5 +65,24 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
 
     expect(find.text('Mood Calendar'), findsOneWidget);
+  });
+
+  testWidgets('renders the shop catalog at phone size', (
+    WidgetTester tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(430, 932));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(),
+        home: ShopScreen(controller: RoomEditorController()),
+      ),
+    );
+
+    expect(find.text('Comfort shop'), findsOneWidget);
+    expect(find.text('Likes balance'), findsOneWidget);
+    expect(find.text('Categories'), findsOneWidget);
+    expect(find.text('Buy + place'), findsWidgets);
   });
 }
