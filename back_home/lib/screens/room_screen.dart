@@ -3,7 +3,6 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
-import '../rooms/isometric_room_view.dart';
 import '../rooms/room_state.dart';
 import '../rooms/room_visuals.dart';
 import '../widgets/app_ui.dart';
@@ -14,11 +13,17 @@ class RoomScreen extends StatefulWidget {
     required this.controller,
     required this.onOpenShop,
     required this.isActive,
+    required this.isChromeVisible,
+    required this.isChromeInteractive,
+    required this.onRevealChrome,
   });
 
   final RoomEditorController controller;
   final VoidCallback onOpenShop;
   final bool isActive;
+  final bool isChromeVisible;
+  final bool isChromeInteractive;
+  final VoidCallback onRevealChrome;
 
   @override
   State<RoomScreen> createState() => _RoomScreenState();
@@ -26,6 +31,8 @@ class RoomScreen extends StatefulWidget {
 
 class _RoomScreenState extends State<RoomScreen> {
   bool _panelOpen = false;
+  bool _deskFocused = false;
+  bool _nightMode = false;
 
   void _togglePanel() {
     setState(() {
@@ -40,6 +47,48 @@ class _RoomScreenState extends State<RoomScreen> {
     setState(() {
       _panelOpen = false;
     });
+  }
+
+  void _focusDesk() {
+    setState(() {
+      _deskFocused = true;
+      _nightMode = false;
+      _panelOpen = false;
+    });
+  }
+
+  void _openNightMode() {
+    setState(() {
+      _deskFocused = false;
+      _nightMode = true;
+      _panelOpen = false;
+    });
+  }
+
+  void _restoreRoomLight() {
+    setState(() {
+      _nightMode = false;
+      _deskFocused = false;
+    });
+    widget.onRevealChrome();
+  }
+
+  void _handleDoubleTap() {
+    if (_nightMode) {
+      _restoreRoomLight();
+      return;
+    }
+    setState(() {
+      _deskFocused = false;
+    });
+    widget.onRevealChrome();
+  }
+
+  void _handleHorizontalDragEnd(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+    if (velocity > 180) {
+      widget.onRevealChrome();
+    }
   }
 
   void _showResult(RoomActionResult result) {
@@ -65,124 +114,530 @@ class _RoomScreenState extends State<RoomScreen> {
             ? null
             : widget.controller.definitionFor(selectedItem.definitionId);
 
-        return Stack(
-          children: [
-            Positioned.fill(
-              child: IsometricRoomView(
-                controller: widget.controller,
-                isActive: widget.isActive,
-              ),
-            ),
-            Positioned.fill(
-              child: IgnorePointer(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.black.withValues(alpha: 0.48),
-                        Colors.transparent,
-                        Colors.black.withValues(alpha: 0.18),
-                      ],
-                      stops: const [0, 0.36, 1],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            Positioned(
-              top: media.padding.top + 16,
-              left: 20,
-              right: 20,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Container(),
-                    // child: _FloatingTitle(
-                    //   title: 'Bedroom editor',
-                    //   subtitle: selectedDefinition?.title ?? 'Direct room view',
-                    // ),
-                  ),
-                  // const SizedBox(width: 12),
-                  _SceneButton(
-                    icon: Icons.shopping_bag_rounded,
-                    onTap: widget.onOpenShop,
-                  ),
-                  // const SizedBox(width: 12),
-                  // _SceneButton(
-                  //   icon: _panelOpen ? Icons.close_rounded : Icons.tune_rounded,
-                  //   onTap: _togglePanel,
-                  //   highlighted: true,
-                  // ),
-                ],
-              ),
-            ),
-            Positioned(
-              left: 20,
-              right: 20,
-              bottom: 20,
-              child: _SceneHintBar(
-                selectedDefinition: selectedDefinition,
-                onOpenPanel: _togglePanel,
-              ),
-            ),
-            if (_panelOpen)
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onDoubleTap: _handleDoubleTap,
+          onLongPress: _togglePanel,
+          onHorizontalDragEnd: _handleHorizontalDragEnd,
+          child: Stack(
+            children: [
               Positioned.fill(
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: _closePanel,
-                  child: ColoredBox(
-                    color: Colors.black.withValues(alpha: 0.18),
-                  ),
+                child: _PhotoRoomScene(
+                  deskFocused: _deskFocused,
+                  nightMode: _nightMode,
+                  onTapDesk: _focusDesk,
+                  onTapBed: _openNightMode,
                 ),
               ),
-            Align(
-              alignment: Alignment.bottomCenter,
-              child: SafeArea(
-                top: false,
+              Positioned.fill(
                 child: IgnorePointer(
-                  ignoring: !_panelOpen,
-                  child: AnimatedSlide(
-                    duration: const Duration(milliseconds: 240),
-                    curve: Curves.easeOutCubic,
-                    offset: _panelOpen ? Offset.zero : const Offset(0, 1.08),
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                      child: _SettingsPanel(
-                        height: panelHeight,
-                        controller: widget.controller,
-                        selectedItem: selectedItem,
-                        selectedDefinition: selectedDefinition,
-                        onClose: _closePanel,
-                        onOpenShop: widget.onOpenShop,
-                        onAddOwnedItem: (definitionId) => _showResult(
-                          widget.controller.addOwnedItem(definitionId),
-                        ),
-                        onRotateSelected: selectedItem == null
-                            ? null
-                            : () => _showResult(
-                                widget.controller.rotatePlacedItem(
-                                  selectedItem.instanceId,
-                                ),
-                              ),
-                        onStoreSelected: selectedItem == null
-                            ? null
-                            : () => _showResult(
-                                widget.controller.storePlacedItem(
-                                  selectedItem.instanceId,
-                                ),
-                              ),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.black.withValues(alpha: 0.48),
+                          Colors.transparent,
+                          Colors.black.withValues(alpha: 0.18),
+                        ],
+                        stops: const [0, 0.36, 1],
                       ),
                     ),
                   ),
                 ),
               ),
+              Positioned(
+                top: media.padding.top + 16,
+                left: 20,
+                right: 20,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Container(),
+                      // child: _FloatingTitle(
+                      //   title: 'Bedroom editor',
+                      //   subtitle: selectedDefinition?.title ?? 'Direct room view',
+                      // ),
+                    ),
+                    IgnorePointer(
+                      ignoring: !widget.isChromeInteractive,
+                      child: AnimatedOpacity(
+                        duration: const Duration(seconds: 2),
+                        curve: Curves.easeInOutCubic,
+                        opacity: widget.isChromeVisible ? 1 : 0,
+                        child: _SceneButton(
+                          icon: Icons.shopping_bag_rounded,
+                          onTap: widget.onOpenShop,
+                        ),
+                      ),
+                    ),
+                    // const SizedBox(width: 12),
+                    // _SceneButton(
+                    //   icon: _panelOpen ? Icons.close_rounded : Icons.tune_rounded,
+                    //   onTap: _togglePanel,
+                    //   highlighted: true,
+                    // ),
+                  ],
+                ),
+              ),
+              if (_deskFocused && !_nightMode)
+                Positioned(
+                  top: media.padding.top + 84,
+                  left: 18,
+                  child: _SceneButton(
+                    icon: Icons.keyboard_arrow_left_rounded,
+                    onTap: () {
+                      setState(() {
+                        _deskFocused = false;
+                      });
+                    },
+                  ),
+                ),
+              Positioned.fill(
+                child: IgnorePointer(
+                  ignoring: !_nightMode,
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 1600),
+                    curve: Curves.easeInOutCubic,
+                    opacity: _nightMode ? 1 : 0,
+                    child: const _GoodNightOverlay(),
+                  ),
+                ),
+              ),
+              if (_panelOpen)
+                Positioned.fill(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: _closePanel,
+                    child: ColoredBox(
+                      color: Colors.black.withValues(alpha: 0.18),
+                    ),
+                  ),
+                ),
+              Align(
+                alignment: Alignment.bottomCenter,
+                child: SafeArea(
+                  top: false,
+                  child: IgnorePointer(
+                    ignoring: !_panelOpen,
+                    child: AnimatedSlide(
+                      duration: const Duration(milliseconds: 240),
+                      curve: Curves.easeOutCubic,
+                      offset: _panelOpen ? Offset.zero : const Offset(0, 1.08),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                        child: _SettingsPanel(
+                          height: panelHeight,
+                          controller: widget.controller,
+                          selectedItem: selectedItem,
+                          selectedDefinition: selectedDefinition,
+                          onClose: _closePanel,
+                          onOpenShop: widget.onOpenShop,
+                          onAddOwnedItem: (definitionId) => _showResult(
+                            widget.controller.addOwnedItem(definitionId),
+                          ),
+                          onRotateSelected: selectedItem == null
+                              ? null
+                              : () => _showResult(
+                                  widget.controller.rotatePlacedItem(
+                                    selectedItem.instanceId,
+                                  ),
+                                ),
+                          onStoreSelected: selectedItem == null
+                              ? null
+                              : () => _showResult(
+                                  widget.controller.storePlacedItem(
+                                    selectedItem.instanceId,
+                                  ),
+                                ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _PhotoRoomScene extends StatelessWidget {
+  const _PhotoRoomScene({
+    required this.deskFocused,
+    required this.nightMode,
+    required this.onTapDesk,
+    required this.onTapBed,
+  });
+
+  final bool deskFocused;
+  final bool nightMode;
+  final VoidCallback onTapDesk;
+  final VoidCallback onTapBed;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = Size(constraints.maxWidth, constraints.maxHeight);
+        final scale = deskFocused ? 2.15 : 1.0;
+        final offset = deskFocused
+            ? Offset(-size.width * 0.12, size.height * 0.11)
+            : Offset.zero;
+
+        return ClipRect(
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              AnimatedSlide(
+                duration: const Duration(milliseconds: 760),
+                curve: Curves.easeInOutCubic,
+                offset: Offset(offset.dx / size.width, offset.dy / size.height),
+                child: AnimatedScale(
+                  duration: const Duration(milliseconds: 760),
+                  curve: Curves.easeInOutCubic,
+                  scale: scale,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Image.asset(
+                        'assets/room/room_start.png',
+                        key: const ValueKey('room-start-background'),
+                        fit: BoxFit.cover,
+                        alignment: Alignment.center,
+                        filterQuality: FilterQuality.high,
+                      ),
+                      if (deskFocused) const _DeskAccessories(),
+                    ],
+                  ),
+                ),
+              ),
+              if (!deskFocused && !nightMode) ...[
+                _RoomHotspot(
+                  left: size.width * 0.08,
+                  top: size.height * 0.29,
+                  width: size.width * 0.9,
+                  height: size.height * 0.24,
+                  onTap: onTapDesk,
+                ),
+                _RoomHotspot(
+                  left: 0,
+                  top: size.height * 0.54,
+                  width: size.width * 0.94,
+                  height: size.height * 0.35,
+                  onTap: onTapBed,
+                ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _RoomHotspot extends StatelessWidget {
+  const _RoomHotspot({
+    required this.left,
+    required this.top,
+    required this.width,
+    required this.height,
+    required this.onTap,
+  });
+
+  final double left;
+  final double top;
+  final double width;
+  final double height;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      left: left,
+      top: top,
+      width: width,
+      height: height,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          splashColor: Colors.white.withValues(alpha: 0.08),
+          highlightColor: Colors.white.withValues(alpha: 0.04),
+          onTap: onTap,
+        ),
+      ),
+    );
+  }
+}
+
+class _DeskAccessories extends StatelessWidget {
+  const _DeskAccessories();
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final height = constraints.maxHeight;
+
+        return Stack(
+          children: [
+            Positioned(
+              left: width * 0.26,
+              top: height * 0.39,
+              child: const _PenCup(),
+            ),
+            Positioned(
+              left: width * 0.5,
+              top: height * 0.405,
+              child: const _SoftRadio(),
+            ),
+            Positioned(
+              left: width * 0.66,
+              top: height * 0.41,
+              child: const _DeskTray(),
             ),
           ],
         );
       },
+    );
+  }
+}
+
+class _PenCup extends StatelessWidget {
+  const _PenCup();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 50,
+      height: 78,
+      child: Stack(
+        alignment: Alignment.bottomCenter,
+        children: [
+          Positioned(
+            top: 2,
+            left: 16,
+            child: Transform.rotate(
+              angle: -0.18,
+              child: Container(
+                width: 5,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFB8775D),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            top: 0,
+            right: 14,
+            child: Transform.rotate(
+              angle: 0.16,
+              child: Container(
+                width: 5,
+                height: 47,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF43524B),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+            ),
+          ),
+          Container(
+            width: 34,
+            height: 42,
+            decoration: BoxDecoration(
+              color: const Color(0xFFD9D8D1).withValues(alpha: 0.94),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(7),
+                bottom: Radius.circular(11),
+              ),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x33000000),
+                  blurRadius: 10,
+                  offset: Offset(0, 6),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SoftRadio extends StatelessWidget {
+  const _SoftRadio();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 92,
+      height: 54,
+      decoration: BoxDecoration(
+        color: const Color(0xFF8FA092).withValues(alpha: 0.96),
+        borderRadius: BorderRadius.circular(10),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x33000000),
+            blurRadius: 12,
+            offset: Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Stack(
+        children: [
+          Positioned(
+            left: 10,
+            top: 12,
+            child: Container(
+              width: 26,
+              height: 26,
+              decoration: BoxDecoration(
+                color: const Color(0xFF53645C),
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+          ),
+          Positioned(
+            right: 12,
+            top: 14,
+            child: Column(
+              children: List.generate(
+                3,
+                (index) => Container(
+                  margin: const EdgeInsets.only(bottom: 5),
+                  width: 34,
+                  height: 3,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE7E3DA).withValues(alpha: 0.72),
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DeskTray extends StatelessWidget {
+  const _DeskTray();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 86,
+      height: 42,
+      child: Stack(
+        children: [
+          Positioned(
+            left: 0,
+            bottom: 0,
+            child: Transform.rotate(
+              angle: -0.05,
+              child: Container(
+                width: 76,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFC9B8A4),
+                  borderRadius: BorderRadius.circular(5),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x26000000),
+                      blurRadius: 8,
+                      offset: Offset(0, 5),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            right: 2,
+            top: 2,
+            child: Container(
+              width: 24,
+              height: 24,
+              decoration: BoxDecoration(
+                color: const Color(0xFFE6E1D7),
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GoodNightOverlay extends StatelessWidget {
+  const _GoodNightOverlay();
+
+  @override
+  Widget build(BuildContext context) {
+    final topPadding = MediaQuery.of(context).padding.top;
+
+    return DecoratedBox(
+      decoration: const BoxDecoration(color: Color(0xE9000000)),
+      child: Stack(
+        children: [
+          Positioned(
+            top: topPadding + 82,
+            right: 52,
+            child: Container(
+              width: 92,
+              height: 92,
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                color: Color(0xFFE2E0D2),
+                boxShadow: [
+                  BoxShadow(
+                    color: Color(0x77E7E1C9),
+                    blurRadius: 34,
+                    spreadRadius: 8,
+                  ),
+                ],
+              ),
+              child: Align(
+                alignment: const Alignment(0.28, -0.12),
+                child: Container(
+                  width: 70,
+                  height: 70,
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Color(0xE9000000),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: 36),
+              child: Text(
+                '晚安，有个好梦',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Color(0xFFF5F0E8),
+                  fontSize: 28,
+                  fontWeight: FontWeight.w700,
+                  height: 1.25,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -403,72 +858,6 @@ class _SceneButton extends StatelessWidget {
               height: 54,
               child: Icon(icon, color: Colors.white),
             ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SceneHintBar extends StatelessWidget {
-  const _SceneHintBar({
-    required this.selectedDefinition,
-    required this.onOpenPanel,
-  });
-
-  final RoomItemDefinition? selectedDefinition;
-  final VoidCallback onOpenPanel;
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(24),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.26),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      selectedDefinition?.title ??
-                          'Long press furniture to move it',
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      selectedDefinition == null
-                          ? 'Open settings for inventory, rotate, and store controls.'
-                          : selectedDefinition!.description,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.white.withValues(alpha: 0.78),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              FilledButton.tonalIcon(
-                onPressed: onOpenPanel,
-                icon: const Icon(Icons.tune_rounded),
-                label: const Text('Settings'),
-              ),
-            ],
           ),
         ),
       ),

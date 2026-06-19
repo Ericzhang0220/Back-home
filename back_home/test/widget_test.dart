@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:back_home/app.dart';
@@ -22,10 +23,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
 
-    expect(
-      find.text('Open settings for inventory, rotate, and store controls.'),
-      findsOneWidget,
-    );
+    expect(find.byKey(const ValueKey('room-start-background')), findsOneWidget);
 
     await tester.tap(find.text('Chat').last);
     await tester.pump();

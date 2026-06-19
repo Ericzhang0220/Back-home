@@ -19,6 +19,9 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  static _AccountFlow _lastSelectedFlow = _AccountFlow.signIn;
+  static _AuthMethod _lastSelectedMethod = _AuthMethod.phone;
+
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _codeController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
@@ -31,11 +34,20 @@ class _LoginScreenState extends State<LoginScreen> {
   final FocusNode _passwordFocusNode = FocusNode();
   final FocusNode _confirmPasswordFocusNode = FocusNode();
 
-  _AccountFlow _flow = _AccountFlow.signIn;
-  _AuthMethod _method = _AuthMethod.phone;
+  late _AccountFlow _flow = _lastSelectedFlow;
+  late _AuthMethod _method = _lastSelectedMethod;
   bool _emailVerificationSent = false;
   bool _emailVerifiedForCreation = false;
   bool _keepSignInSelection = false;
+  String? _authErrorMessage;
+
+  void _setAuthSelection(_AccountFlow flow, _AuthMethod method) {
+    _lastSelectedFlow = flow;
+    _lastSelectedMethod = method;
+    _flow = flow;
+    _method = method;
+    _authErrorMessage = null;
+  }
 
   @override
   void initState() {
@@ -78,8 +90,7 @@ class _LoginScreenState extends State<LoginScreen> {
     }
 
     setState(() {
-      _flow = _AccountFlow.create;
-      _method = _AuthMethod.email;
+      _setAuthSelection(_AccountFlow.create, _AuthMethod.email);
       _emailVerificationSent = true;
       _emailVerifiedForCreation = emailVerified;
       if (_emailController.text.isEmpty && email.isNotEmpty) {
@@ -131,8 +142,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _signInWithEmail() async {
     setState(() {
       _keepSignInSelection = true;
-      _flow = _AccountFlow.signIn;
-      _method = _AuthMethod.email;
+      _setAuthSelection(_AccountFlow.signIn, _AuthMethod.email);
     });
     widget.authController.clearCreateEmailFlowPreference();
     await _runAuthAction(
@@ -146,8 +156,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _sendPasswordResetEmail() async {
     setState(() {
       _keepSignInSelection = true;
-      _flow = _AccountFlow.signIn;
-      _method = _AuthMethod.email;
+      _setAuthSelection(_AccountFlow.signIn, _AuthMethod.email);
     });
     widget.authController.clearCreateEmailFlowPreference();
     await _runAuthAction(
@@ -176,8 +185,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _sendEmailCreationVerification() async {
     setState(() {
       _keepSignInSelection = false;
-      _flow = _AccountFlow.create;
-      _method = _AuthMethod.email;
+      _setAuthSelection(_AccountFlow.create, _AuthMethod.email);
     });
     widget.authController.preferCreateEmailFlow();
     try {
@@ -226,6 +234,9 @@ class _LoginScreenState extends State<LoginScreen> {
     VoidCallback? afterSuccess,
   }) async {
     try {
+      setState(() {
+        _authErrorMessage = null;
+      });
       await action();
       if (!mounted) {
         return;
@@ -237,9 +248,24 @@ class _LoginScreenState extends State<LoginScreen> {
       }
       afterSuccess?.call();
     } on AuthFlowException catch (error) {
+      if (mounted) {
+        setState(() {
+          _authErrorMessage = error.message;
+          if (_keepSignInSelection && _flow == _AccountFlow.signIn) {
+            _setAuthSelection(_AccountFlow.signIn, _method);
+            _authErrorMessage = error.message;
+          }
+        });
+      }
       _showMessage(error.message);
     } catch (_) {
-      _showMessage('Something went wrong. Please try again.');
+      const message = 'Something went wrong. Please try again.';
+      if (mounted) {
+        setState(() {
+          _authErrorMessage = message;
+        });
+      }
+      _showMessage(message);
     }
   }
 
@@ -310,8 +336,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         }
                         setState(() {
                           _keepSignInSelection = true;
-                          _flow = _AccountFlow.signIn;
-                          _method = _AuthMethod.email;
+                          _setAuthSelection(
+                            _AccountFlow.signIn,
+                            _AuthMethod.email,
+                          );
                         });
                         widget.authController.clearCreateEmailFlowPreference();
                         _passwordFocusNode.requestFocus();
@@ -390,7 +418,10 @@ class _LoginScreenState extends State<LoginScreen> {
                                       _keepSignInSelection = true;
                                       widget.authController
                                           .clearCreateEmailFlowPreference();
-                                      _flow = _AccountFlow.signIn;
+                                      _setAuthSelection(
+                                        _AccountFlow.signIn,
+                                        _method,
+                                      );
                                     }),
                             ),
                           ),
@@ -405,7 +436,10 @@ class _LoginScreenState extends State<LoginScreen> {
                                   ? null
                                   : () => setState(() {
                                       _keepSignInSelection = false;
-                                      _flow = _AccountFlow.create;
+                                      _setAuthSelection(
+                                        _AccountFlow.create,
+                                        _method,
+                                      );
                                     }),
                             ),
                           ),
@@ -425,7 +459,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                       _flow == _AccountFlow.create) {
                                     _keepSignInSelection = false;
                                   }
-                                  _method = method;
+                                  _setAuthSelection(_flow, method);
                                 });
                                 if (_flow == _AccountFlow.create &&
                                     method == _AuthMethod.email) {
@@ -440,6 +474,10 @@ class _LoginScreenState extends State<LoginScreen> {
                               },
                       ),
                       const SizedBox(height: 18),
+                      if (_authErrorMessage != null) ...[
+                        _AuthErrorBanner(message: _authErrorMessage!),
+                        const SizedBox(height: 14),
+                      ],
                       if (_method == _AuthMethod.phone)
                         _PhoneCard(
                           flow: _flow,
@@ -539,6 +577,45 @@ class _FlowCard extends StatelessWidget {
             Text(subtitle, style: theme.textTheme.bodySmall),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _AuthErrorBanner extends StatelessWidget {
+  const _AuthErrorBanner({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFECE8),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE6A18F)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(
+            Icons.error_outline_rounded,
+            color: Color(0xFFB65C45),
+            size: 20,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: const Color(0xFF7C392C),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

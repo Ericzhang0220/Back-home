@@ -191,9 +191,15 @@ class _AppShellState extends State<AppShell> {
   final RoomEditorController _roomController = RoomEditorController();
   final Set<AppTab> _initializedTabs = <AppTab>{};
   AppTab _currentTab = AppTab.home;
+  Timer? _roomChromeFadeTimer;
+  Timer? _roomChromeInputTimer;
+  bool _roomChromeVisible = true;
+  bool _roomChromeInteractive = true;
 
   @override
   void dispose() {
+    _roomChromeFadeTimer?.cancel();
+    _roomChromeInputTimer?.cancel();
     _roomController.dispose();
     super.dispose();
   }
@@ -201,10 +207,54 @@ class _AppShellState extends State<AppShell> {
   void _selectTab(AppTab tab) {
     setState(() {
       _currentTab = tab;
+      if (tab == AppTab.room) {
+        _roomChromeVisible = true;
+        _roomChromeInteractive = true;
+      } else {
+        _roomChromeFadeTimer?.cancel();
+        _roomChromeInputTimer?.cancel();
+        _roomChromeVisible = true;
+        _roomChromeInteractive = true;
+      }
       if (tab != AppTab.home) {
         _initializedTabs.add(tab);
       }
     });
+    if (tab == AppTab.room) {
+      _scheduleRoomChromeFade();
+    }
+  }
+
+  void _scheduleRoomChromeFade() {
+    _roomChromeFadeTimer?.cancel();
+    _roomChromeInputTimer?.cancel();
+    _roomChromeFadeTimer = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted || _currentTab != AppTab.room) {
+        return;
+      }
+      setState(() {
+        _roomChromeVisible = false;
+      });
+      _roomChromeInputTimer = Timer(const Duration(seconds: 2), () {
+        if (!mounted || _currentTab != AppTab.room) {
+          return;
+        }
+        setState(() {
+          _roomChromeInteractive = false;
+        });
+      });
+    });
+  }
+
+  void _revealRoomChrome() {
+    if (_currentTab != AppTab.room) {
+      return;
+    }
+    setState(() {
+      _roomChromeVisible = true;
+      _roomChromeInteractive = true;
+    });
+    _scheduleRoomChromeFade();
   }
 
   Future<void> _openShop() async {
@@ -244,6 +294,9 @@ class _AppShellState extends State<AppShell> {
           controller: _roomController,
           onOpenShop: _openShop,
           isActive: _currentTab == AppTab.room,
+          isChromeVisible: _roomChromeVisible,
+          isChromeInteractive: _roomChromeInteractive,
+          onRevealChrome: _revealRoomChrome,
         );
       case AppTab.hall:
         return KeyedSubtree(
@@ -308,9 +361,19 @@ class _AppShellState extends State<AppShell> {
                   left: 0,
                   right: 0,
                   bottom: 0,
-                  child: _FloatingNavBar(
-                    currentTab: _currentTab,
-                    onSelect: _selectTab,
+                  child: IgnorePointer(
+                    ignoring: isRoomTab && !_roomChromeInteractive,
+                    child: AnimatedOpacity(
+                      duration: isRoomTab
+                          ? const Duration(seconds: 2)
+                          : const Duration(milliseconds: 220),
+                      curve: Curves.easeInOutCubic,
+                      opacity: isRoomTab && !_roomChromeVisible ? 0 : 1,
+                      child: _FloatingNavBar(
+                        currentTab: _currentTab,
+                        onSelect: _selectTab,
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -364,7 +427,7 @@ class _FloatingNavBar extends StatelessWidget {
                   surfaceTintColor: Colors.transparent,
                   shadowColor: Colors.transparent,
                   elevation: 0,
-                  height: 64,
+                  height: 72,
                   selectedIndex: currentTab.index - 1,
                   onDestinationSelected: (index) {
                     onSelect(AppTab.values[index + 1]);
