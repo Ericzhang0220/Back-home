@@ -510,6 +510,106 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
           ..position.setValues(2.4, 3.55, -0.9)
           ..castShadow = true;
     scene.add(pendant);
+
+    // Drop the imported Mallory sectional into the room as a test. The FBX loads
+    // asynchronously, so we let it stream in without blocking the rest of the
+    // scene from appearing. Every knob for it lives in the method below.
+    unawaited(_addMallorySectionalTest(scene));
+  }
+
+  // ===========================================================================
+  // Mallory Tufted Upholstered Sectional — imported FBX test placement.
+  //
+  // >>> THIS IS THE PLACE TO TWEAK THE SECTIONAL BY HAND <<<
+  // Change a constant below and hot-restart (not just hot-reload) to see it:
+  //
+  //   _malloryAsset        Which file gets loaded. Must be bundled under
+  //                        assets/ (the `assets/` line in pubspec.yaml already
+  //                        covers every file directly inside that folder).
+  //   _malloryAutoFit      When true, the model is auto-scaled to
+  //                        _malloryFitCells cells wide so it shows up at a sane
+  //                        size whatever units the FBX used. Set it to false to
+  //                        scale by hand with _malloryRawScale instead.
+  //   _malloryFitCells     Target width in grid cells, used when _malloryAutoFit
+  //                        is true.
+  //   _malloryRawScale     Manual uniform scale, used when _malloryAutoFit is
+  //                        false.
+  //   _malloryX/_malloryZ  Where it sits on the floor, in world units. The floor
+  //                        spans roughly -5..5 in X and -4..4 in Z; (0, 0) is the
+  //                        centre. Larger Z is toward the camera.
+  //   _malloryLift         World Y the model's base rests at. The visible plank
+  //                        surface is ~0.04, so that is the default; raise (+) to
+  //                        float it, lower toward 0 to sink it into the floor.
+  //   _malloryQuarterTurns Spin around the vertical axis in 90° steps (0-3),
+  //                        same convention as the rest of the room furniture.
+  // ===========================================================================
+  static const String _malloryAsset =
+      'assets/Mallory Tufted Upholstered Sectional.fbx';
+  static const bool _malloryAutoFit = true;
+  static const double _malloryFitCells = 3.0;
+  static const double _malloryRawScale = 0.01;
+  static const double _malloryX = -1.6;
+  static const double _malloryZ = 1.6;
+  static const double _malloryLift = 0.04;
+  static const int _malloryQuarterTurns = 0;
+
+  Future<void> _addMallorySectionalTest(three.Scene scene) async {
+    three.AnimationObject? model;
+    try {
+      model = await three.FBXLoader().fromAsset(_malloryAsset);
+    } catch (error, stackTrace) {
+      debugPrint('Mallory sectional failed to load: $error\n$stackTrace');
+      return;
+    }
+
+    if (model == null || !mounted || _threeJs == null) {
+      return;
+    }
+    final sectional = model;
+
+    // Scale first, measuring the model in its unrotated frame so auto-fit always
+    // matches its true width; then apply the rotation. By default we fit the
+    // model to a target width so it is visible whatever units the FBX used,
+    // otherwise we fall back to the manual scale.
+    var scale = _malloryRawScale;
+    if (_malloryAutoFit) {
+      final nativeSize = three.BoundingBox()
+          .setFromObject(sectional)
+          .getSize(three.Vector3.zero());
+      if (nativeSize.x > 0) {
+        scale = _malloryFitCells * RoomEditorController.cellSize / nativeSize.x;
+      }
+    }
+    sectional.scale.setValues(scale, scale, scale);
+    sectional.rotation.y = _malloryQuarterTurns * math.pi / 2;
+
+    // Re-measure after scaling/rotating, then rest it on the floor at the target
+    // spot. FBX pivots are unpredictable, so we recentre from the bounding box
+    // rather than trusting the model's own origin. If the FBX parsed but carried
+    // no geometry the bounds come back empty (min.y == +infinity); fall back to a
+    // plain placement so the model stays in view instead of flying to infinity.
+    final bounds = three.BoundingBox().setFromObject(sectional);
+    if (bounds.isEmpty()) {
+      debugPrint('Mallory sectional loaded but has no geometry to place.');
+      sectional.position.setValues(_malloryX, _malloryLift, _malloryZ);
+    } else {
+      final center = bounds.getCenter(three.Vector3.zero());
+      sectional.position.setValues(
+        _malloryX - center.x,
+        _malloryLift - bounds.min.y,
+        _malloryZ - center.z,
+      );
+    }
+
+    sectional.traverse((object) {
+      object.castShadow = true;
+      object.receiveShadow = true;
+    });
+
+    if (!mounted || _threeJs == null) {
+      return;
+    }
+    scene.add(sectional);
   }
 
   void _addSlopedCeilingDetails(three.Scene scene, double roomDepth) {
