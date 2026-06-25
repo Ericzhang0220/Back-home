@@ -191,6 +191,15 @@ class _AppShellState extends State<AppShell> {
   final RoomEditorController _roomController = RoomEditorController();
   final Set<AppTab> _initializedTabs = <AppTab>{};
   AppTab _currentTab = AppTab.home;
+
+  // Room chrome (the floating nav card + shop button) auto-hides after a short
+  // hold. It fades IN fast so a reveal snaps to full opacity, stays for the hold
+  // window, then fades OUT slowly. The hold must comfortably exceed the fade-in
+  // so the card actually reaches full opacity and lingers before hiding again.
+  static const Duration _roomChromeFadeIn = Duration(milliseconds: 320);
+  static const Duration _roomChromeFadeOut = Duration(seconds: 2);
+  static const Duration _roomChromeHold = Duration(seconds: 4);
+
   Timer? _roomChromeFadeTimer;
   Timer? _roomChromeInputTimer;
   bool _roomChromeVisible = true;
@@ -228,14 +237,15 @@ class _AppShellState extends State<AppShell> {
   void _scheduleRoomChromeFade() {
     _roomChromeFadeTimer?.cancel();
     _roomChromeInputTimer?.cancel();
-    _roomChromeFadeTimer = Timer(const Duration(milliseconds: 300), () {
+    _roomChromeFadeTimer = Timer(_roomChromeHold, () {
       if (!mounted || _currentTab != AppTab.room) {
         return;
       }
       setState(() {
         _roomChromeVisible = false;
       });
-      _roomChromeInputTimer = Timer(const Duration(seconds: 2), () {
+      // Keep the card tappable until it has fully faded out.
+      _roomChromeInputTimer = Timer(_roomChromeFadeOut, () {
         if (!mounted || _currentTab != AppTab.room) {
           return;
         }
@@ -365,7 +375,9 @@ class _AppShellState extends State<AppShell> {
                     ignoring: isRoomTab && !_roomChromeInteractive,
                     child: AnimatedOpacity(
                       duration: isRoomTab
-                          ? const Duration(seconds: 2)
+                          ? (_roomChromeVisible
+                                ? _roomChromeFadeIn
+                                : _roomChromeFadeOut)
                           : const Duration(milliseconds: 220),
                       curve: Curves.easeInOutCubic,
                       opacity: isRoomTab && !_roomChromeVisible ? 0 : 1,

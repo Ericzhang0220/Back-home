@@ -33,6 +33,9 @@ class RoomScreen extends StatefulWidget {
 
 class _RoomScreenState extends State<RoomScreen> {
   static const Duration _nightHintFadeDelay = Duration(milliseconds: 900);
+  // Chrome fade timing — kept in sync with app.dart's room-chrome durations.
+  static const Duration _chromeFadeIn = Duration(milliseconds: 320);
+  static const Duration _chromeFadeOut = Duration(seconds: 2);
 
   Timer? _nightHintFadeTimer;
   bool _panelOpen = false;
@@ -188,7 +191,11 @@ class _RoomScreenState extends State<RoomScreen> {
                     IgnorePointer(
                       ignoring: !widget.isChromeInteractive,
                       child: AnimatedOpacity(
-                        duration: const Duration(seconds: 2),
+                        // Fade in fast on reveal, fade out slowly — matches the
+                        // floating nav card timing in app.dart.
+                        duration: widget.isChromeVisible
+                            ? _chromeFadeIn
+                            : _chromeFadeOut,
                         curve: Curves.easeInOutCubic,
                         opacity: widget.isChromeVisible ? 1 : 0,
                         child: _SceneButton(
