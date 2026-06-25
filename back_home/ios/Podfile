@@ -7,7 +7,7 @@ ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 # Keep Firebase iOS pods stable across student machines. Without this, a newer
 # FlutterFire resolution can ask CocoaPods for a Firebase SDK version that is not
 # present in an older local specs cache yet.
-$FirebaseSDKVersion = '12.13.0'
+$FirebaseSDKVersion = '12.14.0'
 
 project 'Runner', {
   'Debug' => :debug,
