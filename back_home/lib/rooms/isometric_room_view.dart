@@ -66,6 +66,24 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   double _cameraTiltStartX = 0;
   double _cameraTiltPointerStartX = 0;
 
+  // Smooth camera motion + pinch zoom. The camera eases toward these targets
+  // every frame instead of snapping, and _zoom dollies it along its view line.
+  final three.Vector3 _cameraTargetPos = three.Vector3.zero();
+  final three.Vector3 _cameraTargetLook = three.Vector3.zero();
+  final three.Vector3 _cameraCurrentLook = three.Vector3.zero();
+  bool _cameraPosed = false;
+  double _zoom = 1.0;
+  final Set<int> _activePointers = <int>{};
+
+  static const double _minZoom = 0.62;
+  static const double _maxZoom = 2.4;
+  static const double _zoomInStep = 1.06;
+  static const double _zoomOutStep = 0.94;
+  // Higher = snappier camera transitions (eases ~this fraction per second).
+  static const double _cameraLerpSpeed = 7.0;
+
+  bool get _isPinching => _activePointers.length >= 2;
+
   @override
   void initState() {
     super.initState();
@@ -88,6 +106,8 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         widget.deskFocused != oldWidget.deskFocused ||
         widget.nightMode != oldWidget.nightMode;
     if (focusChanged && _threeConfigured && _threeJs != null) {
+      // Each view has its own designed framing, so start fresh from there.
+      _zoom = 1.0;
       final width = _threeJs!.width <= 0 ? 1.0 : _threeJs!.width;
       final height = _threeJs!.height <= 0 ? 1.0 : _threeJs!.height;
       _configureCamera(Size(width, height));
@@ -175,6 +195,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     );
 
     _configureCamera(Size(initialWidth, initialHeight));
+    threeJs.addAnimationEvent(_animateCamera);
     await _buildRoomShell();
     if (!mounted) {
       return;
@@ -214,36 +235,89 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _camera.aspect = safeWidth / safeHeight;
     _camera.near = 0.1;
     _camera.far = 80;
+    _camera.updateProjectionMatrix();
 
     final lookOffsetX = widget.deskFocused || widget.nightMode
         ? 0.0
         : _cameraLookOffsetX;
 
+    final three.Vector3 basePos;
+    final three.Vector3 lookAt;
     if (widget.deskFocused) {
       final deskWide = _camera.aspect > 1.1;
-      _camera.position.setValues(
+      basePos = three.Vector3(
         deskWide ? 1.1 : 1.25,
         deskWide ? 2.35 : 2.05,
         deskWide ? 6.2 : 4.55,
       );
-      _camera.lookAt(three.Vector3(1.45, 1.45, -3.2));
+      lookAt = three.Vector3(1.45, 1.45, -3.2);
     } else if (widget.nightMode) {
       final nightWide = _camera.aspect > 1.1;
-      _camera.position.setValues(
+      basePos = three.Vector3(
         nightWide ? -0.4 : -0.7,
         nightWide ? 2.25 : 1.9,
         nightWide ? 8.4 : 6.4,
       );
-      _camera.lookAt(three.Vector3(-1.4, 0.85, -0.15));
+      lookAt = three.Vector3(-1.4, 0.85, -0.15);
     } else {
       final wide = _camera.aspect > 1.1;
-      _camera.position.setValues(0.0, wide ? 3.35 : 2.88, wide ? 12.9 : 10.25);
-      _camera.lookAt(
-        three.Vector3(lookOffsetX, wide ? 1.35 : 1.0, wide ? -0.55 : -0.12),
+      basePos = three.Vector3(0.0, wide ? 3.35 : 2.88, wide ? 12.9 : 10.25);
+      lookAt = three.Vector3(
+        lookOffsetX,
+        wide ? 1.35 : 1.0,
+        wide ? -0.55 : -0.12,
       );
     }
 
-    _camera.updateProjectionMatrix();
+    // Dolly the camera toward/away from its look point for pinch zoom, then
+    // store as targets the per-frame lerp eases toward.
+    final inv = 1 / _zoom;
+    _cameraTargetPos.setValues(
+      lookAt.x + (basePos.x - lookAt.x) * inv,
+      lookAt.y + (basePos.y - lookAt.y) * inv,
+      lookAt.z + (basePos.z - lookAt.z) * inv,
+    );
+    _cameraTargetLook.setFrom(lookAt);
+
+    // First configuration snaps into place; later changes ease in (see
+    // _animateCamera), so switching views glides instead of teleporting.
+    if (!_cameraPosed) {
+      _camera.position.setFrom(_cameraTargetPos);
+      _cameraCurrentLook.setFrom(_cameraTargetLook);
+      _camera.lookAt(_cameraCurrentLook);
+      _cameraPosed = true;
+    }
+  }
+
+  void _animateCamera(double dt) {
+    if (!_cameraPosed) {
+      return;
+    }
+    final t = (1 - math.exp(-dt * _cameraLerpSpeed)).clamp(0.0, 1.0).toDouble();
+    _camera.position.lerp(_cameraTargetPos, t);
+    _cameraCurrentLook.lerp(_cameraTargetLook, t);
+    _camera.lookAt(_cameraCurrentLook);
+  }
+
+  void _onZoom(dynamic event) {
+    final delta = (event.deltaY as num).toDouble();
+    if (delta == 0) {
+      return;
+    }
+    // Pinch apart (delta < 0) zooms in; pinch together (delta > 0) zooms out.
+    final factor = delta < 0 ? _zoomInStep : _zoomOutStep;
+    _zoom = (_zoom * factor).clamp(_minZoom, _maxZoom).toDouble();
+    _refreshCamera();
+  }
+
+  void _cancelInteraction() {
+    _activeDragItemId = null;
+    _dragPreviewOrigin = null;
+    _dragPreviewValid = true;
+    _pendingTapTarget = null;
+    _cameraTiltCandidate = false;
+    _cameraTiltActive = false;
+    _syncSceneWithController();
   }
 
   void _scheduleSceneBootstrap() {
@@ -526,6 +600,14 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   //   _malloryAsset        Which file gets loaded. Must be bundled under
   //                        assets/ (the `assets/` line in pubspec.yaml already
   //                        covers every file directly inside that folder).
+  //   _malloryTextureDir   Folder the FBX's textures are loaded from. The FBX
+  //                        references external PNGs (BaseColor/Normal/Roughness/
+  //                        Metallic/Height) by name; we point the loader here so
+  //                        it reads them from the asset bundle instead of the
+  //                        modeller's dead absolute paths. Drop the real texture
+  //                        PNGs in here (same filenames) to replace the neutral
+  //                        placeholders. Must contain the word "assets" — that is
+  //                        what makes three_js load them from the bundle.
   //   _malloryAutoFit      When true, the model is auto-scaled to
   //                        _malloryFitCells cells wide so it shows up at a sane
   //                        size whatever units the FBX used. Set it to false to
@@ -545,6 +627,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   // ===========================================================================
   static const String _malloryAsset =
       'assets/Mallory Tufted Upholstered Sectional.fbx';
+  static const String _malloryTextureDir = 'assets/Texture/';
   static const bool _malloryAutoFit = true;
   static const double _malloryFitCells = 3.0;
   static const double _malloryRawScale = 0.01;
@@ -556,7 +639,11 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   Future<void> _addMallorySectionalTest(three.Scene scene) async {
     three.AnimationObject? model;
     try {
-      model = await three.FBXLoader().fromAsset(_malloryAsset);
+      // Point the texture loader at the bundled folder. three_js routes texture
+      // reads through the asset bundle (instead of the filesystem) when this
+      // path contains "assets", which is what stops the missing-texture crash.
+      final loader = three.FBXLoader()..setResourcePath(_malloryTextureDir);
+      model = await loader.fromAsset(_malloryAsset);
     } catch (error, stackTrace) {
       debugPrint('Mallory sectional failed to load: $error\n$stackTrace');
       return;
@@ -843,6 +930,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     dom.addEventListener(three.PeripheralType.pointerup, _onPointerUp);
     dom.addEventListener(three.PeripheralType.pointercancel, _onPointerUp);
     dom.addEventListener(three.PeripheralType.pointerleave, _onPointerUp);
+    dom.addEventListener(three.PeripheralType.wheel, _onZoom);
     _pointerEventsAttached = true;
   }
 
@@ -868,10 +956,17 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     dom.removeEventListener(three.PeripheralType.pointerup, _onPointerUp);
     dom.removeEventListener(three.PeripheralType.pointercancel, _onPointerUp);
     dom.removeEventListener(three.PeripheralType.pointerleave, _onPointerUp);
+    dom.removeEventListener(three.PeripheralType.wheel, _onZoom);
     _pointerEventsAttached = false;
   }
 
   void _onPointerDown(dynamic event) {
+    _activePointers.add((event.pointerId as num).toInt());
+    if (_isPinching) {
+      // A second finger landed: this is a pinch, not a drag/tilt.
+      _cancelInteraction();
+      return;
+    }
     _recordPointerPosition(event, isDown: true);
     _pendingTapTarget = null;
     _cameraTiltCandidate = false;
@@ -929,6 +1024,11 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   }
 
   void _onPointerMove(dynamic event) {
+    if (_isPinching) {
+      // Pinch zoom is handled by _onZoom; ignore drag/tilt while two fingers
+      // are down.
+      return;
+    }
     _recordPointerPosition(event, isDown: false);
     if (_pointerTravel > 10) {
       _pendingTapTarget = null;
@@ -971,6 +1071,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
 
   void _onPointerUp([dynamic event]) {
     if (event != null) {
+      _activePointers.remove((event.pointerId as num).toInt());
       _recordPointerPosition(event, isDown: false);
     }
 

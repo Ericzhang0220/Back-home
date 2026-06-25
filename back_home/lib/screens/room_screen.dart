@@ -18,6 +18,7 @@ class RoomScreen extends StatefulWidget {
     required this.isChromeVisible,
     required this.isChromeInteractive,
     required this.onRevealChrome,
+    required this.onSubviewChanged,
   });
 
   final RoomEditorController controller;
@@ -26,6 +27,10 @@ class RoomScreen extends StatefulWidget {
   final bool isChromeVisible;
   final bool isChromeInteractive;
   final VoidCallback onRevealChrome;
+
+  /// Reports whether the room is in a focused subview (desk or night mode) so
+  /// the app can hide the nav bar outside the main view.
+  final ValueChanged<bool> onSubviewChanged;
 
   @override
   State<RoomScreen> createState() => _RoomScreenState();
@@ -42,6 +47,8 @@ class _RoomScreenState extends State<RoomScreen> {
   bool _deskFocused = false;
   bool _nightMode = false;
   bool _nightHintVisible = false;
+
+  bool get _inSubview => _deskFocused || _nightMode;
 
   @override
   void dispose() {
@@ -72,6 +79,7 @@ class _RoomScreenState extends State<RoomScreen> {
       _nightHintVisible = false;
       _panelOpen = false;
     });
+    widget.onSubviewChanged(_inSubview);
   }
 
   void _openNightMode() {
@@ -81,6 +89,7 @@ class _RoomScreenState extends State<RoomScreen> {
       _nightHintVisible = true;
       _panelOpen = false;
     });
+    widget.onSubviewChanged(_inSubview);
     _scheduleNightHintFade();
   }
 
@@ -91,6 +100,7 @@ class _RoomScreenState extends State<RoomScreen> {
       _deskFocused = false;
       _nightHintVisible = false;
     });
+    widget.onSubviewChanged(_inSubview);
     widget.onRevealChrome();
   }
 
@@ -102,6 +112,7 @@ class _RoomScreenState extends State<RoomScreen> {
     setState(() {
       _deskFocused = false;
     });
+    widget.onSubviewChanged(_inSubview);
     widget.onRevealChrome();
   }
 
@@ -223,6 +234,8 @@ class _RoomScreenState extends State<RoomScreen> {
                       setState(() {
                         _deskFocused = false;
                       });
+                      widget.onSubviewChanged(_inSubview);
+                      widget.onRevealChrome();
                     },
                   ),
                 ),

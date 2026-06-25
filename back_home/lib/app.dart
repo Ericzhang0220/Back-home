@@ -204,6 +204,7 @@ class _AppShellState extends State<AppShell> {
   Timer? _roomChromeInputTimer;
   bool _roomChromeVisible = true;
   bool _roomChromeInteractive = true;
+  bool _roomInSubview = false;
 
   @override
   void dispose() {
@@ -267,6 +268,15 @@ class _AppShellState extends State<AppShell> {
     _scheduleRoomChromeFade();
   }
 
+  void _handleRoomSubviewChanged(bool inSubview) {
+    if (_roomInSubview == inSubview) {
+      return;
+    }
+    setState(() {
+      _roomInSubview = inSubview;
+    });
+  }
+
   Future<void> _openShop() async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -307,6 +317,7 @@ class _AppShellState extends State<AppShell> {
           isChromeVisible: _roomChromeVisible,
           isChromeInteractive: _roomChromeInteractive,
           onRevealChrome: _revealRoomChrome,
+          onSubviewChanged: _handleRoomSubviewChanged,
         );
       case AppTab.hall:
         return KeyedSubtree(
@@ -349,6 +360,9 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     final isRoomTab = _currentTab == AppTab.room;
+    // The nav bar only shows in the main room view — not in the desk/night
+    // subviews — and otherwise follows the chrome auto-hide.
+    final navShown = !isRoomTab || (_roomChromeVisible && !_roomInSubview);
 
     return Scaffold(
       backgroundColor: isRoomTab
@@ -372,15 +386,14 @@ class _AppShellState extends State<AppShell> {
                   right: 0,
                   bottom: 0,
                   child: IgnorePointer(
-                    ignoring: isRoomTab && !_roomChromeInteractive,
+                    ignoring:
+                        isRoomTab && (!_roomChromeInteractive || _roomInSubview),
                     child: AnimatedOpacity(
                       duration: isRoomTab
-                          ? (_roomChromeVisible
-                                ? _roomChromeFadeIn
-                                : _roomChromeFadeOut)
+                          ? (navShown ? _roomChromeFadeIn : _roomChromeFadeOut)
                           : const Duration(milliseconds: 220),
                       curve: Curves.easeInOutCubic,
-                      opacity: isRoomTab && !_roomChromeVisible ? 0 : 1,
+                      opacity: navShown ? 1 : 0,
                       child: _FloatingNavBar(
                         currentTab: _currentTab,
                         onSelect: _selectTab,
