@@ -286,11 +286,21 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       _cameraCurrentLook.setFrom(_cameraTargetLook);
       _camera.lookAt(_cameraCurrentLook);
       _cameraPosed = true;
+    } else if (_cameraTiltActive) {
+      // Look-around drag should track the finger directly rather than lagging
+      // through the easing filter, so apply the new look immediately.
+      _cameraCurrentLook.setFrom(_cameraTargetLook);
+      _camera.lookAt(_cameraCurrentLook);
     }
   }
 
   void _animateCamera(double dt) {
     if (!_cameraPosed) {
+      return;
+    }
+    // Nothing to do once the camera has settled on its target.
+    if (_camera.position.distanceToSquared(_cameraTargetPos) < 1e-8 &&
+        _cameraCurrentLook.distanceToSquared(_cameraTargetLook) < 1e-8) {
       return;
     }
     final t = (1 - math.exp(-dt * _cameraLerpSpeed)).clamp(0.0, 1.0).toDouble();
@@ -585,33 +595,26 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
           ..castShadow = true;
     scene.add(pendant);
 
-    // Drop the imported Mallory sectional into the room as a test. The FBX loads
-    // asynchronously, so we let it stream in without blocking the rest of the
-    // scene from appearing. Every knob for it lives in the method below.
+    // Drop the imported Mallory sectional into the room as a test. The model
+    // loads asynchronously, so we let it stream in without blocking the rest of
+    // the scene from appearing. Every knob for it lives in the method below.
     unawaited(_addMallorySectionalTest(scene));
   }
 
   // ===========================================================================
-  // Mallory Tufted Upholstered Sectional — imported FBX test placement.
+  // Mallory Tufted Upholstered Sectional — imported glTF/GLB test placement.
   //
   // >>> THIS IS THE PLACE TO TWEAK THE SECTIONAL BY HAND <<<
   // Change a constant below and hot-restart (not just hot-reload) to see it:
   //
-  //   _malloryAsset        Which file gets loaded. Must be bundled under
-  //                        assets/ (the `assets/` line in pubspec.yaml already
-  //                        covers every file directly inside that folder).
-  //   _malloryTextureDir   Folder the FBX's textures are loaded from. The FBX
-  //                        references external PNGs (BaseColor/Normal/Roughness/
-  //                        Metallic/Height) by name; we point the loader here so
-  //                        it reads them from the asset bundle instead of the
-  //                        modeller's dead absolute paths. Drop the real texture
-  //                        PNGs in here (same filenames) to replace the neutral
-  //                        placeholders. Must contain the word "assets" — that is
-  //                        what makes three_js load them from the bundle.
+  //   _malloryAsset        Which file gets loaded. Export the model to a .glb
+  //                        (Blender: File → Export → glTF Binary) so its textures
+  //                        are embedded, drop it in assets/, and point this at it.
+  //                        The `assets/` line in pubspec.yaml already bundles it.
   //   _malloryAutoFit      When true, the model is auto-scaled to
   //                        _malloryFitCells cells wide so it shows up at a sane
-  //                        size whatever units the FBX used. Set it to false to
-  //                        scale by hand with _malloryRawScale instead.
+  //                        size whatever units it was authored in. Set it to false
+  //                        to scale by hand with _malloryRawScale instead.
   //   _malloryFitCells     Target width in grid cells, used when _malloryAutoFit
   //                        is true.
   //   _malloryRawScale     Manual uniform scale, used when _malloryAutoFit is
@@ -626,8 +629,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   //                        same convention as the rest of the room furniture.
   // ===========================================================================
   static const String _malloryAsset =
-      'assets/Mallory Tufted Upholstered Sectional.fbx';
-  static const String _malloryTextureDir = 'assets/Texture/';
+      'assets/Mallory Tufted Upholstered Sectional.glb';
   static const bool _malloryAutoFit = true;
   static const double _malloryFitCells = 3.0;
   static const double _malloryRawScale = 0.01;
@@ -637,13 +639,12 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   static const int _malloryQuarterTurns = 0;
 
   Future<void> _addMallorySectionalTest(three.Scene scene) async {
-    three.AnimationObject? model;
+    three.Object3D? model;
     try {
-      // Point the texture loader at the bundled folder. three_js routes texture
-      // reads through the asset bundle (instead of the filesystem) when this
-      // path contains "assets", which is what stops the missing-texture crash.
-      final loader = three.FBXLoader()..setResourcePath(_malloryTextureDir);
-      model = await loader.fromAsset(_malloryAsset);
+      // glTF/GLB is self-contained: textures are embedded, so there is nothing
+      // external to resolve. GLTFLoader returns the parsed scene graph.
+      final gltf = await three.GLTFLoader().fromAsset(_malloryAsset);
+      model = gltf?.scene;
     } catch (error, stackTrace) {
       debugPrint('Mallory sectional failed to load: $error\n$stackTrace');
       return;
@@ -656,7 +657,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
 
     // Scale first, measuring the model in its unrotated frame so auto-fit always
     // matches its true width; then apply the rotation. By default we fit the
-    // model to a target width so it is visible whatever units the FBX used,
+    // model to a target width so it is visible whatever units it was authored in,
     // otherwise we fall back to the manual scale.
     var scale = _malloryRawScale;
     if (_malloryAutoFit) {
@@ -671,9 +672,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     sectional.rotation.y = _malloryQuarterTurns * math.pi / 2;
 
     // Re-measure after scaling/rotating, then rest it on the floor at the target
-    // spot. FBX pivots are unpredictable, so we recentre from the bounding box
-    // rather than trusting the model's own origin. If the FBX parsed but carried
-    // no geometry the bounds come back empty (min.y == +infinity); fall back to a
+    // spot. Import pivots are unpredictable, so we recentre from the bounding box
+    // rather than trusting the model's own origin. If it parsed but carried no
+    // geometry the bounds come back empty (min.y == +infinity); fall back to a
     // plain placement so the model stays in view instead of flying to infinity.
     final bounds = three.BoundingBox().setFromObject(sectional);
     if (bounds.isEmpty()) {

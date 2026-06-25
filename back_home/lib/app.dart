@@ -390,7 +390,13 @@ class _AppShellState extends State<AppShell> {
                         isRoomTab && (!_roomChromeInteractive || _roomInSubview),
                     child: AnimatedOpacity(
                       duration: isRoomTab
-                          ? (navShown ? _roomChromeFadeIn : _roomChromeFadeOut)
+                          ? (navShown
+                                ? _roomChromeFadeIn
+                                // Snappy hide when entering a subview; gentle
+                                // 2s fade for the idle auto-hide.
+                                : (_roomInSubview
+                                      ? _roomChromeFadeIn
+                                      : _roomChromeFadeOut))
                           : const Duration(milliseconds: 220),
                       curve: Curves.easeInOutCubic,
                       opacity: navShown ? 1 : 0,
