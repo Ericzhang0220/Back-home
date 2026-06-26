@@ -47,6 +47,8 @@ class _RoomScreenState extends State<RoomScreen> {
   bool _deskFocused = false;
   bool _nightMode = false;
   bool _nightHintVisible = false;
+  SkyWeather _skyWeather = SkyWeather.clear;
+  double? _skyTimeOfDay; // null = live (real clock)
 
   bool get _inSubview => _deskFocused || _nightMode;
 
@@ -171,6 +173,8 @@ class _RoomScreenState extends State<RoomScreen> {
                   nightMode: _nightMode,
                   onTapDesk: _focusDesk,
                   onTapBed: _openNightMode,
+                  skyWeather: _skyWeather,
+                  skyTimeOfDay: _skyTimeOfDay,
                 ),
               ),
               Positioned.fill(
@@ -302,6 +306,12 @@ class _RoomScreenState extends State<RoomScreen> {
                                     selectedItem.instanceId,
                                   ),
                                 ),
+                          skyWeather: _skyWeather,
+                          skyTimeOfDay: _skyTimeOfDay,
+                          onSkyWeather: (w) =>
+                              setState(() => _skyWeather = w),
+                          onSkyTimeOfDay: (t) =>
+                              setState(() => _skyTimeOfDay = t),
                         ),
                       ),
                     ),
@@ -411,6 +421,10 @@ class _SettingsPanel extends StatelessWidget {
     required this.onAddOwnedItem,
     required this.onRotateSelected,
     required this.onStoreSelected,
+    required this.skyWeather,
+    required this.skyTimeOfDay,
+    required this.onSkyWeather,
+    required this.onSkyTimeOfDay,
   });
 
   final double height;
@@ -422,6 +436,25 @@ class _SettingsPanel extends StatelessWidget {
   final ValueChanged<String> onAddOwnedItem;
   final VoidCallback? onRotateSelected;
   final VoidCallback? onStoreSelected;
+  final SkyWeather skyWeather;
+  final double? skyTimeOfDay;
+  final ValueChanged<SkyWeather> onSkyWeather;
+  final ValueChanged<double?> onSkyTimeOfDay;
+
+  static const List<({String label, double? value})> _skyTimes = [
+    (label: 'Live', value: null),
+    (label: 'Dawn', value: 0.26),
+    (label: 'Day', value: 0.5),
+    (label: 'Dusk', value: 0.73),
+    (label: 'Night', value: 0.95),
+  ];
+
+  String _weatherLabel(SkyWeather w) => switch (w) {
+    SkyWeather.clear => 'Clear',
+    SkyWeather.cloudy => 'Cloudy',
+    SkyWeather.overcast => 'Overcast',
+    SkyWeather.rain => 'Rain',
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -506,11 +539,12 @@ class _SettingsPanel extends StatelessWidget {
                       value: '${controller.likesBalance}',
                       tint: const Color(0xFFF6E2CF),
                     ),
-                    const InfoPill(
+                    InfoPill(
                       icon: Icons.grid_4x4_rounded,
                       label: 'Layout',
-                      value: '10 x 8',
-                      tint: Color(0xFFF1E9DC),
+                      value:
+                          '${RoomEditorController.roomWidth} x ${RoomEditorController.roomDepth}',
+                      tint: const Color(0xFFF1E9DC),
                     ),
                     InfoPill(
                       icon: Icons.chair_alt_rounded,
@@ -518,6 +552,46 @@ class _SettingsPanel extends StatelessWidget {
                       value: '${controller.placedItems.length}',
                       tint: const Color(0xFFE7E1D6),
                     ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                const Text(
+                  'Sky',
+                  style: TextStyle(
+                    fontSize: 19,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.ink,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Weather and time of day shown through the window.',
+                  style: TextStyle(fontSize: 13, color: AppColors.muted),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    for (final w in SkyWeather.values)
+                      ChoiceChip(
+                        label: Text(_weatherLabel(w)),
+                        selected: skyWeather == w,
+                        onSelected: (_) => onSkyWeather(w),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    for (final t in _skyTimes)
+                      ChoiceChip(
+                        label: Text(t.label),
+                        selected: skyTimeOfDay == t.value,
+                        onSelected: (_) => onSkyTimeOfDay(t.value),
+                      ),
                   ],
                 ),
                 const SizedBox(height: 18),

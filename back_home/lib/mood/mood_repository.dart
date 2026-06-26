@@ -71,6 +71,17 @@ class MoodRepository {
     }, SetOptions(merge: true));
   }
 
+  /// Streams a single check-in for [date], or `null` when the user has not
+  /// answered yet.
+  Stream<MoodEntry?> watchDate(DateTime date) {
+    return _entries.doc(dateId(date)).snapshots().map((snapshot) {
+      if (!snapshot.exists) {
+        return null;
+      }
+      return _entryFromSnapshot(snapshot);
+    });
+  }
+
   /// Streams the most recent [days] check-ins keyed by their `yyyy-MM-dd` id.
   Stream<Map<String, MoodEntry>> watchRecent({int days = 31}) {
     return _entries
@@ -95,22 +106,34 @@ class MoodRepository {
   ) {
     final entries = <String, MoodEntry>{};
     for (final doc in snapshot.docs) {
-      final data = doc.data();
-      final dateString = (data['date'] as String?) ?? doc.id;
-      final parsed = DateTime.tryParse(dateString);
-      if (parsed == null) {
+      final entry = _entryFromSnapshot(doc);
+      if (entry == null) {
         continue;
       }
-      final moodId = (data['moodId'] as String?) ?? 'neutral';
-      entries[dateString] = MoodEntry(
-        date: parsed,
-        moodId: moodId,
-        value:
-            (data['value'] as num?)?.toDouble() ?? MoodScale.valueFor(moodId),
-        emoji: (data['emoji'] as String?) ?? MoodScale.emojiFor(moodId),
-      );
+      entries[dateId(entry.date)] = entry;
     }
     return entries;
+  }
+
+  static MoodEntry? _entryFromSnapshot(
+    DocumentSnapshot<Map<String, dynamic>> snapshot,
+  ) {
+    final data = snapshot.data();
+    if (data == null) {
+      return null;
+    }
+    final dateString = (data['date'] as String?) ?? snapshot.id;
+    final parsed = DateTime.tryParse(dateString);
+    if (parsed == null) {
+      return null;
+    }
+    final moodId = (data['moodId'] as String?) ?? 'neutral';
+    return MoodEntry(
+      date: parsed,
+      moodId: moodId,
+      value: (data['value'] as num?)?.toDouble() ?? MoodScale.valueFor(moodId),
+      emoji: (data['emoji'] as String?) ?? MoodScale.emojiFor(moodId),
+    );
   }
 }
 

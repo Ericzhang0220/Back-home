@@ -39,11 +39,22 @@ class _MoodCalendarScreenState extends State<MoodCalendarScreen> {
   ];
 
   late int _selectedYear;
+  late final ScrollController _monthScrollController;
+  late final List<GlobalKey> _monthKeys;
+  bool _shouldScrollToStartingMonth = true;
 
   @override
   void initState() {
     super.initState();
     _selectedYear = DateTime.now().year;
+    _monthScrollController = ScrollController();
+    _monthKeys = List<GlobalKey>.generate(12, (_) => GlobalKey());
+  }
+
+  @override
+  void dispose() {
+    _monthScrollController.dispose();
+    super.dispose();
   }
 
   @override
@@ -94,6 +105,7 @@ class _MoodCalendarScreenState extends State<MoodCalendarScreen> {
                       }
                       setState(() {
                         _selectedYear = year;
+                        _shouldScrollToStartingMonth = true;
                       });
                     },
                   ),
@@ -151,18 +163,52 @@ class _MoodCalendarScreenState extends State<MoodCalendarScreen> {
   }
 
   Widget _buildMonthList(Map<String, MoodEntry> entries) {
-    return ListView.separated(
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scrollToStartingMonth();
+    });
+
+    return SingleChildScrollView(
+      controller: _monthScrollController,
       padding: const EdgeInsets.fromLTRB(20, 6, 20, 28),
-      itemCount: _monthLabels.length,
-      separatorBuilder: (_, _) => const SizedBox(height: 20),
-      itemBuilder: (context, index) {
-        final month = index + 1;
-        final monthDate = DateTime(_selectedYear, month);
-        return _MonthSection(
-          title: _monthLabels[index],
-          cells: _buildMonthCells(monthDate, entries),
-        );
-      },
+      child: Column(
+        children: [
+          for (var index = 0; index < _monthLabels.length; index++) ...[
+            if (index > 0) const SizedBox(height: 20),
+            _buildMonthSection(index, entries),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMonthSection(int index, Map<String, MoodEntry> entries) {
+    final month = index + 1;
+    final monthDate = DateTime(_selectedYear, month);
+    return _MonthSection(
+      key: _monthKeys[index],
+      title: _monthLabels[index],
+      cells: _buildMonthCells(monthDate, entries),
+    );
+  }
+
+  void _scrollToStartingMonth() {
+    if (!_shouldScrollToStartingMonth || !_monthScrollController.hasClients) {
+      return;
+    }
+
+    final now = DateTime.now();
+    final monthIndex = _selectedYear == now.year ? now.month - 1 : 0;
+    final context = _monthKeys[monthIndex].currentContext;
+    if (context == null) {
+      return;
+    }
+
+    _shouldScrollToStartingMonth = false;
+    Scrollable.ensureVisible(
+      context,
+      duration: Duration.zero,
+      alignment: 0,
+      alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
     );
   }
 
@@ -262,7 +308,7 @@ class _YearDropdown extends StatelessWidget {
 }
 
 class _MonthSection extends StatelessWidget {
-  const _MonthSection({required this.title, required this.cells});
+  const _MonthSection({super.key, required this.title, required this.cells});
 
   final String title;
   final List<_MoodDay?> cells;

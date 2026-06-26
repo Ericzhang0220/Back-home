@@ -14,6 +14,9 @@ enum RoomItemVisualKind {
   plant,
 }
 
+/// Weather shown in the sky beyond the window.
+enum SkyWeather { clear, cloudy, overcast, rain }
+
 class GridPoint {
   const GridPoint(this.x, this.z);
 

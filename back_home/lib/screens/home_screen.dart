@@ -30,6 +30,9 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _selectedMoodId;
   String _selectedNeedId = 'comfort';
   bool _hasConfirmedMood = false;
+  String? _todayMoodStreamUid;
+  String? _todayMoodStreamDateId;
+  Stream<MoodEntry?>? _todayMoodStream;
 
   static const List<_MoodChoice> _moodChoices = [
     _MoodChoice(
@@ -83,10 +86,35 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final selectedMoodId = _selectedMoodId;
+    final uid = widget.authController.currentUser?.uid;
+    if (uid == null) {
+      return _buildHomeContent(context);
+    }
+
+    return StreamBuilder<MoodEntry?>(
+      stream: _streamTodayMood(uid),
+      builder: (context, snapshot) {
+        return _buildHomeContent(
+          context,
+          todayEntry: snapshot.data,
+          isCheckingToday:
+              snapshot.connectionState == ConnectionState.waiting &&
+              !snapshot.hasData,
+        );
+      },
+    );
+  }
+
+  Widget _buildHomeContent(
+    BuildContext context, {
+    MoodEntry? todayEntry,
+    bool isCheckingToday = false,
+  }) {
+    final selectedMoodId = todayEntry?.moodId ?? _selectedMoodId;
     final selectedMood = selectedMoodId == null
         ? null
-        : _moodChoices.firstWhere((choice) => choice.id == selectedMoodId);
+        : _moodChoiceForId(selectedMoodId);
+    final hasAnsweredToday = todayEntry != null || _hasConfirmedMood;
 
     return SizedBox(
       height: double.infinity,
@@ -122,7 +150,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     );
                   },
-                  child: (_hasConfirmedMood && selectedMood != null)
+                  child: isCheckingToday
+                      ? const _DailyCheckInLoadingCard(
+                          key: ValueKey('check-in-loading-card'),
+                        )
+                      : (hasAnsweredToday && selectedMood != null)
                       ? _MoodConfirmationCard(
                           key: ValueKey('confirmed-${selectedMood.id}'),
                           mood: selectedMood,
@@ -151,15 +183,13 @@ class _HomeScreenState extends State<HomeScreen> {
             bottom: 25,
             right: 30,
             child: IgnorePointer(
-              ignoring: !_hasConfirmedMood,
+              ignoring: !hasAnsweredToday,
               child: AnimatedOpacity(
-                opacity: _hasConfirmedMood ? 1 : 0,
+                opacity: hasAnsweredToday ? 1 : 0,
                 duration: const Duration(milliseconds: 280),
                 curve: Curves.easeOutCubic,
                 child: AnimatedSlide(
-                  offset: _hasConfirmedMood
-                      ? Offset.zero
-                      : const Offset(0, 0.1),
+                  offset: hasAnsweredToday ? Offset.zero : const Offset(0, 0.1),
                   duration: const Duration(milliseconds: 280),
                   curve: Curves.easeOutCubic,
                   child: SizedBox(
@@ -203,20 +233,35 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Stream<MoodEntry?> _streamTodayMood(String uid) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final todayId = MoodRepository.dateId(today);
+    if (_todayMoodStreamUid != uid || _todayMoodStreamDateId != todayId) {
+      _todayMoodStreamUid = uid;
+      _todayMoodStreamDateId = todayId;
+      _todayMoodStream = MoodRepository(uid).watchDate(today);
+      _selectedMoodId = null;
+      _hasConfirmedMood = false;
+    }
+    return _todayMoodStream!;
+  }
+
+  _MoodChoice _moodChoiceForId(String id) {
+    return _moodChoices.firstWhere(
+      (choice) => choice.id == id,
+      orElse: () => _moodChoices.first,
+    );
+  }
+
   void _handleMoodTap(String id) {
-    final isConfirming = _selectedMoodId == id;
-    final wasConfirmed = _hasConfirmedMood;
+    final shouldPersist = !_hasConfirmedMood || _selectedMoodId != id;
     setState(() {
-      if (isConfirming) {
-        _hasConfirmedMood = true;
-      } else {
-        _selectedMoodId = id;
-        _hasConfirmedMood = false;
-      }
+      _selectedMoodId = id;
+      _hasConfirmedMood = true;
     });
 
-    // Persist the mood once, on the transition into a confirmed check-in.
-    if (isConfirming && !wasConfirmed) {
+    if (shouldPersist) {
       _persistMood(id);
     }
   }
@@ -270,6 +315,22 @@ class _HomeHeader extends StatelessWidget {
         const SizedBox(width: 16),
         const _HomeIllustration(),
       ],
+    );
+  }
+}
+
+class _DailyCheckInLoadingCard extends StatelessWidget {
+  const _DailyCheckInLoadingCard({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const SoftCard(
+      padding: EdgeInsets.fromLTRB(18, 18, 18, 18),
+      radius: 30,
+      child: SizedBox(
+        height: 132,
+        child: Center(child: CircularProgressIndicator(color: AppColors.clay)),
+      ),
     );
   }
 }

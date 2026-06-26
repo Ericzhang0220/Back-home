@@ -19,8 +19,6 @@ void main() {
     await tester.ensureVisible(find.text('Low'));
     await tester.tap(find.text('Low'));
     await tester.pump();
-    await tester.tap(find.text('Low'));
-    await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
 
     await tester.tap(find.text('Open room'));
@@ -45,8 +43,6 @@ void main() {
     await tester.pumpWidget(const BackHomeApp());
 
     await tester.ensureVisible(find.text('Low'));
-    await tester.tap(find.text('Low'));
-    await tester.pump();
     await tester.tap(find.text('Low'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));

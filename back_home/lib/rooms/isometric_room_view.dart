@@ -17,6 +17,8 @@ class IsometricRoomView extends StatefulWidget {
     this.nightMode = false,
     this.onTapDesk,
     this.onTapBed,
+    this.skyWeather = SkyWeather.clear,
+    this.skyTimeOfDay,
   });
 
   final RoomEditorController controller;
@@ -25,6 +27,13 @@ class IsometricRoomView extends StatefulWidget {
   final bool nightMode;
   final VoidCallback? onTapDesk;
   final VoidCallback? onTapBed;
+
+  /// Weather shown through the window.
+  final SkyWeather skyWeather;
+
+  /// Time of day for the sky as a fraction of the day in `[0, 1)` (0 = midnight,
+  /// 0.25 = sunrise, 0.5 = noon, 0.75 = sunset). When null the real clock is used.
+  final double? skyTimeOfDay;
 
   @override
   State<IsometricRoomView> createState() => _IsometricRoomViewState();
@@ -55,6 +64,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   final three.Vector3 _dragIntersection = three.Vector3.zero();
   final three.Vector3 _dragOffset = three.Vector3.zero();
   final List<three.Object3D> _roomTapTargets = [];
+  three.Group? _skyGroup;
 
   Timer? _sceneStartTimer;
   bool _sceneReady = false;
@@ -120,6 +130,13 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       final width = _threeJs!.width <= 0 ? 1.0 : _threeJs!.width;
       final height = _threeJs!.height <= 0 ? 1.0 : _threeJs!.height;
       _configureCamera(Size(width, height));
+    }
+
+    if (_threeConfigured &&
+        _threeJs != null &&
+        (widget.skyWeather != oldWidget.skyWeather ||
+            widget.skyTimeOfDay != oldWidget.skyTimeOfDay)) {
+      _rebuildSky();
     }
 
     if (widget.isActive == oldWidget.isActive) {
@@ -399,7 +416,8 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     scene.add(keyLight.target!);
 
     final warmLamp = three.PointLight(0xf3bea0, 0.72, 14, 2);
-    warmLamp.position.setValues(2.4, 3.7, -0.8);
+    // Anchored to the far half so it keeps lighting the desk niche.
+    warmLamp.position.setValues(2.4, 3.7, -roomDepth / 2 + 3.2);
     scene.add(warmLamp);
 
     final platform = _box(
@@ -436,14 +454,26 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       return;
     }
 
-    final backWall = _box(
-      width: roomWidth,
-      height: 5.0,
-      depth: 0.22,
-      color: const Color(0xFFD4CCC2),
-      receiveShadow: true,
-    )..position.setValues(0, 2.4, -roomDepth / 2 + 0.1);
-    scene.add(backWall);
+    // Back wall built around a window opening (x[-1.45, 3.45], y[1.0, 3.7]) so
+    // the sky behind it is visible. Four segments frame the hole.
+    final backWallZ = -roomDepth / 2 + 0.1;
+    const backWallColor = Color(0xFFD4CCC2);
+    for (final seg in const [
+      (w: 3.55, h: 5.0, x: -3.225, y: 2.4), // left of window
+      (w: 1.55, h: 5.0, x: 4.225, y: 2.4), // right of window
+      (w: 4.9, h: 1.1, x: 1.0, y: 0.45), // below window
+      (w: 4.9, h: 1.2, x: 1.0, y: 4.3), // above window
+    ]) {
+      scene.add(
+        _box(
+          width: seg.w,
+          height: seg.h,
+          depth: 0.22,
+          color: backWallColor,
+          receiveShadow: true,
+        )..position.setValues(seg.x, seg.y, backWallZ),
+      );
+    }
 
     final leftWall = _box(
       width: 0.22,
@@ -513,13 +543,12 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         three.Mesh(
             three.BoxGeometry(4.45, 2.25, 0.04),
             three.MeshPhongMaterial.fromMap({
-              'color': _hex(const Color(0xFF131211)),
+              'color': _hex(const Color(0xFFBFD8E8)),
               'transparent': true,
-              'opacity': 0.92,
+              'opacity': 0.12, // faint pane so the sky beyond shows through
             }),
           )
-          ..position.setValues(1.0, 2.28, -roomDepth / 2 + 0.22)
-          ..receiveShadow = true;
+          ..position.setValues(1.0, 2.28, -roomDepth / 2 + 0.22);
     scene.add(rearWindowGlass);
 
     final mullion = _box(
@@ -599,12 +628,13 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
           ..castShadow = true;
     scene.add(candle);
 
+    final pendantZ = -roomDepth / 2 + 3.1;
     final pendantStem = _box(
       width: 0.05,
       height: 0.82,
       depth: 0.05,
       color: const Color(0xFF1D1715),
-    )..position.setValues(2.4, 4.15, -0.9);
+    )..position.setValues(2.4, 4.15, pendantZ);
     scene.add(pendantStem);
 
     final pendant =
@@ -616,9 +646,12 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
               'emissiveIntensity': 0.18,
             }),
           )
-          ..position.setValues(2.4, 3.55, -0.9)
+          ..position.setValues(2.4, 3.55, pendantZ)
           ..castShadow = true;
     scene.add(pendant);
+
+    _addDecorDoor(scene, roomWidth, roomDepth);
+    _rebuildSky();
 
     // Drop the imported Mallory sectional into the room as a test. The model
     // loads asynchronously, so we let it stream in without blocking the rest of
@@ -773,6 +806,278 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       )..position.setValues(x + 1.0, 0.29, rearZ + 0.08);
       scene.add(fin);
     }
+  }
+
+  // Decorative (non-functional) door on the right wall, in the near half.
+  void _addDecorDoor(three.Scene scene, double roomWidth, double roomDepth) {
+    final innerX = roomWidth / 2 - 0.21; // inner face of the right wall
+    const doorZ = 2.6;
+    const doorH = 2.1;
+    final doorY = doorH / 2 - 0.05; // bottom resting just above the floor
+
+    // Recessed casing.
+    scene.add(
+      _box(
+        width: 0.06,
+        height: doorH + 0.22,
+        depth: 1.16,
+        color: const Color(0xFF4A3326),
+        receiveShadow: true,
+      )..position.setValues(innerX - 0.02, doorY + 0.02, doorZ),
+    );
+    // Door slab.
+    scene.add(
+      _box(
+        width: 0.09,
+        height: doorH,
+        depth: 0.96,
+        color: const Color(0xFF6B4A38),
+        receiveShadow: true,
+      )..position.setValues(innerX - 0.08, doorY, doorZ),
+    );
+    // Two inset panels.
+    for (final py in [doorY + 0.5, doorY - 0.5]) {
+      scene.add(
+        _box(
+          width: 0.04,
+          height: 0.66,
+          depth: 0.62,
+          color: const Color(0xFF583C2D),
+        )..position.setValues(innerX - 0.13, py, doorZ),
+      );
+    }
+    // Brass knob.
+    scene.add(
+      _box(
+        width: 0.08,
+        height: 0.1,
+        depth: 0.1,
+        color: const Color(0xFFC9A86B),
+      )..position.setValues(innerX - 0.16, doorY, doorZ - 0.34),
+    );
+  }
+
+  // === Sky beyond the window ================================================
+  // A procedural backdrop (gradient + sun/moon + clouds/stars/rain) sitting
+  // behind the back-wall window. It is unlit (MeshBasicMaterial) so it always
+  // reads as true sky colour, and is rebuilt whenever the weather/time change.
+
+  double _resolveTimeOfDay() {
+    final t = widget.skyTimeOfDay;
+    if (t != null) {
+      return (t % 1.0 + 1.0) % 1.0;
+    }
+    final now = DateTime.now();
+    return (now.hour * 60 + now.minute) / 1440.0;
+  }
+
+  void _rebuildSky() {
+    final threeJs = _threeJs;
+    if (threeJs == null) {
+      return;
+    }
+    final previous = _skyGroup;
+    if (previous != null) {
+      threeJs.scene.remove(previous);
+    }
+    final group = _buildSky(_resolveTimeOfDay(), widget.skyWeather);
+    _skyGroup = group;
+    threeJs.scene.add(group);
+  }
+
+  three.Group _buildSky(double time, SkyWeather weather) {
+    final group = three.Group();
+    final roomDepth =
+        RoomEditorController.roomDepth * RoomEditorController.cellSize;
+    final skyZ = -roomDepth / 2 - 3.2; // a few units behind the window
+    final look = _skyLook(time, weather);
+
+    const skyW = 34.0;
+    const skyH = 24.0;
+    const bottomY = -3.0;
+    const bands = 12;
+    final bandH = skyH / bands;
+    for (var i = 0; i < bands; i += 1) {
+      final f = (i + 0.5) / bands; // 0 at the horizon, 1 at the zenith
+      group.add(
+        _skyPanel(
+          width: skyW,
+          height: bandH + 0.04,
+          color: _lerpColor(look.horizon, look.zenith, f),
+          x: 1.0,
+          y: bottomY + (i + 0.5) * bandH,
+          z: skyZ,
+        ),
+      );
+    }
+
+    // Sun travels an arc by time of day; the moon takes over at night.
+    final sunAngle = (time - 0.25) * 2 * math.pi;
+    final sunAlt = math.sin(sunAngle);
+    final sunX = 1.0 + math.cos(sunAngle) * 8.0;
+    if (look.showSun && sunAlt > -0.08) {
+      final sunY = bottomY + 2.4 + math.max(0.0, sunAlt) * 13.0;
+      group.add(
+        _skyDisc(radius: 2.0, color: look.sun, opacity: 0.26, x: sunX, y: sunY, z: skyZ + 0.2),
+      );
+      group.add(_skyDisc(radius: 1.05, color: look.sun, x: sunX, y: sunY, z: skyZ + 0.3));
+    } else if (look.isNight) {
+      final moonAngle = sunAngle + math.pi;
+      final moonX = 1.0 + math.cos(moonAngle) * 7.0;
+      final moonY = bottomY + 5.0 + math.max(0.0, math.sin(moonAngle)) * 11.0;
+      group.add(_skyDisc(radius: 0.9, color: 0xE7ECF6, x: moonX, y: moonY, z: skyZ + 0.3));
+      for (var s = 0; s < 26; s += 1) {
+        final sx = 1.0 + (((s * 53) % 100) / 100.0 - 0.5) * skyW * 0.82;
+        final sy = bottomY + 3.5 + (((s * 31) % 100) / 100.0) * (skyH - 6);
+        group.add(
+          _skyDisc(radius: 0.07 + ((s * 17) % 3) * 0.02, color: 0xF2F4FA, x: sx, y: sy, z: skyZ + 0.25),
+        );
+      }
+    }
+
+    for (var c = 0; c < look.clouds; c += 1) {
+      final cx = 1.0 + (((c * 37) % 100) / 100.0 - 0.5) * skyW * 0.7;
+      final cy = bottomY + 7.5 + (((c * 61) % 100) / 100.0) * 9.0;
+      _addCloud(group, cx, cy, skyZ + 0.4, look.cloudColor);
+    }
+
+    if (look.rain) {
+      for (var r = 0; r < 40; r += 1) {
+        final rx = 1.0 + (((r * 29) % 100) / 100.0 - 0.5) * skyW * 0.55;
+        final ry = bottomY + 2.0 + (((r * 71) % 100) / 100.0) * 12.0;
+        group.add(
+          _skyPanel(width: 0.04, height: 0.5, depth: 0.04, color: 0xAEB8C4, x: rx, y: ry, z: skyZ + 0.5, opacity: 0.5),
+        );
+      }
+    }
+
+    return group;
+  }
+
+  void _addCloud(three.Group group, double x, double y, double z, int color) {
+    for (final p in const [
+      (dx: 0.0, dy: 0.0, r: 1.1),
+      (dx: 1.0, dy: -0.15, r: 0.85),
+      (dx: -1.0, dy: -0.1, r: 0.8),
+      (dx: 0.45, dy: 0.35, r: 0.7),
+    ]) {
+      group.add(_skyDisc(radius: p.r, color: color, x: x + p.dx, y: y + p.dy, z: z));
+    }
+  }
+
+  _SkyLook _skyLook(double time, SkyWeather weather) {
+    // Anchor palettes (RGB) around the day; interpolate between the two nearest.
+    const anchors = [
+      (t: 0.0, zenith: 0x070B18, horizon: 0x141D33, sun: 0xE6EBF5),
+      (t: 0.24, zenith: 0x34406B, horizon: 0x6E5070, sun: 0xFFC59A),
+      (t: 0.30, zenith: 0x5A6A9C, horizon: 0xE8A06A, sun: 0xFFD49C),
+      (t: 0.50, zenith: 0x3F86CF, horizon: 0xA7D2EF, sun: 0xFFF3D4),
+      (t: 0.70, zenith: 0x4A4370, horizon: 0xE0824D, sun: 0xFF9D5C),
+      (t: 0.76, zenith: 0x2A2A4A, horizon: 0x7A4A5A, sun: 0xFF8A5C),
+      (t: 1.0, zenith: 0x070B18, horizon: 0x141D33, sun: 0xE6EBF5),
+    ];
+    var lo = anchors.first;
+    var hi = anchors.last;
+    for (var i = 0; i < anchors.length - 1; i += 1) {
+      if (time >= anchors[i].t && time <= anchors[i + 1].t) {
+        lo = anchors[i];
+        hi = anchors[i + 1];
+        break;
+      }
+    }
+    final span = hi.t - lo.t;
+    final f = span <= 0 ? 0.0 : (time - lo.t) / span;
+    var zenith = _lerpColor(lo.zenith, hi.zenith, f);
+    var horizon = _lerpColor(lo.horizon, hi.horizon, f);
+    final sun = _lerpColor(lo.sun, hi.sun, f);
+    final isNight = time < 0.23 || time > 0.77;
+
+    var clouds = 1;
+    var rain = false;
+    var cloudColor = 0xF4F1EC;
+    var showSun = !isNight;
+    switch (weather) {
+      case SkyWeather.clear:
+        clouds = 1;
+      case SkyWeather.cloudy:
+        clouds = 4;
+        cloudColor = 0xF0ECE6;
+        zenith = _lerpColor(zenith, 0x9AA3AD, 0.25);
+        horizon = _lerpColor(horizon, 0xB8BEC6, 0.25);
+      case SkyWeather.overcast:
+        clouds = 7;
+        cloudColor = 0xAFB4BB;
+        showSun = false;
+        zenith = _lerpColor(zenith, 0x8C9298, 0.6);
+        horizon = _lerpColor(horizon, 0xA2A7AD, 0.6);
+      case SkyWeather.rain:
+        clouds = 6;
+        rain = true;
+        cloudColor = 0x7E848C;
+        showSun = false;
+        zenith = _lerpColor(zenith, 0x5C6066, 0.65);
+        horizon = _lerpColor(horizon, 0x6E7378, 0.65);
+    }
+
+    return _SkyLook(
+      zenith: zenith,
+      horizon: horizon,
+      sun: sun,
+      isNight: isNight,
+      showSun: showSun,
+      clouds: clouds,
+      cloudColor: cloudColor,
+      rain: rain,
+    );
+  }
+
+  int _lerpColor(int a, int b, double t) {
+    final tt = t.clamp(0.0, 1.0);
+    int channel(int shift) {
+      final ca = (a >> shift) & 0xff;
+      final cb = (b >> shift) & 0xff;
+      return (ca + (cb - ca) * tt).round().clamp(0, 255);
+    }
+
+    return (channel(16) << 16) | (channel(8) << 8) | channel(0);
+  }
+
+  three.Mesh _skyPanel({
+    required double width,
+    required double height,
+    required int color,
+    double depth = 0.05,
+    double x = 0,
+    double y = 0,
+    double z = 0,
+    double opacity = 1.0,
+  }) {
+    return three.Mesh(
+      three.BoxGeometry(width, height, depth),
+      three.MeshBasicMaterial.fromMap({
+        'color': color & 0x00ffffff,
+        if (opacity < 1.0) 'transparent': true,
+        if (opacity < 1.0) 'opacity': opacity,
+      }),
+    )..position.setValues(x, y, z);
+  }
+
+  three.Mesh _skyDisc({
+    required double radius,
+    required int color,
+    double x = 0,
+    double y = 0,
+    double z = 0,
+    double opacity = 1.0,
+  }) {
+    return three.Mesh(
+      three.SphereGeometry(radius, 18, 18),
+      three.MeshBasicMaterial.fromMap({
+        'color': color & 0x00ffffff,
+        if (opacity < 1.0) 'transparent': true,
+        if (opacity < 1.0) 'opacity': opacity,
+      }),
+    )..position.setValues(x, y, z);
   }
 
   void _addDeskTapTarget(three.Scene scene, double roomDepth) {
@@ -1725,6 +2030,28 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
 
     threeJs.visible = widget.isActive;
   }
+}
+
+class _SkyLook {
+  const _SkyLook({
+    required this.zenith,
+    required this.horizon,
+    required this.sun,
+    required this.isNight,
+    required this.showSun,
+    required this.clouds,
+    required this.cloudColor,
+    required this.rain,
+  });
+
+  final int zenith;
+  final int horizon;
+  final int sun;
+  final bool isNight;
+  final bool showSun;
+  final int clouds;
+  final int cloudColor;
+  final bool rain;
 }
 
 class _SceneFurniture {
