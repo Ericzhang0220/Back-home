@@ -46,12 +46,10 @@ class _HallScreenState extends State<HallScreen> {
     return RefreshIndicator(
       onRefresh: _refreshPosts,
       color: AppColors.clay,
-      child: AppPage(
-        title: '',
-        subtitle: '',
-        physics: const AlwaysScrollableScrollPhysics(),
-        children: [
-          Row(
+      child: Scaffold(
+        appBar: AppBar(
+          surfaceTintColor: Colors.transparent,
+          title: Row(
             children: [
               Expanded(
                 child: TextField(
@@ -96,66 +94,74 @@ class _HallScreenState extends State<HallScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 20),
-          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: _postsRef
-                .orderBy('createdAt', descending: true)
-                .snapshots(),
-            builder: (context, snapshot) {
-              if (snapshot.hasError) {
-                return _MessageCard(
-                  title: 'Could not load the Hall.',
-                  body: 'Check your connection and pull down to try again.',
-                );
-              }
+        ),
+        body: AppPage(
+          title: '',
+          subtitle: '',
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            const SizedBox(height: 20),
+            StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: _postsRef
+                  .orderBy('createdAt', descending: true)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return _MessageCard(
+                    title: 'Could not load the Hall.',
+                    body: 'Check your connection and pull down to try again.',
+                  );
+                }
 
-              if (snapshot.connectionState == ConnectionState.waiting &&
-                  !snapshot.hasData) {
-                return const Padding(
-                  padding: EdgeInsets.only(top: 24),
-                  child: Center(child: CircularProgressIndicator()),
-                );
-              }
+                if (snapshot.connectionState == ConnectionState.waiting &&
+                    !snapshot.hasData) {
+                  return const Padding(
+                    padding: EdgeInsets.only(top: 24),
+                    child: Center(child: CircularProgressIndicator()),
+                  );
+                }
 
-              final allPosts = (snapshot.data?.docs ?? const [])
-                  .map((doc) => HallPost.fromDoc(doc, currentUid: currentUid))
-                  .toList(growable: false);
-              final posts = _filterPosts(allPosts);
+                final allPosts = (snapshot.data?.docs ?? const [])
+                    .map((doc) => HallPost.fromDoc(doc, currentUid: currentUid))
+                    .toList(growable: false);
+                final posts = _filterPosts(allPosts);
 
-              if (posts.isEmpty) {
-                return _MessageCard(
-                  title: _searchQuery.isEmpty
-                      ? 'No posts in the Hall yet.'
-                      : 'No posts match that search yet.',
-                  body: _searchQuery.isEmpty
-                      ? 'Tap the pencil to share the first one.'
-                      : 'Try a different word or create the first post for that mood.',
-                );
-              }
+                if (posts.isEmpty) {
+                  return _MessageCard(
+                    title: _searchQuery.isEmpty
+                        ? 'No posts in the Hall yet.'
+                        : 'No posts match that search yet.',
+                    body: _searchQuery.isEmpty
+                        ? 'Tap the pencil to share the first one.'
+                        : 'Try a different word or create the first post for that mood.',
+                  );
+                }
 
-              return Column(
-                children: [
-                  for (var index = 0; index < posts.length; index++) ...[
-                    StaggeredFadeIn(
-                      key: ValueKey(_postAnimationKey(posts[index])),
-                      delay: _postFadeDelay(index),
-                      child: HallPostCard(
-                        post: posts[index],
-                        onLikeTap: () => _toggleLike(posts[index]),
-                        onCommentTap: () => _openPostThread(posts[index]),
-                        onAuthorTap: () => _openUserProfile(posts[index]),
-                        onEdit: posts[index].canEdit
-                            ? () => _openCreatePost(existingPost: posts[index])
-                            : null,
+                return Column(
+                  children: [
+                    for (var index = 0; index < posts.length; index++) ...[
+                      StaggeredFadeIn(
+                        key: ValueKey(_postAnimationKey(posts[index])),
+                        delay: _postFadeDelay(index),
+                        child: HallPostCard(
+                          post: posts[index],
+                          onLikeTap: () => _toggleLike(posts[index]),
+                          onCommentTap: () => _openPostThread(posts[index]),
+                          onAuthorTap: () => _openUserProfile(posts[index]),
+                          onEdit: posts[index].canEdit
+                              ? () =>
+                                    _openCreatePost(existingPost: posts[index])
+                              : null,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 12),
+                      const SizedBox(height: 12),
+                    ],
                   ],
-                ],
-              );
-            },
-          ),
-        ],
+                );
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
