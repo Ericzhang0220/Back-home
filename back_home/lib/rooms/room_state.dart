@@ -271,7 +271,12 @@ class RoomEditorController extends ChangeNotifier {
   }
 
   static const int roomWidth = 10;
-  static const int roomDepth = 8;
+  // Depth runs front-to-back. The original decorated room (back wall, window,
+  // desk, starter furniture) all anchor to the far -Z wall, so they occupy the
+  // far half; the near half is open floor with the camera standing in the
+  // middle. Was 8 (the old single-room depth); doubling it keeps the existing
+  // content as roughly the far half of this larger room.
+  static const int roomDepth = 16;
   static const double cellSize = 1.0;
 
   final List<RoomItemDefinition> _catalog;

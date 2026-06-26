@@ -32,9 +32,18 @@ class IsometricRoomView extends StatefulWidget {
 
 class _IsometricRoomViewState extends State<IsometricRoomView> {
   static const Duration _sceneWarmupDelay = Duration(milliseconds: 350);
-  static const double _cameraTiltStartThreshold = 10;
-  static const double _cameraTiltSensitivity = 0.0065;
-  static const double _maxCameraLookOffsetX = 2.25;
+
+  // --- Centered 360° free-look camera (main view) -------------------------
+  // The main view stands in the middle of the room and turns a full 360°.
+  // >>> Tweak these to change the feel of the centered camera <<<
+  static const double _cameraTiltStartThreshold = 10; // px dead-zone before a drag becomes a turn
+  static const double _yawSensitivity = 0.008; // radians turned per pixel dragged
+  static const double _eyeHeight = 1.9; // camera height at the room centre
+  static const double _lookPitch = -0.22; // vertical aim (negative = look slightly down)
+  static const double _mainFov = 64; // field of view for the centred view
+  static const double _focusFov = 42; // field of view in the desk/night focus views
+  static const double _minFov = 26; // pinch-zoom field-of-view clamp (zoomed in)
+  static const double _maxFov = 84; // pinch-zoom field-of-view clamp (zoomed out)
 
   three.ThreeJS? _threeJs;
   late final three.PerspectiveCamera _camera;
@@ -62,12 +71,12 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   double _pointerLastY = 0;
   bool _cameraTiltCandidate = false;
   bool _cameraTiltActive = false;
-  double _cameraLookOffsetX = 0;
-  double _cameraTiltStartX = 0;
+  double _cameraYaw = 0; // horizontal look angle (radians); 0 = facing the far wall
+  double _yawAtDragStart = 0;
   double _cameraTiltPointerStartX = 0;
 
   // Smooth camera motion + pinch zoom. The camera eases toward these targets
-  // every frame instead of snapping, and _zoom dollies it along its view line.
+  // every frame instead of snapping; _zoom drives the field of view.
   final three.Vector3 _cameraTargetPos = three.Vector3.zero();
   final three.Vector3 _cameraTargetLook = three.Vector3.zero();
   final three.Vector3 _cameraCurrentLook = three.Vector3.zero();
@@ -235,48 +244,40 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _camera.aspect = safeWidth / safeHeight;
     _camera.near = 0.1;
     _camera.far = 80;
-    _camera.updateProjectionMatrix();
 
-    final lookOffsetX = widget.deskFocused || widget.nightMode
-        ? 0.0
-        : _cameraLookOffsetX;
+    final roomDepth =
+        RoomEditorController.roomDepth * RoomEditorController.cellSize;
+    final farWallZ = -roomDepth / 2;
 
     final three.Vector3 basePos;
     final three.Vector3 lookAt;
+    final double baseFov;
     if (widget.deskFocused) {
-      final deskWide = _camera.aspect > 1.1;
-      basePos = three.Vector3(
-        deskWide ? 1.1 : 1.25,
-        deskWide ? 2.35 : 2.05,
-        deskWide ? 6.2 : 4.55,
-      );
-      lookAt = three.Vector3(1.45, 1.45, -3.2);
+      // Fly to a close-up of the desk on the far wall.
+      basePos = three.Vector3(1.0, 1.75, farWallZ + 3.6);
+      lookAt = three.Vector3(1.0, 1.15, farWallZ + 0.4);
+      baseFov = _focusFov;
     } else if (widget.nightMode) {
-      final nightWide = _camera.aspect > 1.1;
-      basePos = three.Vector3(
-        nightWide ? -0.4 : -0.7,
-        nightWide ? 2.25 : 1.9,
-        nightWide ? 8.4 : 6.4,
-      );
-      lookAt = three.Vector3(-1.4, 0.85, -0.15);
+      // Turn toward the bed; the good-night overlay covers most of the frame.
+      basePos = three.Vector3(0.0, 1.8, -0.6);
+      lookAt = three.Vector3(-0.5, 0.85, -3.4);
+      baseFov = _focusFov;
     } else {
-      final wide = _camera.aspect > 1.1;
-      basePos = three.Vector3(0.0, wide ? 3.35 : 2.88, wide ? 12.9 : 10.25);
+      // Centred free-look: stand in the middle of the room and turn 360°.
+      basePos = three.Vector3(0, _eyeHeight, 0);
       lookAt = three.Vector3(
-        lookOffsetX,
-        wide ? 1.35 : 1.0,
-        wide ? -0.55 : -0.12,
+        math.sin(_cameraYaw),
+        _eyeHeight + _lookPitch,
+        -math.cos(_cameraYaw),
       );
+      baseFov = _mainFov;
     }
 
-    // Dolly the camera toward/away from its look point for pinch zoom, then
-    // store as targets the per-frame lerp eases toward.
-    final inv = 1 / _zoom;
-    _cameraTargetPos.setValues(
-      lookAt.x + (basePos.x - lookAt.x) * inv,
-      lookAt.y + (basePos.y - lookAt.y) * inv,
-      lookAt.z + (basePos.z - lookAt.z) * inv,
-    );
+    // Pinch zoom narrows/widens the field of view, keeping the camera put.
+    _camera.fov = (baseFov / _zoom).clamp(_minFov, _maxFov).toDouble();
+    _camera.updateProjectionMatrix();
+
+    _cameraTargetPos.setFrom(basePos);
     _cameraTargetLook.setFrom(lookAt);
 
     // First configuration snaps into place; later changes ease in (see
@@ -379,19 +380,20 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     final keyLight = three.DirectionalLight(0xffead0, 1.18);
     keyLight.position.setValues(-3.4, 7.2, 5.8);
     keyLight.castShadow = true;
-    keyLight.target!.position.setValues(0, 0.2, -0.4);
+    keyLight.target!.position.setValues(0, 0.2, -2.5);
     keyLight.shadow!.mapSize.setValues(2048, 2048);
     keyLight.shadow!.bias = -0.0008;
     keyLight.shadow!.normalBias = 0.02;
     keyLight.shadow!.radius = 3;
     final shadowCamera = keyLight.shadow!.camera as three.OrthographicCamera;
+    // Widened to cover the now-deeper room so shadows reach the far half.
     shadowCamera
-      ..left = -7.5
-      ..right = 7.5
-      ..top = 6.5
-      ..bottom = -5.0
+      ..left = -10
+      ..right = 10
+      ..top = 11
+      ..bottom = -11
       ..near = 0.5
-      ..far = 22;
+      ..far = 34;
     shadowCamera.updateProjectionMatrix();
     scene.add(keyLight);
     scene.add(keyLight.target!);
@@ -460,6 +462,29 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       receiveShadow: true,
     )..position.setValues(roomWidth / 2 - 0.1, 2.4, 0);
     scene.add(rightWall);
+
+    // The near end used to be the open cutaway. Now the camera stands inside the
+    // room, so close it off with a front wall and a ceiling for the 360° view.
+    final frontWall = _box(
+      width: roomWidth,
+      height: 5.0,
+      depth: 0.22,
+      color: const Color(0xFFCBC0B5),
+      receiveShadow: true,
+    )..position.setValues(0, 2.4, roomDepth / 2 - 0.1);
+    scene.add(frontWall);
+
+    // castShadow:false so the ceiling does not block the key light's floor
+    // shadows; its underside is still lit by ambient + the warm point lamp.
+    final ceiling = _box(
+      width: roomWidth,
+      height: 0.2,
+      depth: roomDepth,
+      color: const Color(0xFF2B231F),
+      castShadow: false,
+      receiveShadow: false,
+    )..position.setValues(0, 4.9, 0);
+    scene.add(ceiling);
 
     _addSlopedCeilingDetails(scene, roomDepth);
 
@@ -1106,7 +1131,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   void _beginCameraTiltCandidate(dynamic event) {
     _cameraTiltCandidate = true;
     _cameraTiltActive = false;
-    _cameraTiltStartX = _cameraLookOffsetX;
+    _yawAtDragStart = _cameraYaw;
     _cameraTiltPointerStartX = _eventClientX(event);
   }
 
@@ -1122,9 +1147,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
 
     _cameraTiltActive = true;
     _pendingTapTarget = null;
-    _cameraLookOffsetX = (_cameraTiltStartX - deltaX * _cameraTiltSensitivity)
-        .clamp(-_maxCameraLookOffsetX, _maxCameraLookOffsetX)
-        .toDouble();
+    // Full 360° turn — no clamp; wrap into [0, 2π) so the value stays bounded.
+    final twoPi = 2 * math.pi;
+    _cameraYaw = (_yawAtDragStart - deltaX * _yawSensitivity) % twoPi;
     _refreshCamera();
   }
 
