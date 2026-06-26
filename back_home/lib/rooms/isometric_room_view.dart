@@ -628,8 +628,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   //   _malloryQuarterTurns Spin around the vertical axis in 90° steps (0-3),
   //                        same convention as the rest of the room furniture.
   // ===========================================================================
-  static const String _malloryAsset =
-      'assets/Mallory Tufted Upholstered Sectional.glb';
+  static const String _malloryAsset = 'assets/upholstered_sectional.glb';
   static const bool _malloryAutoFit = true;
   static const double _malloryFitCells = 3.0;
   static const double _malloryRawScale = 0.01;
