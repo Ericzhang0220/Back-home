@@ -272,8 +272,18 @@ class _AppShellState extends State<AppShell> {
     if (_roomInSubview == inSubview) {
       return;
     }
+    if (!inSubview) {
+      // Returning to the main room view leaves the nav bar hidden until the user
+      // double-taps to bring it up — so drop any pending auto-hide and hide it.
+      _roomChromeFadeTimer?.cancel();
+      _roomChromeInputTimer?.cancel();
+    }
     setState(() {
       _roomInSubview = inSubview;
+      if (!inSubview) {
+        _roomChromeVisible = false;
+        _roomChromeInteractive = false;
+      }
     });
   }
 

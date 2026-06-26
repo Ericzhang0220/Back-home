@@ -100,8 +100,8 @@ class _RoomScreenState extends State<RoomScreen> {
       _deskFocused = false;
       _nightHintVisible = false;
     });
+    // Back in the main view, but leave the nav hidden until a double-tap.
     widget.onSubviewChanged(_inSubview);
-    widget.onRevealChrome();
   }
 
   void _handleDoubleTap() {
@@ -109,10 +109,16 @@ class _RoomScreenState extends State<RoomScreen> {
       _restoreRoomLight();
       return;
     }
-    setState(() {
-      _deskFocused = false;
-    });
-    widget.onSubviewChanged(_inSubview);
+    if (_deskFocused) {
+      // Leave the desk subview for the main room view, keeping the nav hidden —
+      // a second double-tap (handled below) is what brings it up.
+      setState(() {
+        _deskFocused = false;
+      });
+      widget.onSubviewChanged(_inSubview);
+      return;
+    }
+    // Already in the main room view: this double-tap reveals the nav bar.
     widget.onRevealChrome();
   }
 
@@ -234,8 +240,8 @@ class _RoomScreenState extends State<RoomScreen> {
                       setState(() {
                         _deskFocused = false;
                       });
+                      // Return to the main view with the nav still hidden.
                       widget.onSubviewChanged(_inSubview);
-                      widget.onRevealChrome();
                     },
                   ),
                 ),
