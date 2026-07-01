@@ -33,4 +33,17 @@ void main() {
     expect(result.isSuccess, isTrue);
     expect(item?.rotationQuarterTurns, 1);
   });
+
+  test('edit sessions only update the room when applied', () {
+    final controller = RoomEditorController();
+    final draft = RoomEditorController.editing(controller);
+
+    draft.movePlacedItem('item-2', const GridPoint(0, 8));
+
+    expect(controller.placedItemById('item-2')?.origin, const GridPoint(2, 5));
+
+    controller.applyEditSession(draft);
+
+    expect(controller.placedItemById('item-2')?.origin, const GridPoint(0, 8));
+  });
 }

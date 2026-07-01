@@ -19,6 +19,7 @@ class IsometricRoomView extends StatefulWidget {
     this.onTapBed,
     this.skyWeather = SkyWeather.clear,
     this.skyTimeOfDay,
+    this.canMoveFurniture = false,
   });
 
   final RoomEditorController controller;
@@ -35,6 +36,9 @@ class IsometricRoomView extends StatefulWidget {
   /// 0.25 = sunrise, 0.5 = noon, 0.75 = sunset). When null the real clock is used.
   final double? skyTimeOfDay;
 
+  /// Enables the room editor's drag-to-move furniture interactions.
+  final bool canMoveFurniture;
+
   @override
   State<IsometricRoomView> createState() => _IsometricRoomViewState();
 }
@@ -45,14 +49,20 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   // --- Centered 360° free-look camera (main view) -------------------------
   // The main view stands in the middle of the room and turns a full 360°.
   // >>> Tweak these to change the feel of the centered camera <<<
-  static const double _cameraTiltStartThreshold = 10; // px dead-zone before a drag becomes a turn
-  static const double _yawSensitivity = 0.008; // radians turned per pixel dragged
+  static const double _cameraTiltStartThreshold =
+      10; // px dead-zone before a drag becomes a turn
+  static const double _yawSensitivity =
+      0.008; // radians turned per pixel dragged
   static const double _eyeHeight = 1.9; // camera height at the room centre
-  static const double _lookPitch = -0.22; // vertical aim (negative = look slightly down)
+  static const double _lookPitch =
+      -0.22; // vertical aim (negative = look slightly down)
   static const double _mainFov = 64; // field of view for the centred view
-  static const double _focusFov = 42; // field of view in the desk/night focus views
-  static const double _minFov = 26; // pinch-zoom field-of-view clamp (zoomed in)
-  static const double _maxFov = 84; // pinch-zoom field-of-view clamp (zoomed out)
+  static const double _focusFov =
+      42; // field of view in the desk/night focus views
+  static const double _minFov =
+      26; // pinch-zoom field-of-view clamp (zoomed in)
+  static const double _maxFov =
+      84; // pinch-zoom field-of-view clamp (zoomed out)
 
   three.ThreeJS? _threeJs;
   late final three.PerspectiveCamera _camera;
@@ -65,6 +75,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   final three.Vector3 _dragOffset = three.Vector3.zero();
   final List<three.Object3D> _roomTapTargets = [];
   three.Group? _skyGroup;
+  Timer? _skyClockTimer; // refreshes the sky in "Live" (real-clock) time mode
 
   Timer? _sceneStartTimer;
   bool _sceneReady = false;
@@ -75,13 +86,15 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   GridPoint? _dragPreviewOrigin;
   bool _dragPreviewValid = true;
   _RoomTapTarget? _pendingTapTarget;
+  String? _pendingFurnitureTapItemId;
   double _pointerDownX = 0;
   double _pointerDownY = 0;
   double _pointerLastX = 0;
   double _pointerLastY = 0;
   bool _cameraTiltCandidate = false;
   bool _cameraTiltActive = false;
-  double _cameraYaw = 0; // horizontal look angle (radians); 0 = facing the far wall
+  double _cameraYaw =
+      0; // horizontal look angle (radians); 0 = facing the far wall
   double _yawAtDragStart = 0;
   double _cameraTiltPointerStartX = 0;
 
@@ -138,6 +151,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
             widget.skyTimeOfDay != oldWidget.skyTimeOfDay)) {
       _rebuildSky();
     }
+    _syncSkyClock();
 
     if (widget.isActive == oldWidget.isActive) {
       return;
@@ -161,6 +175,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   @override
   void dispose() {
     _sceneStartTimer?.cancel();
+    _skyClockTimer?.cancel();
     widget.controller.removeListener(_handleControllerChanged);
     if (_threeConfigured && _threeJs != null) {
       _detachPointerEvents();
@@ -343,6 +358,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _dragPreviewOrigin = null;
     _dragPreviewValid = true;
     _pendingTapTarget = null;
+    _pendingFurnitureTapItemId = null;
     _cameraTiltCandidate = false;
     _cameraTiltActive = false;
     _syncSceneWithController();
@@ -539,16 +555,14 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     )..position.setValues(1.0, 2.35, -roomDepth / 2 + 0.18);
     scene.add(rearWindowFrame);
 
-    final rearWindowGlass =
-        three.Mesh(
-            three.BoxGeometry(4.45, 2.25, 0.04),
-            three.MeshPhongMaterial.fromMap({
-              'color': _hex(const Color(0xFFBFD8E8)),
-              'transparent': true,
-              'opacity': 0.12, // faint pane so the sky beyond shows through
-            }),
-          )
-          ..position.setValues(1.0, 2.28, -roomDepth / 2 + 0.22);
+    final rearWindowGlass = three.Mesh(
+      three.BoxGeometry(4.45, 2.25, 0.04),
+      three.MeshPhongMaterial.fromMap({
+        'color': _hex(const Color(0xFFBFD8E8)),
+        'transparent': true,
+        'opacity': 0.12, // faint pane so the sky beyond shows through
+      }),
+    )..position.setValues(1.0, 2.28, -roomDepth / 2 + 0.22);
     scene.add(rearWindowGlass);
 
     final mullion = _box(
@@ -652,6 +666,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
 
     _addDecorDoor(scene, roomWidth, roomDepth);
     _rebuildSky();
+    _syncSkyClock();
 
     // Drop the imported Mallory sectional into the room as a test. The model
     // loads asynchronously, so we let it stream in without blocking the rest of
@@ -848,12 +863,8 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     }
     // Brass knob.
     scene.add(
-      _box(
-        width: 0.08,
-        height: 0.1,
-        depth: 0.1,
-        color: const Color(0xFFC9A86B),
-      )..position.setValues(innerX - 0.16, doorY, doorZ - 0.34),
+      _box(width: 0.08, height: 0.1, depth: 0.1, color: const Color(0xFFC9A86B))
+        ..position.setValues(innerX - 0.16, doorY, doorZ - 0.34),
     );
   }
 
@@ -879,10 +890,28 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     final previous = _skyGroup;
     if (previous != null) {
       threeJs.scene.remove(previous);
+      previous.dispose(); // free the old group's geometries/materials
     }
     final group = _buildSky(_resolveTimeOfDay(), widget.skyWeather);
     _skyGroup = group;
     threeJs.scene.add(group);
+  }
+
+  // In "Live" mode (no explicit time set) advance the sky with the real clock by
+  // rebuilding it periodically. The per-minute change is tiny, so it reads as a
+  // gradual drift rather than a pop. Runs only while live and on-screen.
+  void _syncSkyClock() {
+    final live = widget.skyTimeOfDay == null;
+    if (live && widget.isActive && _threeConfigured) {
+      _skyClockTimer ??= Timer.periodic(const Duration(seconds: 60), (_) {
+        if (mounted && _threeJs != null && widget.skyTimeOfDay == null) {
+          _rebuildSky();
+        }
+      });
+    } else {
+      _skyClockTimer?.cancel();
+      _skyClockTimer = null;
+    }
   }
 
   three.Group _buildSky(double time, SkyWeather weather) {
@@ -911,42 +940,96 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       );
     }
 
-    // Sun travels an arc by time of day; the moon takes over at night.
+    // Celestial body, clouds and weather are framed within the window's view
+    // cone (centred on the window) so they actually read through the opening as
+    // time of day and weather change.
+    const winX = 1.0; // window centre x
+    const winYLo = 1.2; // bottom of the visible band
+    const winYHi = 3.6; // top of the visible band
+    const winHalf = 3.4; // half-width of the framed region
+
+    // Sun arcs across the window by time of day; the moon takes over at night.
     final sunAngle = (time - 0.25) * 2 * math.pi;
     final sunAlt = math.sin(sunAngle);
-    final sunX = 1.0 + math.cos(sunAngle) * 8.0;
-    if (look.showSun && sunAlt > -0.08) {
-      final sunY = bottomY + 2.4 + math.max(0.0, sunAlt) * 13.0;
+    if (look.showSun && sunAlt > -0.05) {
+      final sunX = winX + math.cos(sunAngle) * (winHalf - 0.4);
+      final sunY =
+          winYLo + 0.3 + math.max(0.0, sunAlt) * (winYHi - winYLo - 0.3);
       group.add(
-        _skyDisc(radius: 2.0, color: look.sun, opacity: 0.26, x: sunX, y: sunY, z: skyZ + 0.2),
+        _skyDisc(
+          radius: 1.7,
+          color: look.sun,
+          opacity: 0.22,
+          x: sunX,
+          y: sunY,
+          z: skyZ + 0.2,
+        ),
       );
-      group.add(_skyDisc(radius: 1.05, color: look.sun, x: sunX, y: sunY, z: skyZ + 0.3));
+      group.add(
+        _skyDisc(
+          radius: 0.85,
+          color: look.sun,
+          x: sunX,
+          y: sunY,
+          z: skyZ + 0.35,
+        ),
+      );
     } else if (look.isNight) {
       final moonAngle = sunAngle + math.pi;
-      final moonX = 1.0 + math.cos(moonAngle) * 7.0;
-      final moonY = bottomY + 5.0 + math.max(0.0, math.sin(moonAngle)) * 11.0;
-      group.add(_skyDisc(radius: 0.9, color: 0xE7ECF6, x: moonX, y: moonY, z: skyZ + 0.3));
-      for (var s = 0; s < 26; s += 1) {
-        final sx = 1.0 + (((s * 53) % 100) / 100.0 - 0.5) * skyW * 0.82;
-        final sy = bottomY + 3.5 + (((s * 31) % 100) / 100.0) * (skyH - 6);
+      final moonX = winX + math.cos(moonAngle) * (winHalf - 0.8);
+      final moonY =
+          winYLo +
+          0.5 +
+          math.max(0.0, math.sin(moonAngle)) * (winYHi - winYLo - 0.8);
+      group.add(
+        _skyDisc(
+          radius: 0.7,
+          color: 0xE7ECF6,
+          x: moonX,
+          y: moonY,
+          z: skyZ + 0.35,
+        ),
+      );
+      for (var s = 0; s < 24; s += 1) {
+        final sx =
+            winX + (((s * 53) % 100) / 100.0 - 0.5) * (winHalf * 2 + 1.5);
+        final sy =
+            winYLo + (((s * 31) % 100) / 100.0) * (winYHi - winYLo + 0.8);
         group.add(
-          _skyDisc(radius: 0.07 + ((s * 17) % 3) * 0.02, color: 0xF2F4FA, x: sx, y: sy, z: skyZ + 0.25),
+          _skyDisc(
+            radius: 0.06 + ((s * 17) % 3) * 0.02,
+            color: 0xF2F4FA,
+            x: sx,
+            y: sy,
+            z: skyZ + 0.28,
+          ),
         );
       }
     }
 
     for (var c = 0; c < look.clouds; c += 1) {
-      final cx = 1.0 + (((c * 37) % 100) / 100.0 - 0.5) * skyW * 0.7;
-      final cy = bottomY + 7.5 + (((c * 61) % 100) / 100.0) * 9.0;
-      _addCloud(group, cx, cy, skyZ + 0.4, look.cloudColor);
+      final cx = winX + (((c * 37) % 100) / 100.0 - 0.5) * (winHalf * 2);
+      final cy =
+          winYLo + 1.2 + (((c * 61) % 100) / 100.0) * (winYHi - winYLo - 0.6);
+      _addCloud(group, cx, cy, skyZ + 0.45, look.cloudColor);
     }
 
     if (look.rain) {
-      for (var r = 0; r < 40; r += 1) {
-        final rx = 1.0 + (((r * 29) % 100) / 100.0 - 0.5) * skyW * 0.55;
-        final ry = bottomY + 2.0 + (((r * 71) % 100) / 100.0) * 12.0;
+      for (var r = 0; r < 28; r += 1) {
+        final rx = winX + (((r * 29) % 100) / 100.0 - 0.5) * (winHalf * 2);
+        final ry =
+            winYLo - 0.2 + (((r * 71) % 100) / 100.0) * (winYHi - winYLo + 1.0);
         group.add(
-          _skyPanel(width: 0.04, height: 0.5, depth: 0.04, color: 0xAEB8C4, x: rx, y: ry, z: skyZ + 0.5, opacity: 0.5),
+          _skyPanel(
+            width: 0.035,
+            height: 0.45,
+            depth: 0.04,
+            color: 0xAEB8C4,
+            x: rx,
+            y: ry,
+            z: skyZ + 0.5,
+            opacity: 0.5,
+          ),
         );
       }
     }
@@ -961,7 +1044,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       (dx: -1.0, dy: -0.1, r: 0.8),
       (dx: 0.45, dy: 0.35, r: 0.7),
     ]) {
-      group.add(_skyDisc(radius: p.r, color: color, x: x + p.dx, y: y + p.dy, z: z));
+      group.add(
+        _skyDisc(radius: p.r, color: color, x: x + p.dx, y: y + p.dy, z: z),
+      );
     }
   }
 
@@ -990,7 +1075,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     var zenith = _lerpColor(lo.zenith, hi.zenith, f);
     var horizon = _lerpColor(lo.horizon, hi.horizon, f);
     final sun = _lerpColor(lo.sun, hi.sun, f);
-    final isNight = time < 0.23 || time > 0.77;
+    // Night exactly when the sun is below the show threshold used in _buildSky,
+    // so the sun/moon hand-off has no blank-sky gap.
+    final isNight = math.sin((time - 0.25) * 2 * math.pi) <= -0.05;
 
     var clouds = 1;
     var rain = false;
@@ -1299,6 +1386,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     }
     _recordPointerPosition(event, isDown: true);
     _pendingTapTarget = null;
+    _pendingFurnitureTapItemId = null;
     _cameraTiltCandidate = false;
     _cameraTiltActive = false;
     _updatePointer(event);
@@ -1331,6 +1419,13 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     final sceneFurniture = _resolveSceneFurniture(hit);
     if (sceneFurniture == null) {
       widget.controller.selectItem(null);
+      _beginCameraTiltCandidate(event);
+      return;
+    }
+
+    if (!widget.canMoveFurniture) {
+      _pendingFurnitureTapItemId = sceneFurniture.itemId;
+      _beginCameraTiltCandidate(event);
       return;
     }
 
@@ -1362,6 +1457,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _recordPointerPosition(event, isDown: false);
     if (_pointerTravel > 10) {
       _pendingTapTarget = null;
+      _pendingFurnitureTapItemId = null;
     }
 
     if (_activeDragItemId == null) {
@@ -1406,13 +1502,21 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     }
 
     final tapTarget = _pointerTravel <= 10 ? _pendingTapTarget : null;
+    final furnitureTapItemId = _pointerTravel <= 10
+        ? _pendingFurnitureTapItemId
+        : null;
 
     if (_activeDragItemId == null) {
       final wasTilting = _cameraTiltActive;
       _cameraTiltCandidate = false;
       _cameraTiltActive = false;
       _pendingTapTarget = null;
+      _pendingFurnitureTapItemId = null;
       if (wasTilting) {
+        return;
+      }
+      if (furnitureTapItemId != null) {
+        widget.controller.selectItem(furnitureTapItemId);
         return;
       }
       _handleRoomTapTarget(tapTarget);
@@ -1427,6 +1531,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _dragPreviewOrigin = null;
     _dragPreviewValid = true;
     _pendingTapTarget = null;
+    _pendingFurnitureTapItemId = null;
     _cameraTiltCandidate = false;
     _cameraTiltActive = false;
     _syncSceneWithController();

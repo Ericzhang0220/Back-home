@@ -273,6 +273,21 @@ class RoomEditorController extends ChangeNotifier {
     };
   }
 
+  RoomEditorController.editing(RoomEditorController source)
+    : _catalog = List<RoomItemDefinition>.of(source._catalog),
+      _ownedCounts = Map<String, int>.of(source._ownedCounts),
+      _placedItems = [
+        for (final item in source._placedItems)
+          item.copyWith(origin: item.origin.copyWith()),
+      ],
+      _likesBalance = source._likesBalance,
+      _nextInstanceId = source._nextInstanceId,
+      _selectedItemId = source._selectedItemId {
+    _definitionsById = {
+      for (final definition in _catalog) definition.id: definition,
+    };
+  }
+
   static const int roomWidth = 10;
   // Depth runs front-to-back. The original decorated room (back wall, window,
   // desk, starter furniture) all anchor to the far -Z wall, so they occupy the
@@ -417,6 +432,22 @@ class RoomEditorController extends ChangeNotifier {
     }
 
     _selectedItemId = instanceId;
+    notifyListeners();
+  }
+
+  void applyEditSession(RoomEditorController edited) {
+    _ownedCounts
+      ..clear()
+      ..addAll(edited._ownedCounts);
+    _placedItems
+      ..clear()
+      ..addAll([
+        for (final item in edited._placedItems)
+          item.copyWith(origin: item.origin.copyWith()),
+      ]);
+    _likesBalance = edited._likesBalance;
+    _nextInstanceId = edited._nextInstanceId;
+    _selectedItemId = edited._selectedItemId;
     notifyListeners();
   }
 

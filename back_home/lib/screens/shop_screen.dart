@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../rooms/room_state.dart';
 import '../rooms/room_visuals.dart';
 import '../widgets/app_ui.dart';
+import 'room_edit_screen.dart';
 
 class ShopScreen extends StatelessWidget {
   const ShopScreen({super.key, required this.controller});
@@ -28,9 +29,20 @@ class ShopScreen extends StatelessWidget {
                     title: 'Comfort shop',
                     subtitle:
                         'Buy more furniture, then place it directly into the room.',
-                    trailing: IconButton.filledTonal(
-                      onPressed: () => Navigator.of(context).pop(),
-                      icon: const Icon(Icons.close_rounded),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        FilledButton.icon(
+                          onPressed: () => _openEditor(context),
+                          icon: const Icon(Icons.edit_rounded),
+                          label: const Text('Edit'),
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton.filledTonal(
+                          onPressed: () => Navigator.of(context).pop(),
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                      ],
                     ),
                     padding: const EdgeInsets.fromLTRB(20, 18, 20, 32),
                     children: [
@@ -133,6 +145,14 @@ class ShopScreen extends StatelessWidget {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(result.message)));
+  }
+
+  Future<void> _openEditor(BuildContext context) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => RoomEditScreen(controller: controller),
+      ),
+    );
   }
 }
 

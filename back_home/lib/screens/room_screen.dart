@@ -169,6 +169,7 @@ class _RoomScreenState extends State<RoomScreen> {
                 child: IsometricRoomView(
                   controller: widget.controller,
                   isActive: widget.isActive,
+                  canMoveFurniture: false,
                   deskFocused: _deskFocused,
                   nightMode: _nightMode,
                   onTapDesk: _focusDesk,
@@ -308,8 +309,7 @@ class _RoomScreenState extends State<RoomScreen> {
                                 ),
                           skyWeather: _skyWeather,
                           skyTimeOfDay: _skyTimeOfDay,
-                          onSkyWeather: (w) =>
-                              setState(() => _skyWeather = w),
+                          onSkyWeather: (w) => setState(() => _skyWeather = w),
                           onSkyTimeOfDay: (t) =>
                               setState(() => _skyTimeOfDay = t),
                         ),
