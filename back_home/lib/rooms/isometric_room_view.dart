@@ -126,6 +126,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   static const double _zoomOutStep = 0.94;
   // Higher = snappier camera transitions (eases ~this fraction per second).
   static const double _cameraLerpSpeed = 7.0;
+  static const double _rotationDragDegreesPerPixel = 0.12;
 
   bool get _isPinching => _activePointers.length >= 2;
 
@@ -1486,7 +1487,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       final deltaX = x - _rotationDragLastX;
       _rotationDragLastX = x;
       if (deltaX.abs() > 0.1) {
-        widget.onRotateSelectedBy?.call(deltaX * 0.35);
+        widget.onRotateSelectedBy?.call(deltaX * _rotationDragDegreesPerPixel);
       }
       return;
     }
@@ -1496,16 +1497,20 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       return;
     }
 
+    _updateDragPreview(event);
+  }
+
+  bool _updateDragPreview(dynamic event) {
     final placed = widget.controller.placedItemById(_activeDragItemId!);
     if (placed == null) {
-      return;
+      return false;
     }
 
     _updatePointer(event);
     _raycaster.setFromCamera(_pointer, _camera);
 
     if (_raycaster.ray.intersectPlane(_dragPlane, _dragIntersection) == null) {
-      return;
+      return false;
     }
 
     final draggedWorld = _dragIntersection.clone()..sub(_dragOffset);
@@ -1524,6 +1529,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       ignoringInstanceId: placed.instanceId,
     );
     _syncSceneWithController();
+    return true;
   }
 
   void _onPointerUp([dynamic event]) {
@@ -1563,6 +1569,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       return;
     }
 
+    if (event != null) {
+      _updateDragPreview(event);
+    }
     if (_dragPreviewOrigin != null && _dragPreviewValid) {
       widget.controller.movePlacedItem(_activeDragItemId!, _dragPreviewOrigin!);
     }

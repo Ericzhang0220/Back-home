@@ -20,6 +20,9 @@ class RoomEditScreen extends StatefulWidget {
 }
 
 class _RoomEditScreenState extends State<RoomEditScreen> {
+  static const double _moveNudgeAmount = 0.05;
+  static const double _rotationNudgeDegrees = 1;
+
   late final RoomEditorController _draftController;
   final List<RoomEditSnapshot> _undoStack = [];
   final List<RoomEditSnapshot> _redoStack = [];
@@ -404,12 +407,13 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
                   child: _BottomEditToolbar(
                     rotationMode: _rotationMode,
                     canRotate: _canRotate,
-                    onMoveUp: () => _moveSelectedBy(0, -0.2),
-                    onMoveDown: () => _moveSelectedBy(0, 0.2),
-                    onMoveLeft: () => _moveSelectedBy(-0.2, 0),
-                    onMoveRight: () => _moveSelectedBy(0.2, 0),
-                    onCounterClockwise: () => _rotateSelectedBy(-5),
-                    onClockwise: () => _rotateSelectedBy(5),
+                    onMoveUp: () => _moveSelectedBy(0, -_moveNudgeAmount),
+                    onMoveDown: () => _moveSelectedBy(0, _moveNudgeAmount),
+                    onMoveLeft: () => _moveSelectedBy(-_moveNudgeAmount, 0),
+                    onMoveRight: () => _moveSelectedBy(_moveNudgeAmount, 0),
+                    onCounterClockwise: () =>
+                        _rotateSelectedBy(-_rotationNudgeDegrees),
+                    onClockwise: () => _rotateSelectedBy(_rotationNudgeDegrees),
                   ),
                 ),
               ),
