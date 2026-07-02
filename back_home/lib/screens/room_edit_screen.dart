@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 
 import '../rooms/isometric_room_view.dart';
 import '../rooms/room_state.dart';
-import '../widgets/app_ui.dart';
 
 class RoomEditScreen extends StatefulWidget {
   const RoomEditScreen({
@@ -29,6 +28,17 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
   bool get _canUndo => _undoStack.length > 1;
   bool get _canRedo => _redoStack.isNotEmpty;
   bool get _canDelete => _draftController.selectedItemId != null;
+  bool get _canRotate {
+    final selectedItemId = _draftController.selectedItemId;
+    if (selectedItemId == null) {
+      return false;
+    }
+    final item = _draftController.placedItemById(selectedItemId);
+    if (item == null) {
+      return false;
+    }
+    return _draftController.definitionFor(item.definitionId).canRotate;
+  }
 
   @override
   void initState() {
@@ -66,7 +76,7 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
     Navigator.of(context).pop();
   }
 
-  void _save() {
+  Future<void> _save() async {
     final messenger = ScaffoldMessenger.of(context);
     if (!_draftController.hasValidLayout) {
       for (final item in _draftController.placedItems) {
@@ -84,6 +94,28 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
         );
       return;
     }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Save room layout?'),
+          content: const Text('This will replace your current room layout.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+    if (!mounted || confirmed != true) {
+      return;
+    }
     widget.controller.applyEditSession(_draftController);
     Navigator.of(context).pop();
     messenger
@@ -97,6 +129,19 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
       return;
     }
     _draftController.storePlacedItem(selectedItemId);
+  }
+
+  void _rotateSelected() {
+    final selectedItemId = _draftController.selectedItemId;
+    if (selectedItemId == null) {
+      return;
+    }
+    final result = _draftController.rotatePlacedItem(selectedItemId);
+    if (!result.isSuccess) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(result.message)));
+    }
   }
 
   void _undo() {
@@ -227,30 +272,7 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
                           onPressed: _canRedo ? _redo : null,
                           icon: const Icon(Icons.redo_rounded),
                         ),
-                        const Expanded(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                'Edit room',
-                                style: TextStyle(
-                                  color: AppColors.ink,
-                                  fontSize: 17,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                              SizedBox(height: 2),
-                              Text(
-                                'Drag furniture to rearrange it.',
-                                style: TextStyle(
-                                  color: AppColors.muted,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
+                        const Spacer(),
                         if (compactToolbar)
                           IconButton.filledTonal(
                             onPressed: _canDelete ? _deleteSelected : null,
@@ -261,6 +283,22 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
                             onPressed: _canDelete ? _deleteSelected : null,
                             icon: const Icon(Icons.delete_rounded),
                             label: const Text('Delete'),
+                          ),
+                        const SizedBox(width: 8),
+                        if (compactToolbar)
+                          IconButton.filledTonal(
+                            onPressed: _canRotate ? _rotateSelected : null,
+                            icon: const Icon(
+                              Icons.rotate_90_degrees_ccw_rounded,
+                            ),
+                          )
+                        else
+                          FilledButton.tonalIcon(
+                            onPressed: _canRotate ? _rotateSelected : null,
+                            icon: const Icon(
+                              Icons.rotate_90_degrees_ccw_rounded,
+                            ),
+                            label: const Text('Rotate'),
                           ),
                         const SizedBox(width: 8),
                         if (compactToolbar)

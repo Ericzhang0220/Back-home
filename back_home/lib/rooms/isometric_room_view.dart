@@ -1423,13 +1423,13 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       return;
     }
 
-    if (!widget.canMoveFurniture) {
+    if (!widget.canMoveFurniture ||
+        widget.controller.selectedItemId != sceneFurniture.itemId) {
       _pendingFurnitureTapItemId = sceneFurniture.itemId;
       _beginCameraTiltCandidate(event);
       return;
     }
 
-    widget.controller.selectItem(sceneFurniture.itemId);
     _activeDragItemId = sceneFurniture.itemId;
     _dragPreviewValid = true;
     final placed = widget.controller.placedItemById(sceneFurniture.itemId);
