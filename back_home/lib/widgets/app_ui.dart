@@ -75,7 +75,7 @@ class AppPage extends StatelessWidget {
     this.keyboardDismissBehavior = ScrollViewKeyboardDismissBehavior.manual,
   });
 
-  final String? eyebrow;
+  final Widget? eyebrow;
   final String title;
   final String subtitle;
   final List<Widget> children;
@@ -87,8 +87,6 @@ class AppPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return SingleChildScrollView(
       physics: physics,
       keyboardDismissBehavior: keyboardDismissBehavior,
@@ -96,14 +94,7 @@ class AppPage extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (eyebrow != null)
-            Text(
-              eyebrow!.toUpperCase(),
-              style: theme.textTheme.labelLarge?.copyWith(
-                color: AppColors.clay,
-                letterSpacing: 1.6,
-              ),
-            ),
+          ?eyebrow,
           if (eyebrow != null) const SizedBox(height: 10),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,

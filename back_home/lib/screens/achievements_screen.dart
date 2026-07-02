@@ -25,6 +25,8 @@ class AchievementsScreen extends StatelessWidget {
       ),
     ];
 
+    final theme = Theme.of(context);
+
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: Stack(
@@ -32,7 +34,13 @@ class AchievementsScreen extends StatelessWidget {
           const AmbientBackground(),
           SafeArea(
             child: AppPage(
-              eyebrow: 'Milestones',
+              eyebrow: Text(
+                'MILESTONES',
+                style: theme.textTheme.labelLarge?.copyWith(
+                  color: AppColors.clay,
+                  letterSpacing: 1.6,
+                ),
+              ),
               title: 'Achievements',
               subtitle:
                   'Progress should reinforce healthy engagement without turning the app into a grind.',

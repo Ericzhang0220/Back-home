@@ -14,6 +14,7 @@ class ShopScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: Stack(
@@ -25,25 +26,60 @@ class ShopScreen extends StatelessWidget {
                 animation: controller,
                 builder: (context, _) {
                   return AppPage(
-                    eyebrow: 'Store',
-                    title: 'Comfort shop',
-                    subtitle:
-                        'Buy more furniture, then place it directly into the room.',
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
+                    eyebrow: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        FilledButton.icon(
-                          onPressed: () => _openEditor(context),
-                          icon: const Icon(Icons.edit_rounded),
-                          label: const Text('Edit'),
+                        Text(
+                          'STORE',
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            color: AppColors.clay,
+                            letterSpacing: 1.6,
+                          ),
                         ),
-                        const SizedBox(width: 8),
-                        IconButton.filledTonal(
-                          onPressed: () => Navigator.of(context).pop(),
-                          icon: const Icon(Icons.close_rounded),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            FilledButton.icon(
+                              onPressed: () => _openEditor(context),
+                              icon: const Icon(Icons.edit_rounded),
+                              label: const Text(
+                                'Edit',
+                                style: TextStyle(fontSize: 13),
+                              ),
+                              style: FilledButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 8,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            IconButton.filledTonal(
+                              onPressed: () => Navigator.of(context).pop(),
+                              icon: const Icon(Icons.close_rounded),
+                            ),
+                          ],
                         ),
                       ],
                     ),
+                    title: 'Comfort shop',
+                    subtitle:
+                        'Buy more furniture, then place it directly into the room.',
+                    // trailing: Row(
+                    //   mainAxisSize: MainAxisSize.min,
+                    //   children: [
+                    //     FilledButton.icon(
+                    //       onPressed: () => _openEditor(context),
+                    //       icon: const Icon(Icons.edit_rounded),
+                    //       label: const Text('Edit'),
+                    //     ),
+                    //     const SizedBox(width: 8),
+                    //     IconButton.filledTonal(
+                    //       onPressed: () => Navigator.of(context).pop(),
+                    //       icon: const Icon(Icons.close_rounded),
+                    //     ),
+                    //   ],
+                    // ),
                     padding: const EdgeInsets.fromLTRB(20, 18, 20, 32),
                     children: [
                       SoftCard(
