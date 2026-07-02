@@ -79,6 +79,6 @@ void main() {
     expect(find.text('Comfort shop'), findsOneWidget);
     expect(find.text('Likes balance'), findsOneWidget);
     expect(find.text('Categories'), findsOneWidget);
-    expect(find.text('Buy + place'), findsWidgets);
+    expect(find.text('Buy + edit'), findsWidgets);
   });
 }

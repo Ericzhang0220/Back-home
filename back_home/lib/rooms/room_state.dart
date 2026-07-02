@@ -54,6 +54,22 @@ class RoomActionResult {
   final String? instanceId;
 }
 
+class RoomEditSnapshot {
+  RoomEditSnapshot({
+    required Iterable<PlacedRoomItem> placedItems,
+    required this.selectedItemId,
+    required this.nextInstanceId,
+  }) : placedItems = List.unmodifiable(
+         placedItems.map(
+           (item) => item.copyWith(origin: item.origin.copyWith()),
+         ),
+       );
+
+  final List<PlacedRoomItem> placedItems;
+  final String? selectedItemId;
+  final int nextInstanceId;
+}
+
 class RoomItemDefinition {
   const RoomItemDefinition({
     required this.id,
@@ -449,6 +465,91 @@ class RoomEditorController extends ChangeNotifier {
     _nextInstanceId = edited._nextInstanceId;
     _selectedItemId = edited._selectedItemId;
     notifyListeners();
+  }
+
+  RoomEditSnapshot createEditSnapshot() {
+    return RoomEditSnapshot(
+      placedItems: _placedItems,
+      selectedItemId: _selectedItemId,
+      nextInstanceId: _nextInstanceId,
+    );
+  }
+
+  void restoreEditSnapshot(RoomEditSnapshot snapshot) {
+    _placedItems
+      ..clear()
+      ..addAll([
+        for (final item in snapshot.placedItems)
+          item.copyWith(origin: item.origin.copyWith()),
+      ]);
+    _selectedItemId = snapshot.selectedItemId;
+    _nextInstanceId = snapshot.nextInstanceId;
+    notifyListeners();
+  }
+
+  GridPoint centerOriginFor(String definitionId, {int quarterTurns = 0}) {
+    final footprint = footprintForDefinition(definitionId, quarterTurns);
+    final centered = GridPoint(
+      ((roomWidth - footprint.width) / 2).round(),
+      ((roomDepth - footprint.depth) / 2).round(),
+    );
+    return clampOrigin(definitionId, quarterTurns, centered);
+  }
+
+  RoomActionResult addOwnedItemForEditing(
+    String definitionId, {
+    GridPoint? preferredOrigin,
+    int rotationQuarterTurns = 0,
+  }) {
+    final definition = definitionFor(definitionId);
+
+    if (availableToPlace(definitionId) <= 0) {
+      return RoomActionResult.failure(
+        'Buy ${definition.title} from the shop first.',
+      );
+    }
+
+    final origin = clampOrigin(
+      definitionId,
+      rotationQuarterTurns,
+      preferredOrigin ?? centerOriginFor(definitionId),
+    );
+    final item = PlacedRoomItem(
+      instanceId: 'item-${_nextInstanceId++}',
+      definitionId: definitionId,
+      origin: origin,
+      rotationQuarterTurns: rotationQuarterTurns,
+    );
+
+    _placedItems.add(item);
+    _selectedItemId = item.instanceId;
+    notifyListeners();
+    return RoomActionResult.success(
+      '${definition.title} ready to place.',
+      instanceId: item.instanceId,
+    );
+  }
+
+  bool isPlacedItemValid(String instanceId) {
+    final item = placedItemById(instanceId);
+    if (item == null) {
+      return false;
+    }
+    return canOccupy(
+      definitionId: item.definitionId,
+      origin: item.origin,
+      rotationQuarterTurns: item.rotationQuarterTurns,
+      ignoringInstanceId: item.instanceId,
+    );
+  }
+
+  bool get hasValidLayout {
+    for (final item in _placedItems) {
+      if (!isPlacedItemValid(item.instanceId)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   RoomActionResult purchaseItem(String definitionId) {

@@ -1603,11 +1603,15 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     for (final item in widget.controller.placedItems) {
       final isDragging = item.instanceId == _activeDragItemId;
       final previewOrigin = isDragging ? _dragPreviewOrigin : null;
+      final isValid = isDragging
+          ? _dragPreviewValid
+          : (!widget.canMoveFurniture ||
+                widget.controller.isPlacedItemValid(item.instanceId));
       _updateSceneFurniture(
         item,
         previewOrigin: previewOrigin,
         isDragging: isDragging,
-        isValid: isDragging ? _dragPreviewValid : true,
+        isValid: isValid,
       );
     }
 
@@ -1638,13 +1642,15 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
           )
           ..position.y = 0.03
           ..renderOrder = 8;
+    final visualRoot = _buildFurnitureVisual(definition);
     root.add(selectionPlate);
-    root.add(_buildFurnitureVisual(definition));
+    root.add(visualRoot);
     _threeJs!.scene.add(root);
 
     return _SceneFurniture(
       itemId: item.instanceId,
       root: root,
+      visualRoot: visualRoot,
       selectionMaterial: selectionMaterial,
     );
   }
@@ -1676,6 +1682,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
 
     final isSelected =
         widget.controller.selectedItemId == item.instanceId || isDragging;
+    final darkenVisual = widget.canMoveFurniture && isSelected;
     sceneFurniture.selectionMaterial.color = three.Color.fromHex32(
       isValid ? (isSelected ? 0xe5b892 : 0xffffff) : 0xd76b60,
     );
@@ -1687,6 +1694,30 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       isDragging ? 1.03 : 1.0,
       isDragging ? 1.03 : 1.0,
     );
+    _setFurnitureVisualDarkened(sceneFurniture.visualRoot, darkenVisual);
+  }
+
+  void _setFurnitureVisualDarkened(three.Object3D root, bool darkened) {
+    root.traverse((object) {
+      if (object is! three.Mesh || object.material == null) {
+        return;
+      }
+      final material = object.material!;
+      final baseColor =
+          material.userData['roomBaseColor'] as int? ?? material.color.getHex();
+      material.userData['roomBaseColor'] = baseColor;
+      material.color = three.Color.fromHex32(
+        darkened ? _scaledHexColor(baseColor, 0.42) : baseColor,
+      );
+      material.needsUpdate = true;
+    });
+  }
+
+  int _scaledHexColor(int color, double scale) {
+    final r = (((color >> 16) & 0xff) * scale).round().clamp(0, 255);
+    final g = (((color >> 8) & 0xff) * scale).round().clamp(0, 255);
+    final b = ((color & 0xff) * scale).round().clamp(0, 255);
+    return (r << 16) | (g << 8) | b;
   }
 
   _SceneFurniture? _resolveSceneFurniture(three.Object3D? object) {
@@ -2163,11 +2194,13 @@ class _SceneFurniture {
   const _SceneFurniture({
     required this.itemId,
     required this.root,
+    required this.visualRoot,
     required this.selectionMaterial,
   });
 
   final String itemId;
   final three.Group root;
+  final three.Group visualRoot;
   final three.MeshBasicMaterial selectionMaterial;
 }
 

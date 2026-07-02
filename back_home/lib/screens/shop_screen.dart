@@ -64,22 +64,7 @@ class ShopScreen extends StatelessWidget {
                     ),
                     title: 'Comfort shop',
                     subtitle:
-                        'Buy more furniture, then place it directly into the room.',
-                    // trailing: Row(
-                    //   mainAxisSize: MainAxisSize.min,
-                    //   children: [
-                    //     FilledButton.icon(
-                    //       onPressed: () => _openEditor(context),
-                    //       icon: const Icon(Icons.edit_rounded),
-                    //       label: const Text('Edit'),
-                    //     ),
-                    //     const SizedBox(width: 8),
-                    //     IconButton.filledTonal(
-                    //       onPressed: () => Navigator.of(context).pop(),
-                    //       icon: const Icon(Icons.close_rounded),
-                    //     ),
-                    //   ],
-                    // ),
+                        'Buy more furniture, then arrange it in edit mode.',
                     padding: const EdgeInsets.fromLTRB(20, 18, 20, 32),
                     children: [
                       SoftCard(
@@ -164,7 +149,12 @@ class ShopScreen extends StatelessWidget {
                       const SizedBox(height: 20),
                       _ShopCatalogGrid(
                         controller: controller,
-                        onResult: (result) => _showResult(context, result),
+                        onBuyAndEdit: (definitionId) =>
+                            _buyAndEdit(context, definitionId),
+                        onPlaceOwnedAndEdit: (definitionId) => _openEditor(
+                          context,
+                          initialDefinitionId: definitionId,
+                        ),
                       ),
                     ],
                   );
@@ -183,20 +173,40 @@ class ShopScreen extends StatelessWidget {
       ..showSnackBar(SnackBar(content: Text(result.message)));
   }
 
-  Future<void> _openEditor(BuildContext context) async {
+  Future<void> _buyAndEdit(BuildContext context, String definitionId) async {
+    final result = controller.purchaseItem(definitionId);
+    if (!result.isSuccess) {
+      _showResult(context, result);
+      return;
+    }
+    await _openEditor(context, initialDefinitionId: definitionId);
+  }
+
+  Future<void> _openEditor(
+    BuildContext context, {
+    String? initialDefinitionId,
+  }) async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => RoomEditScreen(controller: controller),
+        builder: (_) => RoomEditScreen(
+          controller: controller,
+          initialDefinitionId: initialDefinitionId,
+        ),
       ),
     );
   }
 }
 
 class _ShopCatalogGrid extends StatelessWidget {
-  const _ShopCatalogGrid({required this.controller, required this.onResult});
+  const _ShopCatalogGrid({
+    required this.controller,
+    required this.onBuyAndEdit,
+    required this.onPlaceOwnedAndEdit,
+  });
 
   final RoomEditorController controller;
-  final ValueChanged<RoomActionResult> onResult;
+  final ValueChanged<String> onBuyAndEdit;
+  final ValueChanged<String> onPlaceOwnedAndEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -232,10 +242,9 @@ class _ShopCatalogGrid extends StatelessWidget {
                   likesBalance: controller.likesBalance,
                   ownedCount: controller.ownedCount(item.id),
                   availableToPlace: controller.availableToPlace(item.id),
-                  onBuyAndPlace: () =>
-                      onResult(controller.buyAndAddItem(item.id)),
+                  onBuyAndPlace: () => onBuyAndEdit(item.id),
                   onPlaceOwned: controller.availableToPlace(item.id) > 0
-                      ? () => onResult(controller.addOwnedItem(item.id))
+                      ? () => onPlaceOwnedAndEdit(item.id)
                       : null,
                 ),
               ),
@@ -310,7 +319,7 @@ class _ShopItemCard extends StatelessWidget {
             width: double.infinity,
             child: FilledButton(
               onPressed: canAfford ? onBuyAndPlace : null,
-              child: Text(canAfford ? 'Buy + place' : 'Need more likes'),
+              child: Text(canAfford ? 'Buy + edit' : 'Need more likes'),
             ),
           ),
           const SizedBox(height: 8),

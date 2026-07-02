@@ -46,4 +46,26 @@ void main() {
 
     expect(controller.placedItemById('item-2')?.origin, const GridPoint(0, 8));
   });
+
+  test(
+    'editing placement can start on an occupied tile and require fixing',
+    () {
+      final controller = RoomEditorController();
+      controller.purchaseItem('fern-tree');
+      final draft = RoomEditorController.editing(controller);
+
+      final result = draft.addOwnedItemForEditing(
+        'fern-tree',
+        preferredOrigin: const GridPoint(3, 3),
+      );
+
+      expect(result.isSuccess, isTrue);
+      expect(result.instanceId, isNotNull);
+      expect(
+        draft.placedItemById(result.instanceId!)?.origin,
+        const GridPoint(3, 3),
+      );
+      expect(draft.hasValidLayout, isFalse);
+    },
+  );
 }
