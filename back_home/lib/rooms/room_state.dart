@@ -20,10 +20,11 @@ enum SkyWeather { clear, cloudy, overcast, rain }
 class GridPoint {
   const GridPoint(this.x, this.z);
 
-  final int x;
-  final int z;
+  final double x;
+  final double z;
 
-  GridPoint copyWith({int? x, int? z}) => GridPoint(x ?? this.x, z ?? this.z);
+  GridPoint copyWith({double? x, double? z}) =>
+      GridPoint(x ?? this.x, z ?? this.z);
 
   @override
   bool operator ==(Object other) {
@@ -113,25 +114,33 @@ class PlacedRoomItem {
     required this.instanceId,
     required this.definitionId,
     required this.origin,
-    required this.rotationQuarterTurns,
-  });
+    int rotationQuarterTurns = 0,
+    double? rotationDegrees,
+  }) : rotationDegrees = rotationDegrees ?? rotationQuarterTurns * 90.0;
 
   final String instanceId;
   final String definitionId;
   final GridPoint origin;
-  final int rotationQuarterTurns;
+  final double rotationDegrees;
+
+  int get rotationQuarterTurns => (rotationDegrees / 90).round() % 4;
 
   PlacedRoomItem copyWith({
     String? instanceId,
     String? definitionId,
     GridPoint? origin,
     int? rotationQuarterTurns,
+    double? rotationDegrees,
   }) {
     return PlacedRoomItem(
       instanceId: instanceId ?? this.instanceId,
       definitionId: definitionId ?? this.definitionId,
       origin: origin ?? this.origin,
-      rotationQuarterTurns: rotationQuarterTurns ?? this.rotationQuarterTurns,
+      rotationDegrees:
+          rotationDegrees ??
+          (rotationQuarterTurns == null
+              ? this.rotationDegrees
+              : rotationQuarterTurns * 90.0),
     );
   }
 }
@@ -376,9 +385,15 @@ class RoomEditorController extends ChangeNotifier {
     GridPoint origin,
   ) {
     final footprint = footprintForDefinition(definitionId, quarterTurns);
-    final clampedX = origin.x.clamp(0, roomWidth - footprint.width);
-    final clampedZ = origin.z.clamp(0, roomDepth - footprint.depth);
-    return GridPoint(clampedX, clampedZ);
+    final clampedX = origin.x.clamp(
+      0.0,
+      roomWidth.toDouble() - footprint.width,
+    );
+    final clampedZ = origin.z.clamp(
+      0.0,
+      roomDepth.toDouble() - footprint.depth,
+    );
+    return GridPoint(clampedX.toDouble(), clampedZ.toDouble());
   }
 
   bool canOccupy({
@@ -399,47 +414,11 @@ class RoomEditorController extends ChangeNotifier {
       return false;
     }
 
-    for (final item in _placedItems) {
-      if (item.instanceId == ignoringInstanceId) {
-        continue;
-      }
-
-      final otherFootprint = footprintForDefinition(
-        item.definitionId,
-        item.rotationQuarterTurns,
-      );
-
-      final overlaps =
-          origin.x < item.origin.x + otherFootprint.width &&
-          origin.x + footprint.width > item.origin.x &&
-          origin.z < item.origin.z + otherFootprint.depth &&
-          origin.z + footprint.depth > item.origin.z;
-
-      if (overlaps) {
-        return false;
-      }
-    }
-
     return true;
   }
 
   GridPoint? findFirstOpenSpot(String definitionId, {int quarterTurns = 0}) {
-    final footprint = footprintForDefinition(definitionId, quarterTurns);
-
-    for (var z = 0; z <= roomDepth - footprint.depth; z += 1) {
-      for (var x = 0; x <= roomWidth - footprint.width; x += 1) {
-        final origin = GridPoint(x, z);
-        if (canOccupy(
-          definitionId: definitionId,
-          origin: origin,
-          rotationQuarterTurns: quarterTurns,
-        )) {
-          return origin;
-        }
-      }
-    }
-
-    return null;
+    return centerOriginFor(definitionId, quarterTurns: quarterTurns);
   }
 
   void selectItem(String? instanceId) {
@@ -490,8 +469,8 @@ class RoomEditorController extends ChangeNotifier {
   GridPoint centerOriginFor(String definitionId, {int quarterTurns = 0}) {
     final footprint = footprintForDefinition(definitionId, quarterTurns);
     final centered = GridPoint(
-      ((roomWidth - footprint.width) / 2).round(),
-      ((roomDepth - footprint.depth) / 2).round(),
+      (roomWidth - footprint.width) / 2,
+      (roomDepth - footprint.depth) / 2,
     );
     return clampOrigin(definitionId, quarterTurns, centered);
   }
@@ -597,7 +576,7 @@ class RoomEditorController extends ChangeNotifier {
 
     if (origin == null) {
       return RoomActionResult.failure(
-        'No open grid space left for ${definition.title}.',
+        'No open room space left for ${definition.title}.',
       );
     }
 
@@ -689,7 +668,10 @@ class RoomEditorController extends ChangeNotifier {
     return const RoomActionResult.success('Furniture moved.');
   }
 
-  RoomActionResult rotatePlacedItem(String instanceId) {
+  RoomActionResult rotatePlacedItem(
+    String instanceId, {
+    double deltaDegrees = 90,
+  }) {
     final itemIndex = _placedItems.indexWhere(
       (item) => item.instanceId == instanceId,
     );
@@ -705,27 +687,10 @@ class RoomEditorController extends ChangeNotifier {
       return RoomActionResult.failure('${definition.title} cannot rotate.');
     }
 
-    final nextTurns = (item.rotationQuarterTurns + 1) % 4;
-    final clampedOrigin = clampOrigin(
-      item.definitionId,
-      nextTurns,
-      item.origin,
-    );
-
-    if (!canOccupy(
-      definitionId: item.definitionId,
-      origin: clampedOrigin,
-      rotationQuarterTurns: nextTurns,
-      ignoringInstanceId: item.instanceId,
-    )) {
-      return const RoomActionResult.failure(
-        'Not enough open tiles to rotate that item.',
-      );
-    }
+    final nextDegrees = (item.rotationDegrees + deltaDegrees) % 360;
 
     _placedItems[itemIndex] = item.copyWith(
-      origin: clampedOrigin,
-      rotationQuarterTurns: nextTurns,
+      rotationDegrees: nextDegrees < 0 ? nextDegrees + 360 : nextDegrees,
     );
     notifyListeners();
     return RoomActionResult.success('${definition.title} rotated.');

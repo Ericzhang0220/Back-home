@@ -20,6 +20,7 @@ class IsometricRoomView extends StatefulWidget {
     this.skyWeather = SkyWeather.clear,
     this.skyTimeOfDay,
     this.canMoveFurniture = false,
+    this.onSelectedScreenPositionChanged,
   });
 
   final RoomEditorController controller;
@@ -38,6 +39,9 @@ class IsometricRoomView extends StatefulWidget {
 
   /// Enables the room editor's drag-to-move furniture interactions.
   final bool canMoveFurniture;
+
+  /// Reports the selected furniture's screen position within this view.
+  final ValueChanged<Offset?>? onSelectedScreenPositionChanged;
 
   @override
   State<IsometricRoomView> createState() => _IsometricRoomViewState();
@@ -93,6 +97,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   double _pointerLastY = 0;
   bool _cameraTiltCandidate = false;
   bool _cameraTiltActive = false;
+  Offset? _lastSelectedScreenPosition;
   double _cameraYaw =
       0; // horizontal look angle (radians); 0 = facing the far wall
   double _yawAtDragStart = 0;
@@ -340,6 +345,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _camera.position.lerp(_cameraTargetPos, t);
     _cameraCurrentLook.lerp(_cameraTargetLook, t);
     _camera.lookAt(_cameraCurrentLook);
+    _publishSelectedScreenPosition();
   }
 
   void _onZoom(dynamic event) {
@@ -1618,6 +1624,55 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     if (mounted) {
       setState(() {});
     }
+    _publishSelectedScreenPosition();
+  }
+
+  void _publishSelectedScreenPosition() {
+    if (widget.onSelectedScreenPositionChanged == null) {
+      return;
+    }
+
+    final selectedItemId = widget.controller.selectedItemId;
+    final sceneFurniture = selectedItemId == null
+        ? null
+        : _sceneFurniture[selectedItemId];
+    final renderBox =
+        _threeJs?.globalKey.currentContext?.findRenderObject() as RenderBox?;
+    if (!_sceneReady || sceneFurniture == null || renderBox == null) {
+      _notifySelectedScreenPosition(null);
+      return;
+    }
+
+    _camera.updateMatrixWorld(true);
+    final projected = sceneFurniture.root.position.clone()
+      ..y += 1.0
+      ..project(_camera);
+    if (projected.z < -1 || projected.z > 1) {
+      _notifySelectedScreenPosition(null);
+      return;
+    }
+
+    final size = renderBox.size;
+    final offset = Offset(
+      (projected.x + 1) * 0.5 * size.width,
+      (-projected.y + 1) * 0.5 * size.height,
+    );
+    _notifySelectedScreenPosition(offset);
+  }
+
+  void _notifySelectedScreenPosition(Offset? offset) {
+    final last = _lastSelectedScreenPosition;
+    if ((last == null && offset == null) ||
+        (last != null && offset != null && (last - offset).distance < 1)) {
+      return;
+    }
+    _lastSelectedScreenPosition = offset;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      widget.onSelectedScreenPositionChanged?.call(offset);
+    });
   }
 
   _SceneFurniture _createSceneFurniture(PlacedRoomItem item) {
@@ -1678,7 +1733,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       isDragging ? 0.14 : 0,
       position.z,
     );
-    sceneFurniture.root.rotation.y = item.rotationQuarterTurns * math.pi / 2;
+    sceneFurniture.root.rotation.y = item.rotationDegrees * math.pi / 180;
 
     final isSelected =
         widget.controller.selectedItemId == item.instanceId || isDragging;
@@ -1827,13 +1882,11 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         RoomEditorController.roomDepth * RoomEditorController.cellSize;
 
     final snappedX =
-        ((x + roomWidth / 2 - footprint.width / 2) /
-                RoomEditorController.cellSize)
-            .round();
+        (x + roomWidth / 2 - footprint.width / 2) /
+        RoomEditorController.cellSize;
     final snappedZ =
-        ((z + roomDepth / 2 - footprint.depth / 2) /
-                RoomEditorController.cellSize)
-            .round();
+        (z + roomDepth / 2 - footprint.depth / 2) /
+        RoomEditorController.cellSize;
 
     return widget.controller.clampOrigin(
       definitionId,

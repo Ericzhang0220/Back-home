@@ -14,24 +14,29 @@ void main() {
     expect(controller.selectedItemId, isNotNull);
   });
 
-  test('movePlacedItem rejects collisions with existing furniture', () {
+  test('movePlacedItem accepts freeform positions', () {
     final controller = RoomEditorController();
 
-    final result = controller.movePlacedItem('item-2', const GridPoint(3, 3));
+    final result = controller.movePlacedItem(
+      'item-2',
+      const GridPoint(3.25, 3.75),
+    );
 
-    expect(result.isSuccess, isFalse);
-    expect(result.message, contains('blocked'));
-    expect(controller.placedItemById('item-2')?.origin, const GridPoint(2, 5));
+    expect(result.isSuccess, isTrue);
+    expect(
+      controller.placedItemById('item-2')?.origin,
+      const GridPoint(3.25, 3.75),
+    );
   });
 
-  test('rotatePlacedItem rotates when the footprint still fits', () {
+  test('rotatePlacedItem supports small degree increments', () {
     final controller = RoomEditorController();
 
-    final result = controller.rotatePlacedItem('item-3');
+    final result = controller.rotatePlacedItem('item-3', deltaDegrees: 5);
     final item = controller.placedItemById('item-3');
 
     expect(result.isSuccess, isTrue);
-    expect(item?.rotationQuarterTurns, 1);
+    expect(item?.rotationDegrees, 5);
   });
 
   test('edit sessions only update the room when applied', () {
@@ -47,25 +52,22 @@ void main() {
     expect(controller.placedItemById('item-2')?.origin, const GridPoint(0, 8));
   });
 
-  test(
-    'editing placement can start on an occupied tile and require fixing',
-    () {
-      final controller = RoomEditorController();
-      controller.purchaseItem('fern-tree');
-      final draft = RoomEditorController.editing(controller);
+  test('editing placement can start at a freeform preferred position', () {
+    final controller = RoomEditorController();
+    controller.purchaseItem('fern-tree');
+    final draft = RoomEditorController.editing(controller);
 
-      final result = draft.addOwnedItemForEditing(
-        'fern-tree',
-        preferredOrigin: const GridPoint(3, 3),
-      );
+    final result = draft.addOwnedItemForEditing(
+      'fern-tree',
+      preferredOrigin: const GridPoint(3, 3),
+    );
 
-      expect(result.isSuccess, isTrue);
-      expect(result.instanceId, isNotNull);
-      expect(
-        draft.placedItemById(result.instanceId!)?.origin,
-        const GridPoint(3, 3),
-      );
-      expect(draft.hasValidLayout, isFalse);
-    },
-  );
+    expect(result.isSuccess, isTrue);
+    expect(result.instanceId, isNotNull);
+    expect(
+      draft.placedItemById(result.instanceId!)?.origin,
+      const GridPoint(3, 3),
+    );
+    expect(draft.hasValidLayout, isTrue);
+  });
 }

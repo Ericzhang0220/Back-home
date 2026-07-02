@@ -107,8 +107,8 @@ class ShopScreen extends StatelessWidget {
                             ),
                             const SizedBox(width: 14),
                             InfoPill(
-                              icon: Icons.grid_on_rounded,
-                              label: 'Room grid',
+                              icon: Icons.aspect_ratio_rounded,
+                              label: 'Room size',
                               value:
                                   '${RoomEditorController.roomWidth} x ${RoomEditorController.roomDepth}',
                               tint: const Color(0xFFF6E2C3),

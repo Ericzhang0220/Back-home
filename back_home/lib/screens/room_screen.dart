@@ -540,8 +540,8 @@ class _SettingsPanel extends StatelessWidget {
                       tint: const Color(0xFFF6E2CF),
                     ),
                     InfoPill(
-                      icon: Icons.grid_4x4_rounded,
-                      label: 'Layout',
+                      icon: Icons.aspect_ratio_rounded,
+                      label: 'Room size',
                       value:
                           '${RoomEditorController.roomWidth} x ${RoomEditorController.roomDepth}',
                       tint: const Color(0xFFF1E9DC),
@@ -795,12 +795,14 @@ class _SelectionPanel extends StatelessWidget {
                 runSpacing: 10,
                 children: [
                   TopicChip(
-                    label: 'Grid ${item.origin.x + 1}, ${item.origin.z + 1}',
+                    label:
+                        'Position ${item.origin.x.toStringAsFixed(1)}, ${item.origin.z.toStringAsFixed(1)}',
                     icon: Icons.place_rounded,
                     highlight: true,
                   ),
                   TopicChip(
-                    label: 'Rotation ${item.rotationQuarterTurns * 90}°',
+                    label:
+                        'Rotation ${item.rotationDegrees.toStringAsFixed(0)}°',
                     icon: Icons.rotate_90_degrees_ccw_rounded,
                   ),
                   TopicChip(label: definition.typeLabel, icon: definition.icon),

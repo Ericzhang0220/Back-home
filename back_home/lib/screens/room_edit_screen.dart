@@ -24,6 +24,8 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
   final List<RoomEditSnapshot> _undoStack = [];
   final List<RoomEditSnapshot> _redoStack = [];
   bool _restoringHistory = false;
+  bool _rotationMode = false;
+  Offset? _selectedFurniturePosition;
 
   bool get _canUndo => _undoStack.length > 1;
   bool get _canRedo => _redoStack.isNotEmpty;
@@ -128,15 +130,28 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
     if (selectedItemId == null) {
       return;
     }
+    _rotationMode = false;
     _draftController.storePlacedItem(selectedItemId);
   }
 
-  void _rotateSelected() {
+  void _toggleRotationMode() {
+    if (!_canRotate) {
+      return;
+    }
+    setState(() {
+      _rotationMode = !_rotationMode;
+    });
+  }
+
+  void _rotateSelectedBy(double deltaDegrees) {
     final selectedItemId = _draftController.selectedItemId;
     if (selectedItemId == null) {
       return;
     }
-    final result = _draftController.rotatePlacedItem(selectedItemId);
+    final result = _draftController.rotatePlacedItem(
+      selectedItemId,
+      deltaDegrees: deltaDegrees,
+    );
     if (!result.isSuccess) {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
@@ -175,6 +190,9 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
     if (_restoringHistory) {
       return;
     }
+    if (_rotationMode && !_canRotate) {
+      _rotationMode = false;
+    }
 
     final current = _draftController.createEditSnapshot();
     if (!_samePlacedLayout(_undoStack.last, current)) {
@@ -197,7 +215,7 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
       if (left.instanceId != right.instanceId ||
           left.definitionId != right.definitionId ||
           left.origin != right.origin ||
-          left.rotationQuarterTurns != right.rotationQuarterTurns) {
+          left.rotationDegrees != right.rotationDegrees) {
         return false;
       }
     }
@@ -218,6 +236,14 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
               controller: _draftController,
               isActive: true,
               canMoveFurniture: true,
+              onSelectedScreenPositionChanged: (position) {
+                if (!mounted) {
+                  return;
+                }
+                setState(() {
+                  _selectedFurniturePosition = position;
+                });
+              },
             ),
           ),
           Positioned.fill(
@@ -286,20 +312,55 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
                           ),
                         const SizedBox(width: 8),
                         if (compactToolbar)
-                          IconButton.filledTonal(
-                            onPressed: _canRotate ? _rotateSelected : null,
+                          IconButton(
+                            onPressed: _canRotate ? _toggleRotationMode : null,
                             icon: const Icon(
                               Icons.rotate_90_degrees_ccw_rounded,
                             ),
+                            style:
+                                (_rotationMode
+                                        ? IconButton.styleFrom(
+                                            backgroundColor: Theme.of(
+                                              context,
+                                            ).colorScheme.primary,
+                                            foregroundColor: Theme.of(
+                                              context,
+                                            ).colorScheme.onPrimary,
+                                          )
+                                        : IconButton.styleFrom(
+                                            backgroundColor: Theme.of(
+                                              context,
+                                            ).colorScheme.secondaryContainer,
+                                            foregroundColor: Theme.of(
+                                              context,
+                                            ).colorScheme.onSecondaryContainer,
+                                          ))
+                                    .copyWith(
+                                      padding: const WidgetStatePropertyAll(
+                                        EdgeInsets.all(8),
+                                      ),
+                                    ),
                           )
                         else
-                          FilledButton.tonalIcon(
-                            onPressed: _canRotate ? _rotateSelected : null,
-                            icon: const Icon(
-                              Icons.rotate_90_degrees_ccw_rounded,
-                            ),
-                            label: const Text('Rotate'),
-                          ),
+                          _rotationMode
+                              ? FilledButton.icon(
+                                  onPressed: _canRotate
+                                      ? _toggleRotationMode
+                                      : null,
+                                  icon: const Icon(
+                                    Icons.rotate_90_degrees_ccw_rounded,
+                                  ),
+                                  label: const Text('Rotate'),
+                                )
+                              : FilledButton.tonalIcon(
+                                  onPressed: _canRotate
+                                      ? _toggleRotationMode
+                                      : null,
+                                  icon: const Icon(
+                                    Icons.rotate_90_degrees_ccw_rounded,
+                                  ),
+                                  label: const Text('Rotate'),
+                                ),
                         const SizedBox(width: 8),
                         if (compactToolbar)
                           IconButton.filled(
@@ -319,7 +380,77 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
               ),
             ),
           ),
+          if (_rotationMode && _selectedFurniturePosition != null)
+            _RotationControls(
+              position: _selectedFurniturePosition!,
+              screenSize: media.size,
+              topInset: media.padding.top,
+              onCounterClockwise: () => _rotateSelectedBy(-5),
+              onClockwise: () => _rotateSelectedBy(5),
+            ),
         ],
+      ),
+    );
+  }
+}
+
+class _RotationControls extends StatelessWidget {
+  const _RotationControls({
+    required this.position,
+    required this.screenSize,
+    required this.topInset,
+    required this.onCounterClockwise,
+    required this.onClockwise,
+  });
+
+  final Offset position;
+  final Size screenSize;
+  final double topInset;
+  final VoidCallback onCounterClockwise;
+  final VoidCallback onClockwise;
+
+  @override
+  Widget build(BuildContext context) {
+    final left = (position.dx - 58).clamp(12.0, screenSize.width - 128.0);
+    final top = (position.dy - 28).clamp(topInset + 76, screenSize.height - 76);
+
+    return Positioned(
+      left: left,
+      top: top,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _RotationControlButton(
+            icon: Icons.rotate_left_rounded,
+            onPressed: onCounterClockwise,
+          ),
+          const SizedBox(width: 16),
+          _RotationControlButton(
+            icon: Icons.rotate_right_rounded,
+            onPressed: onClockwise,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RotationControlButton extends StatelessWidget {
+  const _RotationControlButton({required this.icon, required this.onPressed});
+
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Theme.of(context).colorScheme.primary,
+      shape: const CircleBorder(),
+      elevation: 8,
+      child: IconButton(
+        onPressed: onPressed,
+        icon: Icon(icon),
+        color: Theme.of(context).colorScheme.onPrimary,
       ),
     );
   }
