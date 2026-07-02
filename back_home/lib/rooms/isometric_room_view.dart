@@ -21,6 +21,8 @@ class IsometricRoomView extends StatefulWidget {
     this.skyTimeOfDay,
     this.canMoveFurniture = false,
     this.onSelectedScreenPositionChanged,
+    this.rotateSelectedWithDrag = false,
+    this.onRotateSelectedBy,
   });
 
   final RoomEditorController controller;
@@ -42,6 +44,10 @@ class IsometricRoomView extends StatefulWidget {
 
   /// Reports the selected furniture's screen position within this view.
   final ValueChanged<Offset?>? onSelectedScreenPositionChanged;
+
+  /// When true, dragging the selected furniture rotates it instead of moving it.
+  final bool rotateSelectedWithDrag;
+  final ValueChanged<double>? onRotateSelectedBy;
 
   @override
   State<IsometricRoomView> createState() => _IsometricRoomViewState();
@@ -98,6 +104,8 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   bool _cameraTiltCandidate = false;
   bool _cameraTiltActive = false;
   Offset? _lastSelectedScreenPosition;
+  String? _activeRotationItemId;
+  double _rotationDragLastX = 0;
   double _cameraYaw =
       0; // horizontal look angle (radians); 0 = facing the far wall
   double _yawAtDragStart = 0;
@@ -365,6 +373,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _dragPreviewValid = true;
     _pendingTapTarget = null;
     _pendingFurnitureTapItemId = null;
+    _activeRotationItemId = null;
     _cameraTiltCandidate = false;
     _cameraTiltActive = false;
     _syncSceneWithController();
@@ -1436,6 +1445,12 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       return;
     }
 
+    if (widget.rotateSelectedWithDrag) {
+      _activeRotationItemId = sceneFurniture.itemId;
+      _rotationDragLastX = _eventClientX(event);
+      return;
+    }
+
     _activeDragItemId = sceneFurniture.itemId;
     _dragPreviewValid = true;
     final placed = widget.controller.placedItemById(sceneFurniture.itemId);
@@ -1464,6 +1479,16 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     if (_pointerTravel > 10) {
       _pendingTapTarget = null;
       _pendingFurnitureTapItemId = null;
+    }
+
+    if (_activeRotationItemId != null) {
+      final x = _eventClientX(event);
+      final deltaX = x - _rotationDragLastX;
+      _rotationDragLastX = x;
+      if (deltaX.abs() > 0.1) {
+        widget.onRotateSelectedBy?.call(deltaX * 0.35);
+      }
+      return;
     }
 
     if (_activeDragItemId == null) {
@@ -1511,6 +1536,15 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     final furnitureTapItemId = _pointerTravel <= 10
         ? _pendingFurnitureTapItemId
         : null;
+
+    if (_activeRotationItemId != null) {
+      _activeRotationItemId = null;
+      _pendingTapTarget = null;
+      _pendingFurnitureTapItemId = null;
+      _cameraTiltCandidate = false;
+      _cameraTiltActive = false;
+      return;
+    }
 
     if (_activeDragItemId == null) {
       final wasTilting = _cameraTiltActive;

@@ -25,11 +25,11 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
   final List<RoomEditSnapshot> _redoStack = [];
   bool _restoringHistory = false;
   bool _rotationMode = false;
-  Offset? _selectedFurniturePosition;
 
   bool get _canUndo => _undoStack.length > 1;
   bool get _canRedo => _redoStack.isNotEmpty;
   bool get _canDelete => _draftController.selectedItemId != null;
+  bool get _hasSelection => _draftController.selectedItemId != null;
   bool get _canRotate {
     final selectedItemId = _draftController.selectedItemId;
     if (selectedItemId == null) {
@@ -159,6 +159,26 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
     }
   }
 
+  void _moveSelectedBy(double deltaX, double deltaZ) {
+    final selectedItemId = _draftController.selectedItemId;
+    if (selectedItemId == null) {
+      return;
+    }
+    final item = _draftController.placedItemById(selectedItemId);
+    if (item == null) {
+      return;
+    }
+    final result = _draftController.movePlacedItem(
+      selectedItemId,
+      GridPoint(item.origin.x + deltaX, item.origin.z + deltaZ),
+    );
+    if (!result.isSuccess) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(result.message)));
+    }
+  }
+
   void _undo() {
     if (!_canUndo) {
       return;
@@ -236,14 +256,8 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
               controller: _draftController,
               isActive: true,
               canMoveFurniture: true,
-              onSelectedScreenPositionChanged: (position) {
-                if (!mounted) {
-                  return;
-                }
-                setState(() {
-                  _selectedFurniturePosition = position;
-                });
-              },
+              rotateSelectedWithDrag: _rotationMode,
+              onRotateSelectedBy: _rotateSelectedBy,
             ),
           ),
           Positioned.fill(
@@ -380,13 +394,25 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
               ),
             ),
           ),
-          if (_rotationMode && _selectedFurniturePosition != null)
-            _RotationControls(
-              position: _selectedFurniturePosition!,
-              screenSize: media.size,
-              topInset: media.padding.top,
-              onCounterClockwise: () => _rotateSelectedBy(-5),
-              onClockwise: () => _rotateSelectedBy(5),
+          if (_hasSelection)
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  child: _BottomEditToolbar(
+                    rotationMode: _rotationMode,
+                    canRotate: _canRotate,
+                    onMoveUp: () => _moveSelectedBy(0, -0.2),
+                    onMoveDown: () => _moveSelectedBy(0, 0.2),
+                    onMoveLeft: () => _moveSelectedBy(-0.2, 0),
+                    onMoveRight: () => _moveSelectedBy(0.2, 0),
+                    onCounterClockwise: () => _rotateSelectedBy(-5),
+                    onClockwise: () => _rotateSelectedBy(5),
+                  ),
+                ),
+              ),
             ),
         ],
       ),
@@ -394,64 +420,104 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
   }
 }
 
-class _RotationControls extends StatelessWidget {
-  const _RotationControls({
-    required this.position,
-    required this.screenSize,
-    required this.topInset,
+class _BottomEditToolbar extends StatelessWidget {
+  const _BottomEditToolbar({
+    required this.rotationMode,
+    required this.canRotate,
+    required this.onMoveUp,
+    required this.onMoveDown,
+    required this.onMoveLeft,
+    required this.onMoveRight,
     required this.onCounterClockwise,
     required this.onClockwise,
   });
 
-  final Offset position;
-  final Size screenSize;
-  final double topInset;
+  final bool rotationMode;
+  final bool canRotate;
+  final VoidCallback onMoveUp;
+  final VoidCallback onMoveDown;
+  final VoidCallback onMoveLeft;
+  final VoidCallback onMoveRight;
   final VoidCallback onCounterClockwise;
   final VoidCallback onClockwise;
 
   @override
   Widget build(BuildContext context) {
-    final left = (position.dx - 58).clamp(12.0, screenSize.width - 128.0);
-    final top = (position.dy - 28).clamp(topInset + 76, screenSize.height - 76);
-
-    return Positioned(
-      left: left,
-      top: top,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _RotationControlButton(
-            icon: Icons.rotate_left_rounded,
-            onPressed: onCounterClockwise,
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(28),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: const Color(0xFFF8EFE4).withValues(alpha: 0.9),
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.34)),
           ),
-          const SizedBox(width: 16),
-          _RotationControlButton(
-            icon: Icons.rotate_right_rounded,
-            onPressed: onClockwise,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: rotationMode
+                ? Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _EditToolbarButton(
+                        icon: Icons.rotate_left_rounded,
+                        onPressed: canRotate ? onCounterClockwise : null,
+                      ),
+                      const SizedBox(width: 14),
+                      _EditToolbarButton(
+                        icon: Icons.rotate_right_rounded,
+                        onPressed: canRotate ? onClockwise : null,
+                      ),
+                    ],
+                  )
+                : Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _EditToolbarButton(
+                        icon: Icons.keyboard_arrow_left_rounded,
+                        onPressed: onMoveLeft,
+                      ),
+                      const SizedBox(width: 10),
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _EditToolbarButton(
+                            icon: Icons.keyboard_arrow_up_rounded,
+                            onPressed: onMoveUp,
+                          ),
+                          const SizedBox(height: 8),
+                          _EditToolbarButton(
+                            icon: Icons.keyboard_arrow_down_rounded,
+                            onPressed: onMoveDown,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(width: 10),
+                      _EditToolbarButton(
+                        icon: Icons.keyboard_arrow_right_rounded,
+                        onPressed: onMoveRight,
+                      ),
+                    ],
+                  ),
           ),
-        ],
+        ),
       ),
     );
   }
 }
 
-class _RotationControlButton extends StatelessWidget {
-  const _RotationControlButton({required this.icon, required this.onPressed});
+class _EditToolbarButton extends StatelessWidget {
+  const _EditToolbarButton({required this.icon, required this.onPressed});
 
   final IconData icon;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Theme.of(context).colorScheme.primary,
-      shape: const CircleBorder(),
-      elevation: 8,
-      child: IconButton(
-        onPressed: onPressed,
-        icon: Icon(icon),
-        color: Theme.of(context).colorScheme.onPrimary,
-      ),
+    return IconButton.filledTonal(
+      onPressed: onPressed,
+      icon: Icon(icon),
+      style: IconButton.styleFrom(fixedSize: const Size(46, 46), iconSize: 28),
     );
   }
 }

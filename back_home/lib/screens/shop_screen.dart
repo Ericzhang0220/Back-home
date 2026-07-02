@@ -224,9 +224,9 @@ class _ShopCatalogGrid extends StatelessWidget {
         final itemWidth =
             (availableWidth - spacing * (columnCount - 1)) / columnCount;
         final itemHeight = switch (columnCount) {
-          1 => math.max(390.0, itemWidth * 0.82),
-          2 => math.max(414.0, itemWidth * 1.16),
-          _ => math.max(394.0, itemWidth * 1.2),
+          1 => math.max(430.0, itemWidth * 0.82),
+          2 => math.max(430.0, itemWidth * 1.16),
+          _ => math.max(414.0, itemWidth * 1.2),
         };
 
         return Wrap(
@@ -276,31 +276,22 @@ class _ShopItemCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final canAfford = likesBalance >= definition.price;
+    final canEdit = availableToPlace > 0;
 
     return SoftCard(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            height: 96,
-            decoration: BoxDecoration(
-              color: definition.tint.withValues(alpha: 0.9),
-              borderRadius: BorderRadius.circular(22),
-            ),
-            child: Center(
-              child: RoomSpriteThumbnail(definition: definition, size: 84),
-            ),
-          ),
-          const SizedBox(height: 14),
-          Text(definition.title, style: theme.textTheme.titleMedium),
-          const SizedBox(height: 4),
+          _FurnitureModelPreview(definition: definition),
+          const SizedBox(height: 16),
           Text(
-            definition.description,
-            maxLines: 3,
+            definition.title,
+            maxLines: 1,
             overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.titleMedium,
           ),
-          const Spacer(),
+          const SizedBox(height: 12),
           Row(
             children: [
               const Icon(
@@ -311,27 +302,92 @@ class _ShopItemCard extends StatelessWidget {
               const SizedBox(width: 6),
               Text('${definition.price}', style: theme.textTheme.labelLarge),
               const Spacer(),
-              Text('$ownedCount owned', style: theme.textTheme.bodySmall),
+              Text(
+                'Bought: $ownedCount',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             ],
           ),
-          const SizedBox(height: 12),
+          const Spacer(),
           SizedBox(
             width: double.infinity,
             child: FilledButton(
               onPressed: canAfford ? onBuyAndPlace : null,
-              child: Text(canAfford ? 'Buy + edit' : 'Need more likes'),
+              child: Text(canAfford ? 'Buy' : 'Need more likes'),
             ),
           ),
           const SizedBox(height: 8),
           SizedBox(
             width: double.infinity,
-            child: OutlinedButton(
-              onPressed: onPlaceOwned,
-              child: Text(
-                availableToPlace > 0 ? 'Place owned item' : 'Nothing unplaced',
+            child: FilledButton(
+              onPressed: canEdit ? onPlaceOwned : null,
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: AppColors.ink,
+                disabledBackgroundColor: Colors.white.withValues(alpha: 0.58),
+                disabledForegroundColor: AppColors.muted.withValues(
+                  alpha: 0.54,
+                ),
+                side: const BorderSide(color: AppColors.stroke),
+              ),
+              child: const Text('Edit'),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerRight,
+            child: Text(
+              'You have: $availableToPlace',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: AppColors.ink,
+                fontWeight: FontWeight.w800,
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FurnitureModelPreview extends StatelessWidget {
+  const _FurnitureModelPreview({required this.definition});
+
+  final RoomItemDefinition definition;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 154,
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: definition.tint.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x12000000),
+            blurRadius: 18,
+            offset: Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Positioned(
+            bottom: 22,
+            child: Container(
+              width: 116,
+              height: 18,
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+          ),
+          RoomSpriteThumbnail(definition: definition, size: 132),
         ],
       ),
     );
