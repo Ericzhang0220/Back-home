@@ -386,7 +386,7 @@ class _GoodNightOverlay extends StatelessWidget {
                     ),
                   ),
                   AnimatedOpacity(
-                    duration: const Duration(seconds: 2),
+                    duration: const Duration(seconds: 6),
                     curve: Curves.easeInOutCubic,
                     opacity: showHint ? 1 : 0,
                     child: const Text(

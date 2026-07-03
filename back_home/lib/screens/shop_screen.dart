@@ -298,7 +298,7 @@ class _ShopItemCard extends StatelessWidget {
               Text('${definition.price}', style: theme.textTheme.labelLarge),
               const Spacer(),
               Text(
-                'Bought: $ownedCount',
+                '$ownedCount bought',
                 style: theme.textTheme.bodySmall?.copyWith(
                   fontWeight: FontWeight.w700,
                 ),
