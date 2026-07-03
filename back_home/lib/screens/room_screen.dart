@@ -38,15 +38,20 @@ class RoomScreen extends StatefulWidget {
 
 class _RoomScreenState extends State<RoomScreen> {
   static const Duration _nightHintFadeDelay = Duration(seconds: 5);
+  static const Duration _nightGlowDimDelay = Duration(seconds: 3);
+  static const Duration _nightExitBrightenDelay = Duration(milliseconds: 650);
   // Chrome fade timing — kept in sync with app.dart's room-chrome durations.
   static const Duration _chromeFadeIn = Duration(milliseconds: 320);
   static const Duration _chromeFadeOut = Duration(seconds: 2);
 
   Timer? _nightHintFadeTimer;
+  Timer? _nightGlowDimTimer;
+  Timer? _nightExitTimer;
   bool _panelOpen = false;
   bool _deskFocused = false;
   bool _nightMode = false;
   bool _nightHintVisible = false;
+  bool _nightGlowDimmed = false;
   SkyWeather _skyWeather = SkyWeather.clear;
   double? _skyTimeOfDay; // null = live (real clock)
 
@@ -55,6 +60,8 @@ class _RoomScreenState extends State<RoomScreen> {
   @override
   void dispose() {
     _nightHintFadeTimer?.cancel();
+    _nightGlowDimTimer?.cancel();
+    _nightExitTimer?.cancel();
     super.dispose();
   }
 
@@ -75,10 +82,13 @@ class _RoomScreenState extends State<RoomScreen> {
 
   void _focusDesk() {
     _nightHintFadeTimer?.cancel();
+    _nightGlowDimTimer?.cancel();
+    _nightExitTimer?.cancel();
     setState(() {
       _deskFocused = true;
       _nightMode = false;
       _nightHintVisible = false;
+      _nightGlowDimmed = false;
       _panelOpen = false;
     });
     widget.onSubviewChanged(_inSubview);
@@ -89,18 +99,23 @@ class _RoomScreenState extends State<RoomScreen> {
       _deskFocused = false;
       _nightMode = true;
       _nightHintVisible = true;
+      _nightGlowDimmed = false;
       _panelOpen = false;
     });
     widget.onSubviewChanged(_inSubview);
     _scheduleNightHintFade();
+    _scheduleNightGlowDim();
   }
 
   void _restoreRoomLight() {
     _nightHintFadeTimer?.cancel();
+    _nightGlowDimTimer?.cancel();
+    _nightExitTimer?.cancel();
     setState(() {
       _nightMode = false;
       _deskFocused = false;
       _nightHintVisible = false;
+      _nightGlowDimmed = false;
     });
     // Back in the main view, but leave the nav hidden until a double-tap.
     widget.onSubviewChanged(_inSubview);
@@ -108,7 +123,7 @@ class _RoomScreenState extends State<RoomScreen> {
 
   void _handleDoubleTap() {
     if (_nightMode) {
-      _restoreRoomLight();
+      _brightenNightOverlayBeforeExit();
       return;
     }
     if (_deskFocused) {
@@ -133,6 +148,32 @@ class _RoomScreenState extends State<RoomScreen> {
       setState(() {
         _nightHintVisible = false;
       });
+    });
+  }
+
+  void _scheduleNightGlowDim() {
+    _nightGlowDimTimer?.cancel();
+    _nightGlowDimTimer = Timer(_nightGlowDimDelay, () {
+      if (!mounted || !_nightMode) {
+        return;
+      }
+      setState(() {
+        _nightGlowDimmed = true;
+      });
+    });
+  }
+
+  void _brightenNightOverlayBeforeExit() {
+    _nightGlowDimTimer?.cancel();
+    _nightExitTimer?.cancel();
+    setState(() {
+      _nightGlowDimmed = false;
+    });
+    _nightExitTimer = Timer(_nightExitBrightenDelay, () {
+      if (!mounted || !_nightMode) {
+        return;
+      }
+      _restoreRoomLight();
     });
   }
 
@@ -257,7 +298,10 @@ class _RoomScreenState extends State<RoomScreen> {
                     duration: const Duration(milliseconds: 1600),
                     curve: Curves.easeInOutCubic,
                     opacity: _nightMode ? 1 : 0,
-                    child: _GoodNightOverlay(showHint: _nightHintVisible),
+                    child: _GoodNightOverlay(
+                      showHint: _nightHintVisible,
+                      dimBrightElements: _nightGlowDimmed,
+                    ),
                   ),
                 ),
               ),
@@ -327,13 +371,18 @@ class _RoomScreenState extends State<RoomScreen> {
 }
 
 class _GoodNightOverlay extends StatelessWidget {
-  const _GoodNightOverlay({required this.showHint});
+  const _GoodNightOverlay({
+    required this.showHint,
+    required this.dimBrightElements,
+  });
 
   final bool showHint;
+  final bool dimBrightElements;
 
   @override
   Widget build(BuildContext context) {
     final topPadding = MediaQuery.of(context).padding.top;
+    final brightElementsOpacity = dimBrightElements ? 0.34 : 1.0;
 
     return DecoratedBox(
       decoration: const BoxDecoration(color: Color(0xE9000000)),
@@ -342,28 +391,33 @@ class _GoodNightOverlay extends StatelessWidget {
           Positioned(
             top: topPadding + 82,
             right: 52,
-            child: Container(
-              width: 92,
-              height: 92,
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                color: Color(0xFFE2E0D2),
-                boxShadow: [
-                  BoxShadow(
-                    color: Color(0x77E7E1C9),
-                    blurRadius: 34,
-                    spreadRadius: 8,
-                  ),
-                ],
-              ),
-              child: Align(
-                alignment: const Alignment(0.28, -0.12),
-                child: Container(
-                  width: 70,
-                  height: 70,
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Color(0xE9000000),
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 900),
+              curve: Curves.easeInOutCubic,
+              opacity: brightElementsOpacity,
+              child: Container(
+                width: 92,
+                height: 92,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Color(0xFFE2E0D2),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Color(0x77E7E1C9),
+                      blurRadius: 34,
+                      spreadRadius: 8,
+                    ),
+                  ],
+                ),
+                child: Align(
+                  alignment: const Alignment(0.28, -0.12),
+                  child: Container(
+                    width: 70,
+                    height: 70,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Color(0xE9000000),
+                    ),
                   ),
                 ),
               ),
@@ -375,18 +429,25 @@ class _GoodNightOverlay extends StatelessWidget {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Text(
-                    'Have a good night! See you tomorrow.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Color(0xFFF5F0E8),
-                      fontSize: 28,
-                      fontWeight: FontWeight.w700,
-                      height: 1.25,
+                  AnimatedOpacity(
+                    duration: const Duration(milliseconds: 900),
+                    curve: Curves.easeInOutCubic,
+                    opacity: brightElementsOpacity,
+                    child: const Text(
+                      'Have a good night! See you tomorrow.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Color(0xFFF5F0E8),
+                        fontSize: 28,
+                        fontWeight: FontWeight.w700,
+                        height: 1.25,
+                      ),
                     ),
                   ),
                   AnimatedOpacity(
-                    duration: const Duration(milliseconds: 350),
+                    duration: showHint
+                        ? const Duration(milliseconds: 350)
+                        : const Duration(milliseconds: 900),
                     curve: Curves.easeInOutCubic,
                     opacity: showHint ? 1 : 0,
                     child: const Text(
