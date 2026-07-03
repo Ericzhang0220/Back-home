@@ -122,6 +122,8 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   double _cameraYaw =
       0; // horizontal look angle (radians); 0 = facing the far wall
   double _cameraPitch = _lookPitch;
+  double _currentCameraYaw = 0;
+  double _currentCameraPitch = _lookPitch;
   double _yawAtDragStart = 0;
   double _pitchAtDragStart = _lookPitch;
   double _cameraTiltPointerStartX = 0;
@@ -134,6 +136,8 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   final three.Vector3 _cameraCurrentLook = three.Vector3.zero();
   bool _cameraPosed = false;
   double _zoom = 1.0;
+  double _currentZoom = 1.0;
+  double _cameraTargetBaseFov = _mainFov;
   final Set<int> _activePointers = <int>{};
   final Map<int, Offset> _activePointerPositions = <int, Offset>{};
   final three.Vector3 _cameraPanOffset = three.Vector3.zero();
@@ -144,9 +148,14 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   static const double _zoomInStep = 1.06;
   static const double _zoomOutStep = 0.94;
   static const double _cameraPanUnitsPerPixel = 0.0075;
+  static const double _cameraHeightPanUnitsPerPixel = 0.006;
+  static const double _minCameraHeightOffset = -0.9;
+  static const double _maxCameraHeightOffset = 1.8;
   static const double _cameraPanWallPadding = 0.15;
   // Higher = snappier camera transitions (eases ~this fraction per second).
   static const double _cameraLerpSpeed = 7.0;
+  static const double _zoomLerpSpeed = 9.0;
+  static const double _rotationLerpSpeed = 9.0;
   static const double _rotationDragDegreesPerPixel = 0.12;
   // Main-room taps wait this long before firing so a second tap can reveal
   // chrome instead of opening an interactable. Tune this for double-tap feel.
@@ -154,6 +163,8 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
 
   bool get _isPinching => _activePointers.length >= 2;
   bool get _isCameraPanning => _activePointers.length >= 3;
+  bool get _isCameraHeightPanning => _activePointers.length >= 4;
+  int get _cameraPanPointerCount => _isCameraHeightPanning ? 4 : 3;
   bool get _delaysRoomTapActions =>
       !widget.canMoveFurniture && !widget.deskFocused && !widget.nightMode;
 
@@ -182,6 +193,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       _cancelPendingRoomTap();
       // Each view has its own designed framing, so start fresh from there.
       _zoom = 1.0;
+      _currentZoom = 1.0;
       _cameraPanOffset.setValues(0, 0, 0);
       _lastPanCentroid = null;
       final width = _threeJs!.width <= 0 ? 1.0 : _threeJs!.width;
@@ -348,22 +360,17 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       // Centred free-look: stand in the middle of the room and turn 360°.
       basePos = three.Vector3(0, _eyeHeight, 0);
       lookAt = three.Vector3(
-        math.sin(_cameraYaw),
-        _eyeHeight + _cameraPitch,
-        -math.cos(_cameraYaw),
+        math.sin(_currentCameraYaw),
+        _eyeHeight + _currentCameraPitch,
+        -math.cos(_currentCameraYaw),
       );
       baseFov = _mainFov;
       basePos.add(_cameraPanOffset);
       lookAt.add(_cameraPanOffset);
     }
 
-    // Pinch zoom narrows/widens the field of view, keeping the camera put.
-    final effectiveZoom = (_zoom * widget.cameraZoom)
-        .clamp(_minZoom, _maxZoom)
-        .toDouble();
-    _camera.fov = (baseFov / effectiveZoom).clamp(_minFov, _maxFov).toDouble();
-    _camera.updateProjectionMatrix();
-
+    _cameraTargetBaseFov = baseFov;
+    _applyCameraFov();
     _cameraTargetPos.setFrom(basePos);
     _cameraTargetLook.setFrom(lookAt);
 
@@ -381,16 +388,78 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     if (!_cameraPosed) {
       return;
     }
+    final nextZoom = _lerpDouble(
+      _currentZoom,
+      _zoom,
+      1 - math.exp(-dt * _zoomLerpSpeed),
+    );
+    final zoomSettled = (nextZoom - _zoom).abs() < 0.0001;
+    _currentZoom = zoomSettled ? _zoom : nextZoom;
+    _applyCameraFov();
+
+    final mainFreeLook = !widget.deskFocused && !widget.nightMode;
+    var rotationSettled = true;
+    if (mainFreeLook) {
+      final rotationT = (1 - math.exp(-dt * _rotationLerpSpeed))
+          .clamp(0.0, 1.0)
+          .toDouble();
+      final yawDelta = _shortestAngleDelta(_currentCameraYaw, _cameraYaw);
+      final pitchDelta = _cameraPitch - _currentCameraPitch;
+      rotationSettled = yawDelta.abs() < 0.0001 && pitchDelta.abs() < 0.0001;
+      _currentCameraYaw = rotationSettled
+          ? _cameraYaw
+          : _normalizeRadians(_currentCameraYaw + yawDelta * rotationT);
+      _currentCameraPitch = rotationSettled
+          ? _cameraPitch
+          : _lerpDouble(_currentCameraPitch, _cameraPitch, rotationT);
+    }
+
     // Nothing to do once the camera has settled on its target.
     if (_camera.position.distanceToSquared(_cameraTargetPos) < 1e-8 &&
-        _cameraCurrentLook.distanceToSquared(_cameraTargetLook) < 1e-8) {
+        (mainFreeLook ||
+            _cameraCurrentLook.distanceToSquared(_cameraTargetLook) < 1e-8) &&
+        rotationSettled &&
+        zoomSettled) {
       return;
     }
     final t = (1 - math.exp(-dt * _cameraLerpSpeed)).clamp(0.0, 1.0).toDouble();
     _camera.position.lerp(_cameraTargetPos, t);
-    _cameraCurrentLook.lerp(_cameraTargetLook, t);
+    if (mainFreeLook) {
+      _cameraCurrentLook.setValues(
+        _camera.position.x + math.sin(_currentCameraYaw),
+        _camera.position.y + _currentCameraPitch,
+        _camera.position.z - math.cos(_currentCameraYaw),
+      );
+    } else {
+      _cameraCurrentLook.lerp(_cameraTargetLook, t);
+    }
     _camera.lookAt(_cameraCurrentLook);
     _publishSelectedScreenPosition();
+  }
+
+  void _applyCameraFov() {
+    // FOV easing is a direct exponential blend, not a spring, so it cannot
+    // overshoot the target zoom.
+    final effectiveZoom = (_currentZoom * widget.cameraZoom)
+        .clamp(_minZoom, _maxZoom)
+        .toDouble();
+    _camera.fov = (_cameraTargetBaseFov / effectiveZoom)
+        .clamp(_minFov, _maxFov)
+        .toDouble();
+    _camera.updateProjectionMatrix();
+  }
+
+  double _lerpDouble(double from, double to, double t) =>
+      from + (to - from) * t.clamp(0.0, 1.0);
+
+  double _normalizeRadians(double angle) {
+    final twoPi = 2 * math.pi;
+    return (angle % twoPi + twoPi) % twoPi;
+  }
+
+  double _shortestAngleDelta(double from, double to) {
+    final twoPi = 2 * math.pi;
+    return ((to - from + math.pi) % twoPi + twoPi) % twoPi - math.pi;
   }
 
   void _onZoom(dynamic event) {
@@ -417,7 +486,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _activeRotationItemId = null;
     _cameraTiltCandidate = false;
     _cameraTiltActive = false;
-    _lastPanCentroid = _isCameraPanning ? _pointerCentroid() : null;
+    _lastPanCentroid = _isCameraPanning
+        ? _pointerCentroid(minPointers: _cameraPanPointerCount)
+        : null;
     _syncSceneWithController();
   }
 
@@ -584,7 +655,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       width: roomWidth,
       height: 0.2,
       depth: roomDepth,
-      color: const Color(0xFF2B231F),
+      color: const Color(0xFFCBC0B5),
       castShadow: false,
       receiveShadow: false,
     )..position.setValues(0, 4.9, 0);
@@ -1562,7 +1633,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         _eventClientX(event),
         _eventClientY(event),
       );
-      if (_isCameraPanning) {
+      if (_isCameraHeightPanning) {
+        _updateCameraHeightPan();
+      } else if (_isCameraPanning) {
         _updateCameraPan();
       } else {
         _lastPanCentroid = null;
@@ -1630,9 +1703,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       final pointerId = (event.pointerId as num).toInt();
       _activePointers.remove(pointerId);
       _activePointerPositions.remove(pointerId);
-      if (!_isCameraPanning) {
-        _lastPanCentroid = null;
-      }
+      _lastPanCentroid = _isCameraPanning
+          ? _pointerCentroid(minPointers: _cameraPanPointerCount)
+          : null;
       _recordPointerPosition(event, isDown: false);
     }
 
@@ -1688,6 +1761,8 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   void _beginCameraTiltCandidate(dynamic event) {
     _cameraTiltCandidate = true;
     _cameraTiltActive = false;
+    _cameraYaw = _currentCameraYaw;
+    _cameraPitch = _currentCameraPitch;
     _yawAtDragStart = _cameraYaw;
     _pitchAtDragStart = _cameraPitch;
     _cameraTiltPointerStartX = _eventClientX(event);
@@ -1709,11 +1784,10 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _cameraTiltActive = true;
     _pendingTapTarget = null;
     // Full 360° turn — no clamp; wrap into [0, 2π) so the value stays bounded.
-    final twoPi = 2 * math.pi;
-    _cameraYaw =
-        (_yawAtDragStart -
-            deltaX * _yawSensitivity * widget.cameraRotateSensitivity) %
-        twoPi;
+    _cameraYaw = _normalizeRadians(
+      _yawAtDragStart -
+          deltaX * _yawSensitivity * widget.cameraRotateSensitivity,
+    );
     _cameraPitch =
         (_pitchAtDragStart +
                 deltaY * _pitchSensitivity * widget.cameraRotateSensitivity)
@@ -1728,7 +1802,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       return;
     }
 
-    final centroid = _pointerCentroid();
+    final centroid = _pointerCentroid(minPointers: 3);
     final lastCentroid = _lastPanCentroid;
     _lastPanCentroid = centroid;
     if (centroid == null || lastCentroid == null) {
@@ -1758,15 +1832,39 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _cameraPanOffset.x = (_cameraPanOffset.x + panX)
         .clamp(-maxPanX, maxPanX)
         .toDouble();
-    _cameraPanOffset.y = 0;
     _cameraPanOffset.z = (_cameraPanOffset.z + panZ)
         .clamp(-maxPanZ, maxPanZ)
         .toDouble();
     _refreshCamera();
   }
 
-  Offset? _pointerCentroid() {
-    if (_activePointerPositions.length < 3) {
+  void _updateCameraHeightPan() {
+    if (widget.deskFocused || widget.nightMode) {
+      _lastPanCentroid = null;
+      return;
+    }
+
+    final centroid = _pointerCentroid(minPointers: 4);
+    final lastCentroid = _lastPanCentroid;
+    _lastPanCentroid = centroid;
+    if (centroid == null || lastCentroid == null) {
+      return;
+    }
+
+    final delta = centroid - lastCentroid;
+    if (delta.distanceSquared < 0.01) {
+      return;
+    }
+
+    _cameraPanOffset.y =
+        (_cameraPanOffset.y - delta.dy * _cameraHeightPanUnitsPerPixel)
+            .clamp(_minCameraHeightOffset, _maxCameraHeightOffset)
+            .toDouble();
+    _refreshCamera();
+  }
+
+  Offset? _pointerCentroid({required int minPointers}) {
+    if (_activePointerPositions.length < minPointers) {
       return null;
     }
 
