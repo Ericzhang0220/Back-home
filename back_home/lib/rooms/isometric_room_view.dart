@@ -585,13 +585,22 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       return;
     }
 
-    final rearWindowFrame = _box(
-      width: 4.9,
-      height: 2.7,
-      depth: 0.1,
-      color: const Color(0xFF4C392F),
-    )..position.setValues(1.0, 2.35, -roomDepth / 2 + 0.18);
-    scene.add(rearWindowFrame);
+    const frameColor = Color(0xFF4C392F);
+    const frameWidth = 4.9;
+    const frameHeight = 2.7;
+    const frameThickness = 0.16;
+    final frameZ = -roomDepth / 2 + 0.18;
+    for (final bar in const [
+      (w: frameWidth, h: frameThickness, x: 1.0, y: 1.08),
+      (w: frameWidth, h: frameThickness, x: 1.0, y: 3.62),
+      (w: frameThickness, h: frameHeight, x: -1.37, y: 2.35),
+      (w: frameThickness, h: frameHeight, x: 3.37, y: 2.35),
+    ]) {
+      scene.add(
+        _box(width: bar.w, height: bar.h, depth: 0.1, color: frameColor)
+          ..position.setValues(bar.x, bar.y, frameZ),
+      );
+    }
 
     final rearWindowGlass = three.Mesh(
       three.BoxGeometry(4.45, 2.25, 0.04),
@@ -599,6 +608,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         'color': _hex(const Color(0xFFBFD8E8)),
         'transparent': true,
         'opacity': 0.12, // faint pane so the sky beyond shows through
+        'depthWrite': false,
       }),
     )..position.setValues(1.0, 2.28, -roomDepth / 2 + 0.22);
     scene.add(rearWindowGlass);
