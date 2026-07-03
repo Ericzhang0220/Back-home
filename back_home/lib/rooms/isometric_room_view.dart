@@ -17,8 +17,11 @@ class IsometricRoomView extends StatefulWidget {
     this.nightMode = false,
     this.onTapDesk,
     this.onTapBed,
+    this.onDoubleTapRoom,
     this.skyWeather = SkyWeather.clear,
     this.skyTimeOfDay,
+    this.cameraZoom = 1,
+    this.cameraRotateSensitivity = 1,
     this.canMoveFurniture = false,
     this.onSelectedScreenPositionChanged,
     this.rotateSelectedWithDrag = false,
@@ -31,6 +34,7 @@ class IsometricRoomView extends StatefulWidget {
   final bool nightMode;
   final VoidCallback? onTapDesk;
   final VoidCallback? onTapBed;
+  final VoidCallback? onDoubleTapRoom;
 
   /// Weather shown through the window.
   final SkyWeather skyWeather;
@@ -38,6 +42,8 @@ class IsometricRoomView extends StatefulWidget {
   /// Time of day for the sky as a fraction of the day in `[0, 1)` (0 = midnight,
   /// 0.25 = sunrise, 0.5 = noon, 0.75 = sunset). When null the real clock is used.
   final double? skyTimeOfDay;
+  final double cameraZoom;
+  final double cameraRotateSensitivity;
 
   /// Enables the room editor's drag-to-move furniture interactions.
   final bool canMoveFurniture;
@@ -88,6 +94,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   Timer? _skyClockTimer; // refreshes the sky in "Live" (real-clock) time mode
 
   Timer? _sceneStartTimer;
+  Timer? _pendingRoomTapTimer;
   bool _sceneReady = false;
   bool _sceneRequested = false;
   bool _threeConfigured = false;
@@ -127,8 +134,13 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   // Higher = snappier camera transitions (eases ~this fraction per second).
   static const double _cameraLerpSpeed = 7.0;
   static const double _rotationDragDegreesPerPixel = 0.12;
+  // Main-room taps wait this long before firing so a second tap can reveal
+  // chrome instead of opening an interactable. Tune this for double-tap feel.
+  static const Duration _roomTapDoubleTapDebounce = Duration(milliseconds: 300);
 
   bool get _isPinching => _activePointers.length >= 2;
+  bool get _delaysRoomTapActions =>
+      !widget.canMoveFurniture && !widget.deskFocused && !widget.nightMode;
 
   @override
   void initState() {
@@ -152,6 +164,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         widget.deskFocused != oldWidget.deskFocused ||
         widget.nightMode != oldWidget.nightMode;
     if (focusChanged && _threeConfigured && _threeJs != null) {
+      _cancelPendingRoomTap();
       // Each view has its own designed framing, so start fresh from there.
       _zoom = 1.0;
       final width = _threeJs!.width <= 0 ? 1.0 : _threeJs!.width;
@@ -164,6 +177,11 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         (widget.skyWeather != oldWidget.skyWeather ||
             widget.skyTimeOfDay != oldWidget.skyTimeOfDay)) {
       _rebuildSky();
+    }
+    if (_threeConfigured &&
+        _threeJs != null &&
+        widget.cameraZoom != oldWidget.cameraZoom) {
+      _refreshCamera();
     }
     _syncSkyClock();
 
@@ -190,6 +208,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   void dispose() {
     _sceneStartTimer?.cancel();
     _skyClockTimer?.cancel();
+    _pendingRoomTapTimer?.cancel();
     widget.controller.removeListener(_handleControllerChanged);
     if (_threeConfigured && _threeJs != null) {
       _detachPointerEvents();
@@ -320,7 +339,10 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     }
 
     // Pinch zoom narrows/widens the field of view, keeping the camera put.
-    _camera.fov = (baseFov / _zoom).clamp(_minFov, _maxFov).toDouble();
+    final effectiveZoom = (_zoom * widget.cameraZoom)
+        .clamp(_minZoom, _maxZoom)
+        .toDouble();
+    _camera.fov = (baseFov / effectiveZoom).clamp(_minFov, _maxFov).toDouble();
     _camera.updateProjectionMatrix();
 
     _cameraTargetPos.setFrom(basePos);
@@ -1568,7 +1590,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         widget.controller.selectItem(furnitureTapItemId);
         return;
       }
-      _handleRoomTapTarget(tapTarget);
+      _resolveRoomTapGesture(tapTarget);
       return;
     }
 
@@ -1587,7 +1609,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _cameraTiltCandidate = false;
     _cameraTiltActive = false;
     _syncSceneWithController();
-    _handleRoomTapTarget(tapTarget);
+    _resolveRoomTapGesture(tapTarget);
   }
 
   void _beginCameraTiltCandidate(dynamic event) {
@@ -1611,7 +1633,10 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _pendingTapTarget = null;
     // Full 360° turn — no clamp; wrap into [0, 2π) so the value stays bounded.
     final twoPi = 2 * math.pi;
-    _cameraYaw = (_yawAtDragStart - deltaX * _yawSensitivity) % twoPi;
+    _cameraYaw =
+        (_yawAtDragStart -
+            deltaX * _yawSensitivity * widget.cameraRotateSensitivity) %
+        twoPi;
     _refreshCamera();
   }
 
@@ -1851,6 +1876,32 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       RoomItemVisualKind.vanity => _RoomTapTarget.desk,
       _ => null,
     };
+  }
+
+  void _resolveRoomTapGesture(_RoomTapTarget? target) {
+    if (!_delaysRoomTapActions) {
+      _handleRoomTapTarget(target);
+      return;
+    }
+
+    if (_pendingRoomTapTimer?.isActive ?? false) {
+      _cancelPendingRoomTap();
+      widget.onDoubleTapRoom?.call();
+      return;
+    }
+
+    _pendingRoomTapTimer = Timer(_roomTapDoubleTapDebounce, () {
+      _pendingRoomTapTimer = null;
+      if (!mounted) {
+        return;
+      }
+      _handleRoomTapTarget(target);
+    });
+  }
+
+  void _cancelPendingRoomTap() {
+    _pendingRoomTapTimer?.cancel();
+    _pendingRoomTapTimer = null;
   }
 
   void _handleRoomTapTarget(_RoomTapTarget? target) {

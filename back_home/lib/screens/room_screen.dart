@@ -54,6 +54,8 @@ class _RoomScreenState extends State<RoomScreen> {
   bool _nightGlowDimmed = false;
   SkyWeather _skyWeather = SkyWeather.clear;
   double? _skyTimeOfDay; // null = live (real clock)
+  double _cameraZoom = 1.0;
+  double _cameraRotateSensitivity = 1.0;
 
   bool get _inSubview => _deskFocused || _nightMode;
 
@@ -215,8 +217,11 @@ class _RoomScreenState extends State<RoomScreen> {
                   nightMode: _nightMode,
                   onTapDesk: _focusDesk,
                   onTapBed: _openNightMode,
+                  onDoubleTapRoom: _handleDoubleTap,
                   skyWeather: _skyWeather,
                   skyTimeOfDay: _skyTimeOfDay,
+                  cameraZoom: _cameraZoom,
+                  cameraRotateSensitivity: _cameraRotateSensitivity,
                 ),
               ),
               Positioned.fill(
@@ -353,9 +358,15 @@ class _RoomScreenState extends State<RoomScreen> {
                                 ),
                           skyWeather: _skyWeather,
                           skyTimeOfDay: _skyTimeOfDay,
+                          cameraZoom: _cameraZoom,
+                          cameraRotateSensitivity: _cameraRotateSensitivity,
                           onSkyWeather: (w) => setState(() => _skyWeather = w),
                           onSkyTimeOfDay: (t) =>
                               setState(() => _skyTimeOfDay = t),
+                          onCameraZoom: (value) =>
+                              setState(() => _cameraZoom = value),
+                          onCameraRotateSensitivity: (value) =>
+                              setState(() => _cameraRotateSensitivity = value),
                         ),
                       ),
                     ),
@@ -484,8 +495,12 @@ class _SettingsPanel extends StatelessWidget {
     required this.onStoreSelected,
     required this.skyWeather,
     required this.skyTimeOfDay,
+    required this.cameraZoom,
+    required this.cameraRotateSensitivity,
     required this.onSkyWeather,
     required this.onSkyTimeOfDay,
+    required this.onCameraZoom,
+    required this.onCameraRotateSensitivity,
   });
 
   final double height;
@@ -499,8 +514,12 @@ class _SettingsPanel extends StatelessWidget {
   final VoidCallback? onStoreSelected;
   final SkyWeather skyWeather;
   final double? skyTimeOfDay;
+  final double cameraZoom;
+  final double cameraRotateSensitivity;
   final ValueChanged<SkyWeather> onSkyWeather;
   final ValueChanged<double?> onSkyTimeOfDay;
+  final ValueChanged<double> onCameraZoom;
+  final ValueChanged<double> onCameraRotateSensitivity;
 
   static const List<({String label, double? value})> _skyTimes = [
     (label: 'Live', value: null),
@@ -656,6 +675,34 @@ class _SettingsPanel extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 18),
+                const Text(
+                  'Camera',
+                  style: TextStyle(
+                    fontSize: 19,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.ink,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                _CameraSlider(
+                  label: 'Zoom',
+                  valueLabel: '${(cameraZoom * 100).round()}%',
+                  value: cameraZoom,
+                  min: 0.75,
+                  max: 1.4,
+                  divisions: 13,
+                  onChanged: onCameraZoom,
+                ),
+                _CameraSlider(
+                  label: 'Rotate',
+                  valueLabel: '${cameraRotateSensitivity.toStringAsFixed(1)}x',
+                  value: cameraRotateSensitivity,
+                  min: 0.4,
+                  max: 1.8,
+                  divisions: 14,
+                  onChanged: onCameraRotateSensitivity,
+                ),
+                const SizedBox(height: 18),
                 Text(
                   selectedDefinition == null
                       ? 'Selection'
@@ -754,6 +801,67 @@ class _SceneButton extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _CameraSlider extends StatelessWidget {
+  const _CameraSlider({
+    required this.label,
+    required this.valueLabel,
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.divisions,
+    required this.onChanged,
+  });
+
+  final String label;
+  final String valueLabel;
+  final double value;
+  final double min;
+  final double max;
+  final int divisions;
+  final ValueChanged<double> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        SizedBox(
+          width: 82,
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: AppColors.ink,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Slider(
+            value: value,
+            min: min,
+            max: max,
+            divisions: divisions,
+            label: valueLabel,
+            onChanged: onChanged,
+          ),
+        ),
+        SizedBox(
+          width: 52,
+          child: Text(
+            valueLabel,
+            textAlign: TextAlign.right,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: AppColors.muted,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
