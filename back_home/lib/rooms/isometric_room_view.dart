@@ -83,6 +83,8 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       26; // pinch-zoom field-of-view clamp (zoomed in)
   static const double _maxFov =
       84; // pinch-zoom field-of-view clamp (zoomed out)
+  static const double _wallCornerSealSize = 0.08;
+  static const double _wallCornerSealInset = 0.22;
 
   three.ThreeJS? _threeJs;
   late final three.PerspectiveCamera _camera;
@@ -372,11 +374,6 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       _cameraCurrentLook.setFrom(_cameraTargetLook);
       _camera.lookAt(_cameraCurrentLook);
       _cameraPosed = true;
-    } else if (_cameraTiltActive) {
-      // Look-around drag should track the finger directly rather than lagging
-      // through the easing filter, so apply the new look immediately.
-      _cameraCurrentLook.setFrom(_cameraTargetLook);
-      _camera.lookAt(_cameraCurrentLook);
     }
   }
 
@@ -579,6 +576,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       receiveShadow: true,
     )..position.setValues(0, 2.4, roomDepth / 2 - 0.1);
     scene.add(frontWall);
+    _addWallCornerSeals(scene, roomWidth, roomDepth);
 
     // castShadow:false so the ceiling does not block the key light's floor
     // shadows; its underside is still lit by ambient + the warm point lamp.
@@ -936,6 +934,32 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       _box(width: 0.08, height: 0.1, depth: 0.1, color: const Color(0xFFC9A86B))
         ..position.setValues(innerX - 0.16, doorY, doorZ - 0.34),
     );
+  }
+
+  void _addWallCornerSeals(
+    three.Scene scene,
+    double roomWidth,
+    double roomDepth,
+  ) {
+    final x = roomWidth / 2 - _wallCornerSealInset;
+    final z = roomDepth / 2 - _wallCornerSealInset;
+    for (final corner in [
+      (x: -x, z: -z),
+      (x: x, z: -z),
+      (x: -x, z: z),
+      (x: x, z: z),
+    ]) {
+      scene.add(
+        _box(
+          width: _wallCornerSealSize,
+          height: 5.0,
+          depth: _wallCornerSealSize,
+          color: const Color(0xFF958B82),
+          castShadow: false,
+          receiveShadow: true,
+        )..position.setValues(corner.x, 2.4, corner.z),
+      );
+    }
   }
 
   // === Sky beyond the window ================================================
