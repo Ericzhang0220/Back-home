@@ -37,7 +37,7 @@ class RoomScreen extends StatefulWidget {
 }
 
 class _RoomScreenState extends State<RoomScreen> {
-  static const Duration _nightHintFadeDelay = Duration(milliseconds: 900);
+  static const Duration _nightHintFadeDelay = Duration(seconds: 5);
   // Chrome fade timing — kept in sync with app.dart's room-chrome durations.
   static const Duration _chromeFadeIn = Duration(milliseconds: 320);
   static const Duration _chromeFadeOut = Duration(seconds: 2);
@@ -386,7 +386,7 @@ class _GoodNightOverlay extends StatelessWidget {
                     ),
                   ),
                   AnimatedOpacity(
-                    duration: const Duration(seconds: 6),
+                    duration: const Duration(milliseconds: 350),
                     curve: Curves.easeInOutCubic,
                     opacity: showHint ? 1 : 0,
                     child: const Text(
