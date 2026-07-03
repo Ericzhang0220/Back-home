@@ -283,21 +283,6 @@ class _RoomScreenState extends State<RoomScreen> {
                   ],
                 ),
               ),
-              if (_deskFocused && !_nightMode)
-                Positioned(
-                  top: media.padding.top + 84,
-                  left: 18,
-                  child: _SceneButton(
-                    icon: Icons.keyboard_arrow_left_rounded,
-                    onTap: () {
-                      setState(() {
-                        _deskFocused = false;
-                      });
-                      // Return to the main view with the nav still hidden.
-                      widget.onSubviewChanged(_inSubview);
-                    },
-                  ),
-                ),
               Positioned.fill(
                 child: IgnorePointer(
                   ignoring: !_nightMode,
