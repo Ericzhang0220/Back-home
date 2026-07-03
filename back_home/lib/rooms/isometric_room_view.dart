@@ -142,8 +142,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   static const double _zoomInStep = 1.06;
   static const double _zoomOutStep = 0.94;
   static const double _cameraPanUnitsPerPixel = 0.0075;
-  static const double _cameraPanMaxX = 2.6;
-  static const double _cameraPanMaxZ = 2.0;
+  static const double _cameraPanWallPadding = 0.15;
   // Higher = snappier camera transitions (eases ~this fraction per second).
   static const double _cameraLerpSpeed = 7.0;
   static const double _rotationDragDegreesPerPixel = 0.12;
@@ -1692,7 +1691,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
             deltaX * _yawSensitivity * widget.cameraRotateSensitivity) %
         twoPi;
     _cameraPitch =
-        (_pitchAtDragStart -
+        (_pitchAtDragStart +
                 deltaY * _pitchSensitivity * widget.cameraRotateSensitivity)
             .clamp(_minLookPitch, _maxLookPitch)
             .toDouble();
@@ -1725,13 +1724,19 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         (-delta.dx * rightX + delta.dy * forwardX) * _cameraPanUnitsPerPixel;
     final panZ =
         (-delta.dx * rightZ + delta.dy * forwardZ) * _cameraPanUnitsPerPixel;
+    final maxPanX =
+        RoomEditorController.roomWidth * RoomEditorController.cellSize / 2 -
+        _cameraPanWallPadding;
+    final maxPanZ =
+        RoomEditorController.roomDepth * RoomEditorController.cellSize / 2 -
+        _cameraPanWallPadding;
 
     _cameraPanOffset.x = (_cameraPanOffset.x + panX)
-        .clamp(-_cameraPanMaxX, _cameraPanMaxX)
+        .clamp(-maxPanX, maxPanX)
         .toDouble();
     _cameraPanOffset.y = 0;
     _cameraPanOffset.z = (_cameraPanOffset.z + panZ)
-        .clamp(-_cameraPanMaxZ, _cameraPanMaxZ)
+        .clamp(-maxPanZ, maxPanZ)
         .toDouble();
     _refreshCamera();
   }
