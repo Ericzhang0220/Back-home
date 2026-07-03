@@ -1439,9 +1439,18 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       return;
     }
 
+    final placed = widget.controller.placedItemById(sceneFurniture.itemId);
+    if (placed != null) {
+      _pendingTapTarget = _tapTargetForDefinition(
+        widget.controller.definitionFor(placed.definitionId),
+      );
+    }
+
     if (!widget.canMoveFurniture ||
         widget.controller.selectedItemId != sceneFurniture.itemId) {
-      _pendingFurnitureTapItemId = sceneFurniture.itemId;
+      if (widget.canMoveFurniture) {
+        _pendingFurnitureTapItemId = sceneFurniture.itemId;
+      }
       _beginCameraTiltCandidate(event);
       return;
     }
@@ -1454,12 +1463,6 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
 
     _activeDragItemId = sceneFurniture.itemId;
     _dragPreviewValid = true;
-    final placed = widget.controller.placedItemById(sceneFurniture.itemId);
-    if (placed != null) {
-      _pendingTapTarget = _tapTargetForDefinition(
-        widget.controller.definitionFor(placed.definitionId),
-      );
-    }
 
     if (_raycaster.ray.intersectPlane(_dragPlane, _dragIntersection) != null) {
       _dragOffset

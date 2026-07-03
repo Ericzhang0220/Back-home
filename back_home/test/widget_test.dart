@@ -83,4 +83,34 @@ void main() {
     expect(find.text('Edit'), findsWidgets);
     expect(find.textContaining('You have:'), findsWidgets);
   });
+
+  testWidgets('shop buy adds inventory without opening the editor', (
+    WidgetTester tester,
+  ) async {
+    final controller = RoomEditorController();
+    final initialPlacedCount = controller.placedItems.length;
+
+    await tester.binding.setSurfaceSize(const Size(430, 932));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(),
+        home: ShopScreen(controller: controller),
+      ),
+    );
+
+    final buyButton = find.widgetWithText(FilledButton, 'Buy').first;
+    await tester.ensureVisible(buyButton);
+    await tester.pumpAndSettle();
+    await tester.tap(buyButton);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.text('Comfort shop'), findsOneWidget);
+    expect(find.text('Save'), findsNothing);
+    expect(controller.ownedCount('sunset-bed'), 2);
+    expect(controller.availableToPlace('sunset-bed'), 1);
+    expect(controller.placedItems.length, initialPlacedCount);
+  });
 }

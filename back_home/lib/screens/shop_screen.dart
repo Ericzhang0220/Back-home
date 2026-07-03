@@ -96,7 +96,7 @@ class ShopScreen extends StatelessWidget {
                                   ),
                                   const SizedBox(height: 6),
                                   const Text(
-                                    'Purchases drop straight into the bedroom editor.',
+                                    'Purchases add to your inventory for later placement.',
                                     style: TextStyle(
                                       fontSize: 14,
                                       color: AppColors.muted,
@@ -149,8 +149,7 @@ class ShopScreen extends StatelessWidget {
                       const SizedBox(height: 20),
                       _ShopCatalogGrid(
                         controller: controller,
-                        onBuyAndEdit: (definitionId) =>
-                            _buyAndEdit(context, definitionId),
+                        onBuy: (definitionId) => _buy(context, definitionId),
                         onPlaceOwnedAndEdit: (definitionId) => _openEditor(
                           context,
                           initialDefinitionId: definitionId,
@@ -173,13 +172,9 @@ class ShopScreen extends StatelessWidget {
       ..showSnackBar(SnackBar(content: Text(result.message)));
   }
 
-  Future<void> _buyAndEdit(BuildContext context, String definitionId) async {
+  void _buy(BuildContext context, String definitionId) {
     final result = controller.purchaseItem(definitionId);
-    if (!result.isSuccess) {
-      _showResult(context, result);
-      return;
-    }
-    await _openEditor(context, initialDefinitionId: definitionId);
+    _showResult(context, result);
   }
 
   Future<void> _openEditor(
@@ -200,12 +195,12 @@ class ShopScreen extends StatelessWidget {
 class _ShopCatalogGrid extends StatelessWidget {
   const _ShopCatalogGrid({
     required this.controller,
-    required this.onBuyAndEdit,
+    required this.onBuy,
     required this.onPlaceOwnedAndEdit,
   });
 
   final RoomEditorController controller;
-  final ValueChanged<String> onBuyAndEdit;
+  final ValueChanged<String> onBuy;
   final ValueChanged<String> onPlaceOwnedAndEdit;
 
   @override
@@ -242,7 +237,7 @@ class _ShopCatalogGrid extends StatelessWidget {
                   likesBalance: controller.likesBalance,
                   ownedCount: controller.ownedCount(item.id),
                   availableToPlace: controller.availableToPlace(item.id),
-                  onBuyAndPlace: () => onBuyAndEdit(item.id),
+                  onBuy: () => onBuy(item.id),
                   onPlaceOwned: controller.availableToPlace(item.id) > 0
                       ? () => onPlaceOwnedAndEdit(item.id)
                       : null,
@@ -261,7 +256,7 @@ class _ShopItemCard extends StatelessWidget {
     required this.likesBalance,
     required this.ownedCount,
     required this.availableToPlace,
-    required this.onBuyAndPlace,
+    required this.onBuy,
     this.onPlaceOwned,
   });
 
@@ -269,7 +264,7 @@ class _ShopItemCard extends StatelessWidget {
   final int likesBalance;
   final int ownedCount;
   final int availableToPlace;
-  final VoidCallback onBuyAndPlace;
+  final VoidCallback onBuy;
   final VoidCallback? onPlaceOwned;
 
   @override
@@ -314,7 +309,7 @@ class _ShopItemCard extends StatelessWidget {
           SizedBox(
             width: double.infinity,
             child: FilledButton(
-              onPressed: canAfford ? onBuyAndPlace : null,
+              onPressed: canAfford ? onBuy : null,
               child: Text(canAfford ? 'Buy' : 'Need more likes'),
             ),
           ),
