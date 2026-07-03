@@ -69,9 +69,13 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       10; // px dead-zone before a drag becomes a turn
   static const double _yawSensitivity =
       0.008; // radians turned per pixel dragged
+  static const double _pitchSensitivity =
+      0.006; // vertical aim units per pixel dragged
   static const double _eyeHeight = 1.9; // camera height at the room centre
   static const double _lookPitch =
       -0.22; // vertical aim (negative = look slightly down)
+  static const double _minLookPitch = -1.2;
+  static const double _maxLookPitch = 0.75;
   static const double _mainFov = 64; // field of view for the centred view
   static const double _focusFov =
       42; // field of view in the desk/night focus views
@@ -115,8 +119,11 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   double _rotationDragLastX = 0;
   double _cameraYaw =
       0; // horizontal look angle (radians); 0 = facing the far wall
+  double _cameraPitch = _lookPitch;
   double _yawAtDragStart = 0;
+  double _pitchAtDragStart = _lookPitch;
   double _cameraTiltPointerStartX = 0;
+  double _cameraTiltPointerStartY = 0;
 
   // Smooth camera motion + pinch zoom. The camera eases toward these targets
   // every frame instead of snapping; _zoom drives the field of view.
@@ -145,6 +152,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   static const Duration _roomTapDoubleTapDebounce = Duration(milliseconds: 300);
 
   bool get _isPinching => _activePointers.length >= 2;
+  bool get _isCameraPanning => _activePointers.length >= 3;
   bool get _delaysRoomTapActions =>
       !widget.canMoveFurniture && !widget.deskFocused && !widget.nightMode;
 
@@ -340,7 +348,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       basePos = three.Vector3(0, _eyeHeight, 0);
       lookAt = three.Vector3(
         math.sin(_cameraYaw),
-        _eyeHeight + _lookPitch,
+        _eyeHeight + _cameraPitch,
         -math.cos(_cameraYaw),
       );
       baseFov = _mainFov;
@@ -409,7 +417,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _activeRotationItemId = null;
     _cameraTiltCandidate = false;
     _cameraTiltActive = false;
-    _lastPanCentroid = _activePointers.length >= 2 ? _pointerCentroid() : null;
+    _lastPanCentroid = _isCameraPanning ? _pointerCentroid() : null;
     _syncSceneWithController();
   }
 
@@ -1444,7 +1452,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       _eventClientY(event),
     );
     if (_isPinching) {
-      // A second finger landed: this is a pinch, not a drag/tilt.
+      // More than one finger is a gesture, not a drag/tilt.
       _cancelInteraction();
       return;
     }
@@ -1527,7 +1535,11 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         _eventClientX(event),
         _eventClientY(event),
       );
-      _updateCameraPan();
+      if (_isCameraPanning) {
+        _updateCameraPan();
+      } else {
+        _lastPanCentroid = null;
+      }
       return;
     }
     _recordPointerPosition(event, isDown: false);
@@ -1591,7 +1603,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       final pointerId = (event.pointerId as num).toInt();
       _activePointers.remove(pointerId);
       _activePointerPositions.remove(pointerId);
-      if (_activePointers.length < 2) {
+      if (!_isCameraPanning) {
         _lastPanCentroid = null;
       }
       _recordPointerPosition(event, isDown: false);
@@ -1650,7 +1662,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _cameraTiltCandidate = true;
     _cameraTiltActive = false;
     _yawAtDragStart = _cameraYaw;
+    _pitchAtDragStart = _cameraPitch;
     _cameraTiltPointerStartX = _eventClientX(event);
+    _cameraTiltPointerStartY = _eventClientY(event);
   }
 
   void _updateCameraTilt(dynamic event) {
@@ -1659,7 +1673,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     }
 
     final deltaX = _eventClientX(event) - _cameraTiltPointerStartX;
-    if (!_cameraTiltActive && deltaX.abs() < _cameraTiltStartThreshold) {
+    final deltaY = _eventClientY(event) - _cameraTiltPointerStartY;
+    final travel = math.sqrt(deltaX * deltaX + deltaY * deltaY);
+    if (!_cameraTiltActive && travel < _cameraTiltStartThreshold) {
       return;
     }
 
@@ -1671,6 +1687,11 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         (_yawAtDragStart -
             deltaX * _yawSensitivity * widget.cameraRotateSensitivity) %
         twoPi;
+    _cameraPitch =
+        (_pitchAtDragStart -
+                deltaY * _pitchSensitivity * widget.cameraRotateSensitivity)
+            .clamp(_minLookPitch, _maxLookPitch)
+            .toDouble();
     _refreshCamera();
   }
 
@@ -1712,7 +1733,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   }
 
   Offset? _pointerCentroid() {
-    if (_activePointerPositions.length < 2) {
+    if (_activePointerPositions.length < 3) {
       return null;
     }
 
