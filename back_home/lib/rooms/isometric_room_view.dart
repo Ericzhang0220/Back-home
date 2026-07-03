@@ -398,6 +398,10 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   }
 
   void _onZoom(dynamic event) {
+    if (_activePointers.length > 2) {
+      return;
+    }
+
     final delta = (event.deltaY as num).toDouble();
     if (delta == 0) {
       return;
