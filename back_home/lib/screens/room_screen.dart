@@ -9,6 +9,7 @@ import '../rooms/room_state.dart';
 import '../rooms/room_visuals.dart';
 import '../services/weather_service.dart';
 import '../widgets/app_ui.dart';
+import 'room_edit_screen.dart';
 
 class RoomScreen extends StatefulWidget {
   const RoomScreen({
@@ -245,19 +246,32 @@ class _RoomScreenState extends State<RoomScreen> {
           child: Stack(
             children: [
               Positioned.fill(
-                child: IsometricRoomView(
-                  controller: widget.controller,
-                  isActive: widget.isActive,
-                  canMoveFurniture: false,
-                  deskFocused: _deskFocused,
-                  nightMode: _nightMode,
-                  onTapDesk: _focusDesk,
-                  onTapBed: _openNightMode,
-                  onDoubleTapRoom: _handleDoubleTap,
-                  skyWeather: _effectiveWeather,
-                  skyTimeOfDay: _skyTimeOfDay,
-                  cameraZoom: _cameraZoom,
-                  cameraRotateSensitivity: _cameraRotateSensitivity,
+                child: ValueListenableBuilder<bool>(
+                  valueListenable: RoomEditScreen.editorActive,
+                  builder: (context, editorActive, _) {
+                    // The furniture editor runs its own 3D renderer, and mobile
+                    // GL can't keep two live at once. While it's open we drop
+                    // this view entirely so its context is released; on return
+                    // it rebuilds fresh (new State -> new renderer), which is
+                    // what un-freezes the camera after an edit.
+                    if (editorActive) {
+                      return const ColoredBox(color: Color(0xFF191513));
+                    }
+                    return IsometricRoomView(
+                      controller: widget.controller,
+                      isActive: widget.isActive,
+                      canMoveFurniture: false,
+                      deskFocused: _deskFocused,
+                      nightMode: _nightMode,
+                      onTapDesk: _focusDesk,
+                      onTapBed: _openNightMode,
+                      onDoubleTapRoom: _handleDoubleTap,
+                      skyWeather: _effectiveWeather,
+                      skyTimeOfDay: _skyTimeOfDay,
+                      cameraZoom: _cameraZoom,
+                      cameraRotateSensitivity: _cameraRotateSensitivity,
+                    );
+                  },
                 ),
               ),
               Positioned.fill(

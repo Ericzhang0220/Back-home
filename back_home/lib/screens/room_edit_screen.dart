@@ -15,6 +15,13 @@ class RoomEditScreen extends StatefulWidget {
   final RoomEditorController controller;
   final String? initialDefinitionId;
 
+  /// True while an editor is on screen. The editor runs its own 3D renderer,
+  /// and the mobile GL backend can't safely keep two live renderers at once —
+  /// so the background room view watches this to release its context while we
+  /// edit and rebuild fresh afterwards. Without it, returning from an edit left
+  /// the room's renderer wedged and the camera frozen.
+  static final ValueNotifier<bool> editorActive = ValueNotifier<bool>(false);
+
   @override
   State<RoomEditScreen> createState() => _RoomEditScreenState();
 }
@@ -68,10 +75,16 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
     }
     _undoStack.add(_draftController.createEditSnapshot());
     _draftController.addListener(_handleDraftChanged);
+    // Signal the background room view to release its renderer before ours warms
+    // up, so only one GL context is ever live at a time.
+    RoomEditScreen.editorActive.value = true;
   }
 
   @override
   void dispose() {
+    // Cleared after our own IsometricRoomView (a child, disposed first) has
+    // torn down its context, so the room view rebuilds into a clean slate.
+    RoomEditScreen.editorActive.value = false;
     _draftController.removeListener(_handleDraftChanged);
     _draftController.dispose();
     super.dispose();
