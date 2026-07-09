@@ -75,16 +75,23 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
     }
     _undoStack.add(_draftController.createEditSnapshot());
     _draftController.addListener(_handleDraftChanged);
-    // Signal the background room view to release its renderer before ours warms
-    // up, so only one GL context is ever live at a time.
-    RoomEditScreen.editorActive.value = true;
+    // Signal the background room view to release its renderer so only one GL
+    // context is ever live at a time. Deferred out of the build phase — writing
+    // the notifier here directly would rebuild the room's listener mid-build and
+    // race its renderer's ticker into a half-torn-down EGL context (crash).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      RoomEditScreen.editorActive.value = true;
+    });
   }
 
   @override
   void dispose() {
-    // Cleared after our own IsometricRoomView (a child, disposed first) has
-    // torn down its context, so the room view rebuilds into a clean slate.
-    RoomEditScreen.editorActive.value = false;
+    // Deferred for the same reason as initState, and so it lands after our own
+    // renderer has fully torn down — the room view then rebuilds from a clean
+    // slate with no second context alive.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      RoomEditScreen.editorActive.value = false;
+    });
     _draftController.removeListener(_handleDraftChanged);
     _draftController.dispose();
     super.dispose();
