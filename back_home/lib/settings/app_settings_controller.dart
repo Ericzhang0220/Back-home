@@ -30,7 +30,14 @@ class AppSettingsController extends ChangeNotifier {
   static const String _showLikesStatKey = 'show_likes_stat';
   static const String _showFriendsStatKey = 'show_friends_stat';
   static const String _showActiveStatKey = 'show_active_stat';
+  static const String _cameraRotateSensitivityKey = 'camera_rotate_sensitivity';
   static const double _defaultMusicVolume = 0.35;
+  static const double _defaultCameraRotateSensitivity = 1.0;
+
+  /// Bounds for the room camera's rotate sensitivity, matching the slider in
+  /// the settings screen and the room view's expectations.
+  static const double minCameraRotateSensitivity = 0.4;
+  static const double maxCameraRotateSensitivity = 1.8;
 
   SharedPreferences? _preferences;
   ReadingComfort _readingComfort = ReadingComfort.medium;
@@ -39,9 +46,11 @@ class AppSettingsController extends ChangeNotifier {
   bool _showLikesStat = true;
   bool _showFriendsStat = true;
   bool _showActiveStat = true;
+  double _cameraRotateSensitivity = _defaultCameraRotateSensitivity;
   bool _readingComfortDirty = false;
   bool _musicVolumeDirty = false;
   bool _profileVisibilityDirty = false;
+  bool _cameraRotateSensitivityDirty = false;
 
   ReadingComfort get readingComfort => _readingComfort;
   double get musicVolume => _musicVolume;
@@ -50,6 +59,7 @@ class AppSettingsController extends ChangeNotifier {
   bool get showLikesStat => _showLikesStat;
   bool get showFriendsStat => _showFriendsStat;
   bool get showActiveStat => _showActiveStat;
+  double get cameraRotateSensitivity => _cameraRotateSensitivity;
 
   Future<void> load() async {
     try {
@@ -112,6 +122,21 @@ class AppSettingsController extends ChangeNotifier {
               _showActiveStat,
             ) ||
             changed;
+      }
+
+      if (!_cameraRotateSensitivityDirty) {
+        final savedSensitivity = preferences.getDouble(
+          _cameraRotateSensitivityKey,
+        );
+        if (savedSensitivity != null) {
+          final normalized = _normalizeCameraRotateSensitivity(
+            savedSensitivity,
+          );
+          if (normalized != _cameraRotateSensitivity) {
+            _cameraRotateSensitivity = normalized;
+            changed = true;
+          }
+        }
       }
 
       if (changed) {
@@ -194,8 +219,28 @@ class AppSettingsController extends ChangeNotifier {
     };
   }
 
+  void setCameraRotateSensitivity(double value) {
+    final normalized = _normalizeCameraRotateSensitivity(value);
+    if (_cameraRotateSensitivity == normalized) {
+      return;
+    }
+
+    _cameraRotateSensitivity = normalized;
+    _cameraRotateSensitivityDirty = true;
+    notifyListeners();
+    unawaited(
+      _preferences?.setDouble(_cameraRotateSensitivityKey, normalized),
+    );
+  }
+
   double _normalizeVolume(double value) {
     return value.clamp(0.0, 1.0).toDouble();
+  }
+
+  double _normalizeCameraRotateSensitivity(double value) {
+    return value
+        .clamp(minCameraRotateSensitivity, maxCameraRotateSensitivity)
+        .toDouble();
   }
 
   bool _loadVisibilityPreference(

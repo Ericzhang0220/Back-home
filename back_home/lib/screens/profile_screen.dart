@@ -200,6 +200,8 @@ class _ProfileSettingsScreen extends StatelessWidget {
       builder: (context, _) {
         final selectedTextSize = settingsController.readingComfort;
         final musicVolume = settingsController.musicVolume;
+        final cameraRotateSensitivity =
+            settingsController.cameraRotateSensitivity;
         final currentTrackTitle = musicController.currentTrackTitle;
         final currentTrackSubtitle = musicController.currentTrackSubtitle;
 
@@ -370,6 +372,52 @@ class _ProfileSettingsScreen extends StatelessWidget {
                             musicVolume <= 0
                                 ? 'Muted. Raise the slider to resume Apple Music.'
                                 : musicController.statusMessage,
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 28),
+                    const SectionHeader(
+                      title: 'Camera',
+                      subtitle: 'How fast the room turns when you drag to look around.',
+                    ),
+                    const SizedBox(height: 12),
+                    SoftCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.threesixty_rounded,
+                                color: AppColors.clay,
+                              ),
+                              const SizedBox(width: 10),
+                              Text(
+                                'Rotate sensitivity',
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              const Spacer(),
+                              Text(
+                                '${cameraRotateSensitivity.toStringAsFixed(1)}x',
+                                style: Theme.of(context).textTheme.labelLarge,
+                              ),
+                            ],
+                          ),
+                          Slider(
+                            value: cameraRotateSensitivity,
+                            min: AppSettingsController
+                                .minCameraRotateSensitivity,
+                            max: AppSettingsController
+                                .maxCameraRotateSensitivity,
+                            divisions: 14,
+                            label: '${cameraRotateSensitivity.toStringAsFixed(1)}x',
+                            onChanged:
+                                settingsController.setCameraRotateSensitivity,
+                          ),
+                          Text(
+                            'Applies to the room view and stays saved for next time.',
                             style: Theme.of(context).textTheme.bodyMedium,
                           ),
                         ],

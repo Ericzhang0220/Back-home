@@ -322,6 +322,7 @@ class _AppShellState extends State<AppShell> {
         return RoomScreen(
           key: const ValueKey(AppTab.room),
           controller: _roomController,
+          settingsController: widget.settingsController,
           onOpenShop: _openShop,
           isActive: _currentTab == AppTab.room,
           isChromeVisible: _roomChromeVisible,

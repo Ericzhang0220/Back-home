@@ -8,6 +8,7 @@ import '../rooms/isometric_room_view.dart';
 import '../rooms/room_state.dart';
 import '../rooms/room_visuals.dart';
 import '../services/weather_service.dart';
+import '../settings/app_settings_controller.dart';
 import '../widgets/app_ui.dart';
 import 'room_edit_screen.dart';
 
@@ -15,6 +16,7 @@ class RoomScreen extends StatefulWidget {
   const RoomScreen({
     super.key,
     required this.controller,
+    required this.settingsController,
     required this.onOpenShop,
     required this.isActive,
     required this.isChromeVisible,
@@ -24,6 +26,7 @@ class RoomScreen extends StatefulWidget {
   });
 
   final RoomEditorController controller;
+  final AppSettingsController settingsController;
   final VoidCallback onOpenShop;
   final bool isActive;
   final bool isChromeVisible;
@@ -67,7 +70,6 @@ class _RoomScreenState extends State<RoomScreen> {
   SkyWeather? _autoWeather; // latest reading from WeatherService
   double? _skyTimeOfDay; // null = live (real clock)
   double _cameraZoom = 1.0;
-  double _cameraRotateSensitivity = 1.0;
 
   bool get _inSubview => _deskFocused || _nightMode;
 
@@ -228,7 +230,7 @@ class _RoomScreenState extends State<RoomScreen> {
     final panelHeight = math.min(media.size.height * 0.62, 520.0);
 
     return AnimatedBuilder(
-      animation: widget.controller,
+      animation: Listenable.merge([widget.controller, widget.settingsController]),
       builder: (context, _) {
         final selectedItem = widget.controller.selectedItemId == null
             ? null
@@ -269,7 +271,8 @@ class _RoomScreenState extends State<RoomScreen> {
                       skyWeather: _effectiveWeather,
                       skyTimeOfDay: _skyTimeOfDay,
                       cameraZoom: _cameraZoom,
-                      cameraRotateSensitivity: _cameraRotateSensitivity,
+                      cameraRotateSensitivity:
+                          widget.settingsController.cameraRotateSensitivity,
                     );
                   },
                 ),
@@ -397,7 +400,8 @@ class _RoomScreenState extends State<RoomScreen> {
                           weatherAuto: _weatherAuto,
                           skyTimeOfDay: _skyTimeOfDay,
                           cameraZoom: _cameraZoom,
-                          cameraRotateSensitivity: _cameraRotateSensitivity,
+                          cameraRotateSensitivity:
+                              widget.settingsController.cameraRotateSensitivity,
                           onSkyWeather: (w) => setState(() {
                             _weatherAuto = false;
                             _skyWeather = w;
@@ -410,8 +414,8 @@ class _RoomScreenState extends State<RoomScreen> {
                               setState(() => _skyTimeOfDay = t),
                           onCameraZoom: (value) =>
                               setState(() => _cameraZoom = value),
-                          onCameraRotateSensitivity: (value) =>
-                              setState(() => _cameraRotateSensitivity = value),
+                          onCameraRotateSensitivity:
+                              widget.settingsController.setCameraRotateSensitivity,
                         ),
                       ),
                     ),

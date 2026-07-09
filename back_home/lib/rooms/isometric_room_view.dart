@@ -109,6 +109,10 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   GridPoint? _dragPreviewOrigin;
   bool _dragPreviewValid = true;
   _RoomTapTarget? _pendingTapTarget;
+  // World-space point that was tapped to open a desk/bed activity view, so the
+  // focus camera can fly to the furniture's actual spot instead of a fixed one.
+  three.Vector3? _pendingTapAnchor;
+  three.Vector3? _focusAnchor;
   String? _pendingFurnitureTapItemId;
   double _pointerDownX = 0;
   double _pointerDownY = 0;
@@ -343,18 +347,28 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         RoomEditorController.roomDepth * RoomEditorController.cellSize;
     final farWallZ = -roomDepth / 2;
 
-    final three.Vector3 basePos;
-    final three.Vector3 lookAt;
+    three.Vector3 basePos;
+    three.Vector3 lookAt;
     final double baseFov;
     if (widget.deskFocused) {
-      // Fly to a close-up of the desk on the far wall.
-      basePos = three.Vector3(1.0, 1.75, farWallZ + 3.6);
-      lookAt = three.Vector3(1.0, 1.15, farWallZ + 0.4);
+      // Fly to a close-up of the tapped desk, viewed from the room-centre side
+      // so the camera stays inside the room wherever the desk sits.
+      (basePos, lookAt) = _focusFraming(
+        fallbackAnchor: three.Vector3(1.0, 0, farWallZ + 0.48),
+        standDistance: 3.2,
+        eyeHeight: 1.75,
+        lookHeight: 1.15,
+      );
       baseFov = _focusFov;
     } else if (widget.nightMode) {
-      // Turn toward the bed; the good-night overlay covers most of the frame.
-      basePos = three.Vector3(0.0, 1.8, -0.6);
-      lookAt = three.Vector3(-0.5, 0.85, -3.4);
+      // Turn toward the tapped bed; the good-night overlay covers most of the
+      // frame. Same room-centre-side framing, a touch closer and lower.
+      (basePos, lookAt) = _focusFraming(
+        fallbackAnchor: three.Vector3(-0.5, 0, -3.4),
+        standDistance: 2.6,
+        eyeHeight: 1.8,
+        lookHeight: 0.85,
+      );
       baseFov = _focusFov;
     } else {
       // Centred free-look: stand in the middle of the room and turn 360°.
@@ -382,6 +396,49 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       _camera.lookAt(_cameraCurrentLook);
       _cameraPosed = true;
     }
+  }
+
+  /// Frames a focus view on [_focusAnchor] (the tapped furniture point, falling
+  /// back to [fallbackAnchor]): the camera stands [standDistance] toward the
+  /// room centre from the furniture at [eyeHeight], looking back at it. Standing
+  /// on the centre side keeps the camera inside the room wherever the piece is.
+  (three.Vector3, three.Vector3) _focusFraming({
+    required three.Vector3 fallbackAnchor,
+    required double standDistance,
+    required double eyeHeight,
+    required double lookHeight,
+  }) {
+    final anchor = _focusAnchor ?? fallbackAnchor;
+
+    var dirX = -anchor.x;
+    var dirZ = -anchor.z;
+    final length = math.sqrt(dirX * dirX + dirZ * dirZ);
+    if (length < 1e-3) {
+      // Piece sits dead centre — back toward the near (+Z) side of the room.
+      dirX = 0;
+      dirZ = 1;
+    } else {
+      dirX /= length;
+      dirZ /= length;
+    }
+
+    final halfWidth =
+        RoomEditorController.roomWidth * RoomEditorController.cellSize / 2;
+    final halfDepth =
+        RoomEditorController.roomDepth * RoomEditorController.cellSize / 2;
+    const wallPadding = 0.5;
+
+    final basePos = three.Vector3(
+      (anchor.x + dirX * standDistance)
+          .clamp(-halfWidth + wallPadding, halfWidth - wallPadding)
+          .toDouble(),
+      eyeHeight,
+      (anchor.z + dirZ * standDistance)
+          .clamp(-halfDepth + wallPadding, halfDepth - wallPadding)
+          .toDouble(),
+    );
+    final lookAt = three.Vector3(anchor.x, lookHeight, anchor.z);
+    return (basePos, lookAt);
   }
 
   void _animateCamera(double dt) {
@@ -1556,6 +1613,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     }
     _recordPointerPosition(event, isDown: true);
     _pendingTapTarget = null;
+    _pendingTapAnchor = null;
     _pendingFurnitureTapItemId = null;
     _cameraTiltCandidate = false;
     _cameraTiltActive = false;
@@ -1575,6 +1633,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         _pendingTapTarget = _resolveRoomTapTarget(
           roomIntersections.first.object,
         );
+        _pendingTapAnchor = roomIntersections.first.point?.clone();
         widget.controller.selectItem(null);
         _beginCameraTiltCandidate(event);
         return;
@@ -1598,6 +1657,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       _pendingTapTarget = _tapTargetForDefinition(
         widget.controller.definitionFor(placed.definitionId),
       );
+      _pendingTapAnchor = intersections.first.point?.clone();
     }
 
     if (!widget.canMoveFurniture ||
@@ -1710,6 +1770,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     }
 
     final tapTarget = _pointerTravel <= 10 ? _pendingTapTarget : null;
+    final tapAnchor = _pointerTravel <= 10 ? _pendingTapAnchor : null;
     final furnitureTapItemId = _pointerTravel <= 10
         ? _pendingFurnitureTapItemId
         : null;
@@ -1736,7 +1797,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         widget.controller.selectItem(furnitureTapItemId);
         return;
       }
-      _resolveRoomTapGesture(tapTarget);
+      _resolveRoomTapGesture(tapTarget, tapAnchor);
       return;
     }
 
@@ -1755,7 +1816,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _cameraTiltCandidate = false;
     _cameraTiltActive = false;
     _syncSceneWithController();
-    _resolveRoomTapGesture(tapTarget);
+    _resolveRoomTapGesture(tapTarget, tapAnchor);
   }
 
   void _beginCameraTiltCandidate(dynamic event) {
@@ -2116,9 +2177,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     };
   }
 
-  void _resolveRoomTapGesture(_RoomTapTarget? target) {
+  void _resolveRoomTapGesture(_RoomTapTarget? target, [three.Vector3? anchor]) {
     if (!_delaysRoomTapActions) {
-      _handleRoomTapTarget(target);
+      _handleRoomTapTarget(target, anchor);
       return;
     }
 
@@ -2133,7 +2194,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       if (!mounted) {
         return;
       }
-      _handleRoomTapTarget(target);
+      _handleRoomTapTarget(target, anchor);
     });
   }
 
@@ -2142,7 +2203,11 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _pendingRoomTapTimer = null;
   }
 
-  void _handleRoomTapTarget(_RoomTapTarget? target) {
+  void _handleRoomTapTarget(_RoomTapTarget? target, [three.Vector3? anchor]) {
+    // Remember where the furniture was tapped so the focus camera frames its
+    // real position. Set before the callback flips deskFocused/nightMode, which
+    // triggers _configureCamera on the next build.
+    _focusAnchor = anchor?.clone();
     switch (target) {
       case _RoomTapTarget.desk:
         widget.onTapDesk?.call();
