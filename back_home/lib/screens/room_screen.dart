@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../rooms/isometric_room_view.dart';
 import '../rooms/room_state.dart';
 import '../rooms/room_visuals.dart';
+import '../services/weather_service.dart';
 import '../widgets/app_ui.dart';
 
 class RoomScreen extends StatefulWidget {
@@ -46,26 +47,59 @@ class _RoomScreenState extends State<RoomScreen> {
   static const Duration _chromeFadeIn = Duration(milliseconds: 320);
   static const Duration _chromeFadeOut = Duration(seconds: 2);
 
+  // How often the live sky re-derives weather from the cached forecast. This
+  // only hits the network when the cache passes its TTL; otherwise it just
+  // re-indexes the day's hourly codes so the sky follows the clock.
+  static const Duration _weatherRefreshInterval = Duration(minutes: 20);
+
   Timer? _nightHintFadeTimer;
   Timer? _nightGlowDimTimer;
   Timer? _nightExitTimer;
+  Timer? _weatherTimer;
   bool _panelOpen = false;
   bool _deskFocused = false;
   bool _nightMode = false;
   bool _nightHintVisible = false;
   bool _nightGlowDimmed = false;
-  SkyWeather _skyWeather = SkyWeather.clear;
+  SkyWeather _skyWeather = SkyWeather.clear; // manual override selection
+  bool _weatherAuto = true; // follow real-world weather when true
+  SkyWeather? _autoWeather; // latest reading from WeatherService
   double? _skyTimeOfDay; // null = live (real clock)
   double _cameraZoom = 1.0;
   double _cameraRotateSensitivity = 1.0;
 
   bool get _inSubview => _deskFocused || _nightMode;
 
+  /// Weather actually shown through the window: the live reading when Auto is
+  /// on (falling back to the manual value until the first fetch lands),
+  /// otherwise the manually chosen weather.
+  SkyWeather get _effectiveWeather =>
+      _weatherAuto ? (_autoWeather ?? _skyWeather) : _skyWeather;
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshWeather();
+    _weatherTimer = Timer.periodic(
+      _weatherRefreshInterval,
+      (_) => _refreshWeather(),
+    );
+  }
+
+  Future<void> _refreshWeather() async {
+    final weather = await WeatherService.instance.currentSkyWeather();
+    if (!mounted || weather == null) {
+      return;
+    }
+    setState(() => _autoWeather = weather);
+  }
+
   @override
   void dispose() {
     _nightHintFadeTimer?.cancel();
     _nightGlowDimTimer?.cancel();
     _nightExitTimer?.cancel();
+    _weatherTimer?.cancel();
     super.dispose();
   }
 
@@ -220,7 +254,7 @@ class _RoomScreenState extends State<RoomScreen> {
                   onTapDesk: _focusDesk,
                   onTapBed: _openNightMode,
                   onDoubleTapRoom: _handleDoubleTap,
-                  skyWeather: _skyWeather,
+                  skyWeather: _effectiveWeather,
                   skyTimeOfDay: _skyTimeOfDay,
                   cameraZoom: _cameraZoom,
                   cameraRotateSensitivity: _cameraRotateSensitivity,
@@ -346,10 +380,18 @@ class _RoomScreenState extends State<RoomScreen> {
                                   ),
                                 ),
                           skyWeather: _skyWeather,
+                          weatherAuto: _weatherAuto,
                           skyTimeOfDay: _skyTimeOfDay,
                           cameraZoom: _cameraZoom,
                           cameraRotateSensitivity: _cameraRotateSensitivity,
-                          onSkyWeather: (w) => setState(() => _skyWeather = w),
+                          onSkyWeather: (w) => setState(() {
+                            _weatherAuto = false;
+                            _skyWeather = w;
+                          }),
+                          onWeatherAuto: () {
+                            setState(() => _weatherAuto = true);
+                            _refreshWeather();
+                          },
                           onSkyTimeOfDay: (t) =>
                               setState(() => _skyTimeOfDay = t),
                           onCameraZoom: (value) =>
@@ -483,10 +525,12 @@ class _SettingsPanel extends StatelessWidget {
     required this.onRotateSelected,
     required this.onStoreSelected,
     required this.skyWeather,
+    required this.weatherAuto,
     required this.skyTimeOfDay,
     required this.cameraZoom,
     required this.cameraRotateSensitivity,
     required this.onSkyWeather,
+    required this.onWeatherAuto,
     required this.onSkyTimeOfDay,
     required this.onCameraZoom,
     required this.onCameraRotateSensitivity,
@@ -502,10 +546,12 @@ class _SettingsPanel extends StatelessWidget {
   final VoidCallback? onRotateSelected;
   final VoidCallback? onStoreSelected;
   final SkyWeather skyWeather;
+  final bool weatherAuto;
   final double? skyTimeOfDay;
   final double cameraZoom;
   final double cameraRotateSensitivity;
   final ValueChanged<SkyWeather> onSkyWeather;
+  final VoidCallback onWeatherAuto;
   final ValueChanged<double?> onSkyTimeOfDay;
   final ValueChanged<double> onCameraZoom;
   final ValueChanged<double> onCameraRotateSensitivity;
@@ -642,10 +688,16 @@ class _SettingsPanel extends StatelessWidget {
                   spacing: 8,
                   runSpacing: 4,
                   children: [
+                    ChoiceChip(
+                      avatar: const Icon(Icons.my_location_rounded, size: 18),
+                      label: const Text('Auto'),
+                      selected: weatherAuto,
+                      onSelected: (_) => onWeatherAuto(),
+                    ),
                     for (final w in SkyWeather.values)
                       ChoiceChip(
                         label: Text(_weatherLabel(w)),
-                        selected: skyWeather == w,
+                        selected: !weatherAuto && skyWeather == w,
                         onSelected: (_) => onSkyWeather(w),
                       ),
                   ],
