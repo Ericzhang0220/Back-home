@@ -155,7 +155,8 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   static const double _cameraHeightPanUnitsPerPixel = 0.006;
   static const double _minCameraHeightOffset = -0.9;
   static const double _maxCameraHeightOffset = 1.8;
-  static const double _cameraPanWallPadding = 0.15;
+  static const double _cameraPanWallPadding_x = 0.4;
+  static const double _cameraPanWallPadding_z = 0.5;
   // Higher = snappier camera transitions (eases ~this fraction per second).
   static const double _cameraLerpSpeed = 7.0;
   static const double _zoomLerpSpeed = 9.0;
@@ -1885,10 +1886,10 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         (-delta.dx * rightZ + delta.dy * forwardZ) * _cameraPanUnitsPerPixel;
     final maxPanX =
         RoomEditorController.roomWidth * RoomEditorController.cellSize / 2 -
-        _cameraPanWallPadding;
+        _cameraPanWallPadding_x;
     final maxPanZ =
         RoomEditorController.roomDepth * RoomEditorController.cellSize / 2 -
-        _cameraPanWallPadding;
+        _cameraPanWallPadding_z;
 
     _cameraPanOffset.x = (_cameraPanOffset.x + panX)
         .clamp(-maxPanX, maxPanX)
@@ -1918,7 +1919,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     }
 
     _cameraPanOffset.y =
-        (_cameraPanOffset.y - delta.dy * _cameraHeightPanUnitsPerPixel)
+        (_cameraPanOffset.y + delta.dy * _cameraHeightPanUnitsPerPixel)
             .clamp(_minCameraHeightOffset, _maxCameraHeightOffset)
             .toDouble();
     _refreshCamera();

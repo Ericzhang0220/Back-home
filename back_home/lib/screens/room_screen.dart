@@ -42,8 +42,8 @@ class RoomScreen extends StatefulWidget {
 }
 
 class _RoomScreenState extends State<RoomScreen> {
-  static const Duration _nightHintFadeDelay = Duration(seconds: 5);
-  static const Duration _nightGlowDimDelay = Duration(seconds: 3);
+  static const Duration _nightHintFadeDelay = Duration(seconds: 4);
+  static const Duration _nightGlowDimDelay = Duration(seconds: 6);
   static const Duration _nightExitBrightenDelay = Duration(milliseconds: 100);
   static const Duration _nightOverlayFadeIn = Duration(milliseconds: 1600);
   static const Duration _nightOverlayFadeOut = Duration(milliseconds: 400);
