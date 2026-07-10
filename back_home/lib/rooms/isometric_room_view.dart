@@ -136,6 +136,8 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   double _cameraPitch = _lookPitch;
   double _currentCameraYaw = 0;
   double _currentCameraPitch = _lookPitch;
+  ({three.Vector3 panOffset, double yaw, double pitch, double zoom})?
+  _preNightCameraState;
   double _yawAtDragStart = 0;
   double _pitchAtDragStart = _lookPitch;
   double _cameraTiltPointerStartX = 0;
@@ -200,6 +202,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   static const double _sofaColliderHeightLimit = 1.25;
   // Higher = snappier camera transitions (eases ~this fraction per second).
   static const double _cameraLerpSpeed = 7.0;
+  static const double _bedFocusCameraLerpSpeed = 2.5;
   static const double _zoomLerpSpeed = 9.0;
   static const double _rotationLerpSpeed = 9.0;
   static const double _rotationDragDegreesPerPixel = 0.12;
@@ -237,10 +240,38 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         widget.nightMode != oldWidget.nightMode;
     if (focusChanged && _threeConfigured && _threeJs != null) {
       _cancelPendingRoomTap();
-      // Each view has its own designed framing, so start fresh from there.
-      _zoom = 1.0;
-      _currentZoom = 1.0;
-      _cameraPanOffset.setValues(0, 0, 0);
+      final enteringNight = widget.nightMode && !oldWidget.nightMode;
+      final leavingNight = !widget.nightMode && oldWidget.nightMode;
+      if (enteringNight) {
+        _preNightCameraState = (
+          panOffset: three.Vector3(
+            _camera.position.x,
+            _camera.position.y - _eyeHeight,
+            _camera.position.z,
+          ),
+          yaw: _currentCameraYaw,
+          pitch: _currentCameraPitch,
+          zoom: _currentZoom,
+        );
+        _zoom = 1.0;
+        _currentZoom = 1.0;
+        _cameraPanOffset.setValues(0, 0, 0);
+      } else if (leavingNight && _preNightCameraState != null) {
+        final previous = _preNightCameraState!;
+        _cameraPanOffset.setFrom(previous.panOffset);
+        _cameraYaw = previous.yaw;
+        _currentCameraYaw = previous.yaw;
+        _cameraPitch = previous.pitch;
+        _currentCameraPitch = previous.pitch;
+        _zoom = previous.zoom;
+        _currentZoom = previous.zoom;
+        _preNightCameraState = null;
+      } else {
+        // Other focused views retain their designed fresh framing.
+        _zoom = 1.0;
+        _currentZoom = 1.0;
+        _cameraPanOffset.setValues(0, 0, 0);
+      }
       _lastPanCentroid = null;
       // Sit down facing the desk; the seated look starts centred each time.
       _deskYaw = 0;
@@ -556,7 +587,10 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         zoomSettled) {
       return;
     }
-    final t = (1 - math.exp(-dt * _cameraLerpSpeed)).clamp(0.0, 1.0).toDouble();
+    final cameraLerpSpeed = widget.nightMode
+        ? _bedFocusCameraLerpSpeed
+        : _cameraLerpSpeed;
+    final t = (1 - math.exp(-dt * cameraLerpSpeed)).clamp(0.0, 1.0).toDouble();
     _camera.position.lerp(_cameraTargetPos, t);
     _updateCameraColliderMesh();
     if (mainFreeLook) {
