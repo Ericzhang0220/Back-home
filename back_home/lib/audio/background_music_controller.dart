@@ -28,7 +28,14 @@ class BackgroundMusicController extends ChangeNotifier {
 
   /// Bundled tracks, played in order and looped. Add more filenames here as
   /// they're dropped into assets/ (and listed under `assets:` in pubspec).
-  static const List<String> _builtInTracks = ['1.mp3', '2.mp3', '3.mp3'];
+  static const List<String> _builtInTracks = [
+    '1.mp3',
+    '2.mp3',
+    '3.mp3',
+    '4.mp3',
+    '5.mp3',
+    '6.mp3',
+  ];
 
   final AppSettingsController _settingsController;
   final MusicKit _musicKit = MusicKit();

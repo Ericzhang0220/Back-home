@@ -188,11 +188,11 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   static const double _cameraPanUnitsPerPixel = 0.0075;
   static const double _cameraHeightPanUnitsPerPixel = 0.006;
   static const double _minCameraHeightOffset = -0.9;
-  static const double _maxCameraHeightOffset = 1.8;
+  static const double _maxCameraHeightOffset = 2.8;
   static const double _cameraPanWallPaddingX = 0.4;
   static const double _cameraPanWallPaddingZ = 0.5;
   // How close the camera can get to furniture before it's blocked (world units).
-  static const double _cameraColliderRadius = 0.34;
+  static const double _cameraColliderRadius = 0.1;
   // Furniture collider heights. These drive both camera collision and the
   // translucent debug overlays, so visualized clearance matches behavior.
   static const double _defaultFurnitureColliderHeight = 4.8;
