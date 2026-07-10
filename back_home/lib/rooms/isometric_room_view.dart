@@ -184,6 +184,11 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   static const double _cameraPanWallPaddingZ = 0.5;
   // How close the camera can get to furniture before it's blocked (world units).
   static const double _cameraColliderRadius = 0.34;
+  // Debug collider heights only; collision checks use X/Z footprints. Adjust
+  // these to make the translucent overlays match the visible furniture.
+  static const double _debugDefaultFurnitureColliderHeight = 4.8;
+  static const double _debugBedColliderHeight = 1.2;
+  static const double _debugSofaColliderHeight = 1.25;
   // Higher = snappier camera transitions (eases ~this fraction per second).
   static const double _cameraLerpSpeed = 7.0;
   static const double _zoomLerpSpeed = 9.0;
@@ -1022,8 +1027,8 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         halfDepth: size.z / 2,
       );
       _sofaColliderMesh = _createColliderMesh()
-        ..position.setValues(_malloryX, 2.4, _malloryZ)
-        ..scale.setValues(size.x, 4.8, size.z)
+        ..position.setValues(_malloryX, _debugSofaColliderHeight / 2, _malloryZ)
+        ..scale.setValues(size.x, _debugSofaColliderHeight, size.z)
         ..visible = widget.showFurnitureColliders;
       scene.add(_sofaColliderMesh!);
     }
@@ -2213,11 +2218,16 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       quarterTurns: item.rotationQuarterTurns,
       origin: origin,
     );
+    final definition = widget.controller.definitionFor(item.definitionId);
+    final colliderHeight = switch (definition.visualKind) {
+      RoomItemVisualKind.bed => _debugBedColliderHeight,
+      _ => _debugDefaultFurnitureColliderHeight,
+    };
     mesh
-      ..position.setValues(center.x, 2.4, center.z)
+      ..position.setValues(center.x, colliderHeight / 2, center.z)
       ..scale.setValues(
         footprint.width * RoomEditorController.cellSize,
-        4.8,
+        colliderHeight,
         footprint.depth * RoomEditorController.cellSize,
       )
       ..visible = widget.showFurnitureColliders;
