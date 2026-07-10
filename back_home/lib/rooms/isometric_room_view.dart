@@ -184,11 +184,11 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   static const double _cameraPanWallPaddingZ = 0.5;
   // How close the camera can get to furniture before it's blocked (world units).
   static const double _cameraColliderRadius = 0.34;
-  // Debug collider heights only; collision checks use X/Z footprints. Adjust
-  // these to make the translucent overlays match the visible furniture.
-  static const double _debugDefaultFurnitureColliderHeight = 4.8;
-  static const double _debugBedColliderHeight = 1.2;
-  static const double _debugSofaColliderHeight = 1.25;
+  // Furniture collider heights. These drive both camera collision and the
+  // translucent debug overlays, so visualized clearance matches behavior.
+  static const double _defaultFurnitureColliderHeight = 4.8;
+  static const double _bedColliderHeight = 1.2;
+  static const double _sofaColliderHeight = 1.25;
   // Higher = snappier camera transitions (eases ~this fraction per second).
   static const double _cameraLerpSpeed = 7.0;
   static const double _zoomLerpSpeed = 9.0;
@@ -1027,8 +1027,8 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         halfDepth: size.z / 2,
       );
       _sofaColliderMesh = _createColliderMesh()
-        ..position.setValues(_malloryX, _debugSofaColliderHeight / 2, _malloryZ)
-        ..scale.setValues(size.x, _debugSofaColliderHeight, size.z)
+        ..position.setValues(_malloryX, _sofaColliderHeight / 2, _malloryZ)
+        ..scale.setValues(size.x, _sofaColliderHeight, size.z)
         ..visible = widget.showFurnitureColliders;
       scene.add(_sofaColliderMesh!);
     }
@@ -2022,20 +2022,23 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     // Move each axis independently, accepting it only if the eye wouldn't end
     // up inside a piece of furniture. This lets the camera slide along an edge
     // instead of passing through — you go around furniture, never into it.
-    if (!_isEyeBlocked(targetX, _cameraPanOffset.z)) {
+    final cameraY = _eyeHeight + _cameraPanOffset.y;
+    if (!_isEyeBlocked(targetX, cameraY, _cameraPanOffset.z)) {
       _cameraPanOffset.x = targetX;
     }
-    if (!_isEyeBlocked(_cameraPanOffset.x, targetZ)) {
+    if (!_isEyeBlocked(_cameraPanOffset.x, cameraY, targetZ)) {
       _cameraPanOffset.z = targetZ;
     }
     _refreshCamera();
   }
 
-  /// Whether the camera eye at world (x, z) would sit inside a furniture
-  /// collider — the placed items' grid footprints plus the built-in sofa, each
-  /// grown by [_cameraColliderRadius] so the lens keeps a small standoff.
-  bool _isEyeBlocked(double x, double z) {
+  /// Whether the camera sphere at world (x, y, z) overlaps furniture.
+  bool _isEyeBlocked(double x, double y, double z) {
     for (final item in widget.controller.placedItems) {
+      final colliderHeight = _colliderHeightForDefinition(item.definitionId);
+      if (y - _cameraColliderRadius >= colliderHeight) {
+        continue;
+      }
       final footprint = widget.controller.footprintForDefinition(
         item.definitionId,
         item.rotationQuarterTurns,
@@ -2059,6 +2062,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
 
     final sofa = _sofaCollider;
     if (sofa != null &&
+        y - _cameraColliderRadius < _sofaColliderHeight &&
         (x - sofa.centerX).abs() < sofa.halfWidth + _cameraColliderRadius &&
         (z - sofa.centerZ).abs() < sofa.halfDepth + _cameraColliderRadius) {
       return true;
@@ -2218,11 +2222,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       quarterTurns: item.rotationQuarterTurns,
       origin: origin,
     );
-    final definition = widget.controller.definitionFor(item.definitionId);
-    final colliderHeight = switch (definition.visualKind) {
-      RoomItemVisualKind.bed => _debugBedColliderHeight,
-      _ => _debugDefaultFurnitureColliderHeight,
-    };
+    final colliderHeight = _colliderHeightForDefinition(item.definitionId);
     mesh
       ..position.setValues(center.x, colliderHeight / 2, center.z)
       ..scale.setValues(
@@ -2231,6 +2231,14 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         footprint.depth * RoomEditorController.cellSize,
       )
       ..visible = widget.showFurnitureColliders;
+  }
+
+  double _colliderHeightForDefinition(String definitionId) {
+    final definition = widget.controller.definitionFor(definitionId);
+    return switch (definition.visualKind) {
+      RoomItemVisualKind.bed => _bedColliderHeight,
+      _ => _defaultFurnitureColliderHeight,
+    };
   }
 
   void _updateCameraColliderMesh() {
