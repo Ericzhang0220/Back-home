@@ -8,6 +8,13 @@ import 'room_state.dart';
 
 enum _RoomTapTarget { desk, bed, radio }
 
+typedef _CameraViewState = ({
+  three.Vector3 panOffset,
+  double yaw,
+  double pitch,
+  double zoom,
+});
+
 class IsometricRoomView extends StatefulWidget {
   const IsometricRoomView({
     super.key,
@@ -98,6 +105,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   final Map<String, _SceneFurniture> _sceneFurniture = {};
   final Map<String, three.Mesh> _furnitureColliderMeshes = {};
   three.Mesh? _cameraColliderMesh;
+  three.Line? _debugCenterRay;
   final three.Raycaster _raycaster = three.Raycaster();
   final three.Vector2 _pointer = three.Vector2.zero();
   final three.Plane _dragPlane = three.Plane();
@@ -137,8 +145,8 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   double _cameraPitch = _lookPitch;
   double _currentCameraYaw = 0;
   double _currentCameraPitch = _lookPitch;
-  ({three.Vector3 panOffset, double yaw, double pitch, double zoom})?
-  _preNightCameraState;
+  _CameraViewState? _preNightCameraState;
+  _CameraViewState? _preDeskCameraState;
   double _yawAtDragStart = 0;
   double _pitchAtDragStart = _lookPitch;
   double _cameraTiltPointerStartX = 0;
@@ -201,6 +209,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   static const double _defaultFurnitureColliderHeight = 4.8;
   static const double _bedColliderHeight = 1.2;
   static const double _sofaColliderHeightLimit = 1.25;
+  static const double _debugCenterRayLength = 20.0;
   // Higher = snappier camera transitions (eases ~this fraction per second).
   static const double _cameraLerpSpeed = 7.0;
   static const double _bedFocusCameraLerpSpeed = 2.5;
@@ -243,36 +252,23 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       _cancelPendingRoomTap();
       final enteringNight = widget.nightMode && !oldWidget.nightMode;
       final leavingNight = !widget.nightMode && oldWidget.nightMode;
+      final enteringDesk = widget.deskFocused && !oldWidget.deskFocused;
+      final leavingDesk = !widget.deskFocused && oldWidget.deskFocused;
       if (enteringNight) {
-        _preNightCameraState = (
-          panOffset: three.Vector3(
-            _camera.position.x,
-            _camera.position.y - _eyeHeight,
-            _camera.position.z,
-          ),
-          yaw: _currentCameraYaw,
-          pitch: _currentCameraPitch,
-          zoom: _currentZoom,
-        );
-        _zoom = 1.0;
-        _currentZoom = 1.0;
-        _cameraPanOffset.setValues(0, 0, 0);
+        _preNightCameraState = _captureCameraViewState();
+        _resetFocusedCameraState();
       } else if (leavingNight && _preNightCameraState != null) {
-        final previous = _preNightCameraState!;
-        _cameraPanOffset.setFrom(previous.panOffset);
-        _cameraYaw = previous.yaw;
-        _currentCameraYaw = previous.yaw;
-        _cameraPitch = previous.pitch;
-        _currentCameraPitch = previous.pitch;
-        _zoom = previous.zoom;
-        _currentZoom = previous.zoom;
+        _restoreCameraViewState(_preNightCameraState!);
         _preNightCameraState = null;
         _preserveNightEntryLookDirection = false;
+      } else if (enteringDesk) {
+        _preDeskCameraState = _captureCameraViewState();
+        _resetFocusedCameraState();
+      } else if (leavingDesk && _preDeskCameraState != null) {
+        _restoreCameraViewState(_preDeskCameraState!);
+        _preDeskCameraState = null;
       } else {
-        // Other focused views retain their designed fresh framing.
-        _zoom = 1.0;
-        _currentZoom = 1.0;
-        _cameraPanOffset.setValues(0, 0, 0);
+        _resetFocusedCameraState();
       }
       _lastPanCentroid = null;
       // Sit down facing the desk; the seated look starts centred each time.
@@ -317,6 +313,33 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       _sceneStartTimer?.cancel();
       _sceneStartTimer = null;
     }
+  }
+
+  _CameraViewState _captureCameraViewState() => (
+    panOffset: three.Vector3(
+      _camera.position.x,
+      _camera.position.y - _eyeHeight,
+      _camera.position.z,
+    ),
+    yaw: _currentCameraYaw,
+    pitch: _currentCameraPitch,
+    zoom: _currentZoom,
+  );
+
+  void _restoreCameraViewState(_CameraViewState state) {
+    _cameraPanOffset.setFrom(state.panOffset);
+    _cameraYaw = state.yaw;
+    _currentCameraYaw = state.yaw;
+    _cameraPitch = state.pitch;
+    _currentCameraPitch = state.pitch;
+    _zoom = state.zoom;
+    _currentZoom = state.zoom;
+  }
+
+  void _resetFocusedCameraState() {
+    _zoom = 1.0;
+    _currentZoom = 1.0;
+    _cameraPanOffset.setValues(0, 0, 0);
   }
 
   @override
@@ -388,6 +411,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       ..visible = widget.showFurnitureColliders;
     _updateCameraColliderMesh();
     threeJs.scene.add(_cameraColliderMesh!);
+    _debugCenterRay = _createDebugCenterRay()
+      ..visible = widget.showFurnitureColliders;
+    threeJs.scene.add(_debugCenterRay!);
     threeJs.addAnimationEvent(_animateCamera);
     await _buildRoomShell();
     if (!mounted) {
@@ -552,6 +578,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       return;
     }
     _updateCameraColliderMesh();
+    _updateDebugCenterRay();
     final nextZoom = _lerpDouble(
       _currentZoom,
       _zoom,
@@ -615,6 +642,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       _cameraCurrentLook.lerp(_cameraTargetLook, t);
     }
     _camera.lookAt(_cameraCurrentLook);
+    _updateDebugCenterRay();
     _publishSelectedScreenPosition();
   }
 
@@ -2314,6 +2342,21 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     )..renderOrder = 21;
   }
 
+  three.Line _createDebugCenterRay() {
+    final geometry = three.BufferGeometry().setFromPoints([
+      three.Vector3.zero(),
+      three.Vector3(0, 0, -1),
+    ]);
+    final material = three.LineBasicMaterial.fromMap({
+      'color': 0xff3b30,
+      'transparent': true,
+      'opacity': 0.9,
+      'depthTest': false,
+      'depthWrite': false,
+    });
+    return three.Line(geometry, material)..renderOrder = 22;
+  }
+
   void _updateFurnitureCollider(PlacedRoomItem item, GridPoint origin) {
     final mesh = _furnitureColliderMeshes[item.instanceId];
     if (mesh == null) {
@@ -2351,6 +2394,29 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _cameraColliderMesh?.position.setFrom(_camera.position);
   }
 
+  void _updateDebugCenterRay() {
+    final line = _debugCenterRay;
+    if (line == null || !widget.showFurnitureColliders) {
+      return;
+    }
+    _camera.updateMatrixWorld(true);
+    _raycaster.setFromCamera(three.Vector2.zero(), _camera);
+    final colliderMeshes = <three.Object3D>[
+      ..._furnitureColliderMeshes.values,
+      ..._sofaColliderMeshes,
+    ];
+    final hits = colliderMeshes.isEmpty
+        ? const <three.Intersection>[]
+        : _raycaster.intersectObjects(colliderMeshes);
+    final length = hits.isEmpty
+        ? _debugCenterRayLength
+        : math.min(hits.first.distance, _debugCenterRayLength);
+    line
+      ..position.setFrom(_camera.position)
+      ..quaternion.setFrom(_camera.quaternion)
+      ..scale.setValues(1, 1, length);
+  }
+
   void _syncColliderVisibility() {
     for (final collider in _furnitureColliderMeshes.values) {
       collider.visible = widget.showFurnitureColliders;
@@ -2359,6 +2425,8 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       collider.visible = widget.showFurnitureColliders;
     }
     _cameraColliderMesh?.visible = widget.showFurnitureColliders;
+    _debugCenterRay?.visible = widget.showFurnitureColliders;
+    _updateDebugCenterRay();
   }
 
   void _publishSelectedScreenPosition() {
