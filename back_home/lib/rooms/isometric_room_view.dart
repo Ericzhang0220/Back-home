@@ -166,11 +166,20 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   bool _multiTouchSequenceActive = false;
   final three.Vector3 _cameraPanOffset = three.Vector3.zero();
   Offset? _lastPanCentroid;
-  // World-space footprint of the built-in sofa, captured on load so the camera
-  // pans around it like it does the placed furniture.
-  ({double centerX, double centerZ, double halfWidth, double halfDepth})?
-  _sofaCollider;
-  three.Mesh? _sofaColliderMesh;
+  // Mesh-level world-space bounds for the imported sectional. Keeping these
+  // separate preserves its open center and detached ottoman.
+  final List<
+    ({
+      double centerX,
+      double centerZ,
+      double halfWidth,
+      double halfDepth,
+      double minY,
+      double maxY,
+    })
+  >
+  _sofaColliders = [];
+  final List<three.Mesh> _sofaColliderMeshes = [];
 
   static const double _minZoom = 0.62;
   static const double _maxZoom = 2.4;
@@ -188,7 +197,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   // translucent debug overlays, so visualized clearance matches behavior.
   static const double _defaultFurnitureColliderHeight = 4.8;
   static const double _bedColliderHeight = 1.2;
-  static const double _sofaColliderHeight = 1.25;
+  static const double _sofaColliderHeightLimit = 1.25;
   // Higher = snappier camera transitions (eases ~this fraction per second).
   static const double _cameraLerpSpeed = 7.0;
   static const double _zoomLerpSpeed = 9.0;
@@ -1016,21 +1025,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         _malloryLift - bounds.min.y,
         _malloryZ - center.z,
       );
-      // The model is recentred onto (_malloryX, _malloryZ), so its world
-      // footprint is that centre plus half the scaled size — record it as a
-      // camera collider.
-      final size = bounds.getSize(three.Vector3.zero());
-      _sofaCollider = (
-        centerX: _malloryX,
-        centerZ: _malloryZ,
-        halfWidth: size.x / 2,
-        halfDepth: size.z / 2,
-      );
-      _sofaColliderMesh = _createColliderMesh()
-        ..position.setValues(_malloryX, _sofaColliderHeight / 2, _malloryZ)
-        ..scale.setValues(size.x, _sofaColliderHeight, size.z)
-        ..visible = widget.showFurnitureColliders;
-      scene.add(_sofaColliderMesh!);
+      _buildSofaMeshColliders(sectional, scene);
     }
 
     sectional.traverse((object) {
@@ -1042,6 +1037,54 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       return;
     }
     scene.add(sectional);
+  }
+
+  void _buildSofaMeshColliders(three.Object3D sectional, three.Scene scene) {
+    _sofaColliders.clear();
+    for (final mesh in _sofaColliderMeshes) {
+      scene.remove(mesh);
+    }
+    _sofaColliderMeshes.clear();
+
+    sectional.updateMatrixWorld(true);
+    sectional.traverse((object) {
+      if (object is! three.Mesh) {
+        return;
+      }
+      final bounds = three.BoundingBox().setFromObject(object);
+      if (bounds.isEmpty()) {
+        return;
+      }
+      final size = bounds.getSize(three.Vector3.zero());
+      if (size.x < 0.02 || size.y < 0.02 || size.z < 0.02) {
+        return;
+      }
+
+      final minY = math.max(0.0, bounds.min.y);
+      final maxY = math.min(_sofaColliderHeightLimit, bounds.max.y);
+      if (maxY <= minY) {
+        return;
+      }
+      final centerX = (bounds.min.x + bounds.max.x) / 2;
+      final centerZ = (bounds.min.z + bounds.max.z) / 2;
+      final halfWidth = size.x / 2;
+      final halfDepth = size.z / 2;
+      _sofaColliders.add((
+        centerX: centerX,
+        centerZ: centerZ,
+        halfWidth: halfWidth,
+        halfDepth: halfDepth,
+        minY: minY,
+        maxY: maxY,
+      ));
+
+      final colliderMesh = _createColliderMesh(opacity: 0.12)
+        ..position.setValues(centerX, (minY + maxY) / 2, centerZ)
+        ..scale.setValues(size.x, maxY - minY, size.z)
+        ..visible = widget.showFurnitureColliders;
+      _sofaColliderMeshes.add(colliderMesh);
+      scene.add(colliderMesh);
+    });
   }
 
   void _addSlopedCeilingDetails(three.Scene scene, double roomDepth) {
@@ -2060,12 +2103,15 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       }
     }
 
-    final sofa = _sofaCollider;
-    if (sofa != null &&
-        y - _cameraColliderRadius < _sofaColliderHeight &&
-        (x - sofa.centerX).abs() < sofa.halfWidth + _cameraColliderRadius &&
-        (z - sofa.centerZ).abs() < sofa.halfDepth + _cameraColliderRadius) {
-      return true;
+    for (final sofa in _sofaColliders) {
+      final overlapsVertically =
+          y + _cameraColliderRadius > sofa.minY &&
+          y - _cameraColliderRadius < sofa.maxY;
+      if (overlapsVertically &&
+          (x - sofa.centerX).abs() < sofa.halfWidth + _cameraColliderRadius &&
+          (z - sofa.centerZ).abs() < sofa.halfDepth + _cameraColliderRadius) {
+        return true;
+      }
     }
 
     return false;
@@ -2249,7 +2295,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     for (final collider in _furnitureColliderMeshes.values) {
       collider.visible = widget.showFurnitureColliders;
     }
-    _sofaColliderMesh?.visible = widget.showFurnitureColliders;
+    for (final collider in _sofaColliderMeshes) {
+      collider.visible = widget.showFurnitureColliders;
+    }
     _cameraColliderMesh?.visible = widget.showFurnitureColliders;
   }
 
