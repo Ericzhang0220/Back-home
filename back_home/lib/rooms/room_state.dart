@@ -255,41 +255,14 @@ class RoomEditorController extends ChangeNotifier {
         'dusk-lamp': 1,
         'fern-tree': 0,
       },
+      // A new user starts with just the bed placed. The desk, window, sofa and
+      // door are built-in room decor (see IsometricRoomView), so the starter
+      // room reads as "bed, desk, window, sofa, door" out of the box.
       _placedItems = [
         const PlacedRoomItem(
           instanceId: 'item-1',
           definitionId: 'sunset-bed',
           origin: GridPoint(3, 3),
-          rotationQuarterTurns: 0,
-        ),
-        const PlacedRoomItem(
-          instanceId: 'item-2',
-          definitionId: 'soft-nightstand',
-          origin: GridPoint(2, 5),
-          rotationQuarterTurns: 0,
-        ),
-        const PlacedRoomItem(
-          instanceId: 'item-3',
-          definitionId: 'linen-wardrobe',
-          origin: GridPoint(6, 0),
-          rotationQuarterTurns: 0,
-        ),
-        const PlacedRoomItem(
-          instanceId: 'item-4',
-          definitionId: 'mirror-vanity',
-          origin: GridPoint(6, 5),
-          rotationQuarterTurns: 0,
-        ),
-        const PlacedRoomItem(
-          instanceId: 'item-5',
-          definitionId: 'cloud-ottoman',
-          origin: GridPoint(7, 6),
-          rotationQuarterTurns: 0,
-        ),
-        const PlacedRoomItem(
-          instanceId: 'item-6',
-          definitionId: 'dusk-lamp',
-          origin: GridPoint(1, 6),
           rotationQuarterTurns: 0,
         ),
       ] {

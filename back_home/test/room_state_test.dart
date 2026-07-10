@@ -18,13 +18,13 @@ void main() {
     final controller = RoomEditorController();
 
     final result = controller.movePlacedItem(
-      'item-2',
+      'item-1',
       const GridPoint(3.25, 3.75),
     );
 
     expect(result.isSuccess, isTrue);
     expect(
-      controller.placedItemById('item-2')?.origin,
+      controller.placedItemById('item-1')?.origin,
       const GridPoint(3.25, 3.75),
     );
   });
@@ -32,8 +32,8 @@ void main() {
   test('rotatePlacedItem supports small degree increments', () {
     final controller = RoomEditorController();
 
-    final result = controller.rotatePlacedItem('item-3', deltaDegrees: 5);
-    final item = controller.placedItemById('item-3');
+    final result = controller.rotatePlacedItem('item-1', deltaDegrees: 5);
+    final item = controller.placedItemById('item-1');
 
     expect(result.isSuccess, isTrue);
     expect(item?.rotationDegrees, 5);
@@ -43,13 +43,13 @@ void main() {
     final controller = RoomEditorController();
     final draft = RoomEditorController.editing(controller);
 
-    draft.movePlacedItem('item-2', const GridPoint(0, 8));
+    draft.movePlacedItem('item-1', const GridPoint(0, 8));
 
-    expect(controller.placedItemById('item-2')?.origin, const GridPoint(2, 5));
+    expect(controller.placedItemById('item-1')?.origin, const GridPoint(3, 3));
 
     controller.applyEditSession(draft);
 
-    expect(controller.placedItemById('item-2')?.origin, const GridPoint(0, 8));
+    expect(controller.placedItemById('item-1')?.origin, const GridPoint(0, 8));
   });
 
   test('editing placement can start at a freeform preferred position', () {

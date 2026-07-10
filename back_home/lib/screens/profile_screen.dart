@@ -342,7 +342,7 @@ class _ProfileSettingsScreen extends StatelessWidget {
                               ),
                               const SizedBox(width: 10),
                               Text(
-                                'Apple Music',
+                                'Background music',
                                 style: Theme.of(context).textTheme.titleMedium,
                               ),
                               const Spacer(),

@@ -4,6 +4,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+import '../audio/background_music_controller.dart';
 import '../rooms/isometric_room_view.dart';
 import '../rooms/room_state.dart';
 import '../rooms/room_visuals.dart';
@@ -17,6 +18,7 @@ class RoomScreen extends StatefulWidget {
     super.key,
     required this.controller,
     required this.settingsController,
+    required this.musicController,
     required this.onOpenShop,
     required this.isActive,
     required this.isChromeVisible,
@@ -27,6 +29,7 @@ class RoomScreen extends StatefulWidget {
 
   final RoomEditorController controller;
   final AppSettingsController settingsController;
+  final BackgroundMusicController musicController;
   final VoidCallback onOpenShop;
   final bool isActive;
   final bool isChromeVisible;
@@ -224,6 +227,31 @@ class _RoomScreenState extends State<RoomScreen> {
       ..showSnackBar(SnackBar(content: Text(result.message)));
   }
 
+  void _openRadioSheet() {
+    final music = widget.musicController;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return AnimatedBuilder(
+          animation: music,
+          builder: (context, _) {
+            return _RadioSheet(
+              source: music.source,
+              statusMessage: music.statusMessage,
+              appleMusicAvailable: music.isAppleMusicAvailable,
+              trackTitle: music.currentTrackTitle,
+              trackSubtitle: music.currentTrackSubtitle,
+              onSelectBuiltIn: () => music.switchToBuiltIn(),
+              onSelectAppleMusic: () => music.switchToAppleMusic(),
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
@@ -267,6 +295,7 @@ class _RoomScreenState extends State<RoomScreen> {
                       nightMode: _nightMode,
                       onTapDesk: _focusDesk,
                       onTapBed: _openNightMode,
+                      onTapRadio: _openRadioSheet,
                       onDoubleTapRoom: _handleDoubleTap,
                       skyWeather: _effectiveWeather,
                       skyTimeOfDay: _skyTimeOfDay,
@@ -1080,6 +1109,186 @@ class _EmptySelection extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// The radio's music picker: choose the built-in playlist or Apple Music.
+class _RadioSheet extends StatelessWidget {
+  const _RadioSheet({
+    required this.source,
+    required this.statusMessage,
+    required this.appleMusicAvailable,
+    required this.trackTitle,
+    required this.trackSubtitle,
+    required this.onSelectBuiltIn,
+    required this.onSelectAppleMusic,
+  });
+
+  final MusicSource source;
+  final String statusMessage;
+  final bool appleMusicAvailable;
+  final String? trackTitle;
+  final String? trackSubtitle;
+  final VoidCallback onSelectBuiltIn;
+  final VoidCallback onSelectAppleMusic;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+          decoration: BoxDecoration(
+            color: AppColors.card,
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.32)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 44,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFD3BAA9),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  const Icon(Icons.radio_rounded, color: AppColors.clay),
+                  const SizedBox(width: 10),
+                  const Text(
+                    'Radio',
+                    style: TextStyle(
+                      fontSize: 21,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.ink,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                statusMessage,
+                style: const TextStyle(fontSize: 13, color: AppColors.muted),
+              ),
+              if (trackTitle != null) ...[
+                const SizedBox(height: 2),
+                Text(
+                  trackSubtitle == null
+                      ? trackTitle!
+                      : '$trackTitle • $trackSubtitle',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.ink,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 16),
+              _RadioOption(
+                icon: Icons.library_music_rounded,
+                title: 'Back Home playlist',
+                detail: 'The built-in tracks that ship with the app.',
+                selected: source == MusicSource.builtIn,
+                onTap: () {
+                  onSelectBuiltIn();
+                  Navigator.of(context).pop();
+                },
+              ),
+              const SizedBox(height: 10),
+              _RadioOption(
+                icon: Icons.apple_rounded,
+                title: 'Apple Music favorites',
+                detail: appleMusicAvailable
+                    ? 'Shuffle songs from your Apple Music library.'
+                    : 'Not available on this device.',
+                selected: source == MusicSource.appleMusic,
+                enabled: appleMusicAvailable,
+                onTap: () {
+                  onSelectAppleMusic();
+                  Navigator.of(context).pop();
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RadioOption extends StatelessWidget {
+  const _RadioOption({
+    required this.icon,
+    required this.title,
+    required this.detail,
+    required this.selected,
+    required this.onTap,
+    this.enabled = true,
+  });
+
+  final IconData icon;
+  final String title;
+  final String detail;
+  final bool selected;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Opacity(
+      opacity: enabled ? 1 : 0.5,
+      child: Material(
+        color: selected ? AppColors.blush.withValues(alpha: 0.5) : Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: enabled ? onTap : null,
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              children: [
+                Icon(icon, color: AppColors.clay),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.ink,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        detail,
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          color: AppColors.muted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (selected)
+                  const Icon(Icons.check_circle_rounded, color: AppColors.sage),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

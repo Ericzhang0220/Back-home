@@ -323,6 +323,7 @@ class _AppShellState extends State<AppShell> {
           key: const ValueKey(AppTab.room),
           controller: _roomController,
           settingsController: widget.settingsController,
+          musicController: widget.musicController,
           onOpenShop: _openShop,
           isActive: _currentTab == AppTab.room,
           isChromeVisible: _roomChromeVisible,

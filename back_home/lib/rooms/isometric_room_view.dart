@@ -6,7 +6,7 @@ import 'package:three_js/three_js.dart' as three;
 
 import 'room_state.dart';
 
-enum _RoomTapTarget { desk, bed }
+enum _RoomTapTarget { desk, bed, radio }
 
 class IsometricRoomView extends StatefulWidget {
   const IsometricRoomView({
@@ -17,6 +17,7 @@ class IsometricRoomView extends StatefulWidget {
     this.nightMode = false,
     this.onTapDesk,
     this.onTapBed,
+    this.onTapRadio,
     this.onDoubleTapRoom,
     this.skyWeather = SkyWeather.clear,
     this.skyTimeOfDay,
@@ -34,6 +35,9 @@ class IsometricRoomView extends StatefulWidget {
   final bool nightMode;
   final VoidCallback? onTapDesk;
   final VoidCallback? onTapBed;
+
+  /// Fired when the radio on the desk is tapped — used to open the music picker.
+  final VoidCallback? onTapRadio;
   final VoidCallback? onDoubleTapRoom;
 
   /// Weather shown through the window.
@@ -132,6 +136,17 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   double _pitchAtDragStart = _lookPitch;
   double _cameraTiltPointerStartX = 0;
   double _cameraTiltPointerStartY = 0;
+  // Seated desk view: the camera stays put but can pan its gaze within the
+  // front hemisphere. Base = the look toward the desk; offsets are the drag.
+  double _deskBaseYaw = 0;
+  double _deskBasePitch = 0;
+  double _deskYaw = 0;
+  double _deskPitch = 0;
+  double _deskYawAtDragStart = 0;
+  double _deskPitchAtDragStart = 0;
+  static const double _deskYawLimit = math.pi / 2; // front hemisphere only
+  static const double _deskPitchMin = -0.5;
+  static const double _deskPitchMax = 0.5;
 
   // Smooth camera motion + pinch zoom. The camera eases toward these targets
   // every frame instead of snapping; _zoom drives the field of view.
@@ -146,6 +161,10 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   final Map<int, Offset> _activePointerPositions = <int, Offset>{};
   final three.Vector3 _cameraPanOffset = three.Vector3.zero();
   Offset? _lastPanCentroid;
+  // World-space footprint of the built-in sofa, captured on load so the camera
+  // pans around it like it does the placed furniture.
+  ({double centerX, double centerZ, double halfWidth, double halfDepth})?
+  _sofaCollider;
 
   static const double _minZoom = 0.62;
   static const double _maxZoom = 2.4;
@@ -155,8 +174,10 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   static const double _cameraHeightPanUnitsPerPixel = 0.006;
   static const double _minCameraHeightOffset = -0.9;
   static const double _maxCameraHeightOffset = 1.8;
-  static const double _cameraPanWallPadding_x = 0.4;
-  static const double _cameraPanWallPadding_z = 0.5;
+  static const double _cameraPanWallPaddingX = 0.4;
+  static const double _cameraPanWallPaddingZ = 0.5;
+  // How close the camera can get to furniture before it's blocked (world units).
+  static const double _cameraColliderRadius = 0.34;
   // Higher = snappier camera transitions (eases ~this fraction per second).
   static const double _cameraLerpSpeed = 7.0;
   static const double _zoomLerpSpeed = 9.0;
@@ -201,6 +222,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       _currentZoom = 1.0;
       _cameraPanOffset.setValues(0, 0, 0);
       _lastPanCentroid = null;
+      // Sit down facing the desk; the seated look starts centred each time.
+      _deskYaw = 0;
+      _deskPitch = 0;
       final width = _threeJs!.width <= 0 ? 1.0 : _threeJs!.width;
       final height = _threeJs!.height <= 0 ? 1.0 : _threeJs!.height;
       _configureCamera(Size(width, height));
@@ -360,6 +384,16 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         eyeHeight: 1.75,
         lookHeight: 1.15,
       );
+      // Remember the seated forward look so drags can pan around it (front
+      // hemisphere only). Yaw/pitch follow the same convention as free-look:
+      // look dir = (sin yaw, pitch, -cos yaw).
+      final dirX = lookAt.x - basePos.x;
+      final dirZ = lookAt.z - basePos.z;
+      final horizontal = math.sqrt(dirX * dirX + dirZ * dirZ);
+      _deskBaseYaw = math.atan2(dirX, -dirZ);
+      _deskBasePitch = horizontal < 1e-3
+          ? 0
+          : (lookAt.y - basePos.y) / horizontal;
       baseFov = _focusFov;
     } else if (widget.nightMode) {
       // Turn toward the tapped bed; the good-night overlay covers most of the
@@ -470,6 +504,19 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       _currentCameraPitch = rotationSettled
           ? _cameraPitch
           : _lerpDouble(_currentCameraPitch, _cameraPitch, rotationT);
+    }
+
+    // Seated at the desk, the eye is fixed but the gaze pans with the drag —
+    // re-aim the look target each frame so it eases toward the current angle.
+    final deskLook = widget.deskFocused && !widget.nightMode;
+    if (deskLook) {
+      final yaw = _deskBaseYaw + _deskYaw;
+      final pitch = _deskBasePitch + _deskPitch;
+      _cameraTargetLook.setValues(
+        _camera.position.x + math.sin(yaw),
+        _camera.position.y + pitch,
+        _camera.position.z - math.cos(yaw),
+      );
     }
 
     // Nothing to do once the camera has settled on its target.
@@ -721,14 +768,6 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
 
     _addSlopedCeilingDetails(scene, roomDepth);
 
-    final ceilingBeam = _box(
-      width: roomWidth + 0.5,
-      height: 0.18,
-      depth: 0.4,
-      color: const Color(0xFF3A2A24),
-    )..position.setValues(0, 4.6, 0.45);
-    scene.add(ceilingBeam);
-
     await _yieldSceneStep();
     if (!mounted) {
       return;
@@ -956,6 +995,16 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         _malloryLift - bounds.min.y,
         _malloryZ - center.z,
       );
+      // The model is recentred onto (_malloryX, _malloryZ), so its world
+      // footprint is that centre plus half the scaled size — record it as a
+      // camera collider.
+      final size = bounds.getSize(three.Vector3.zero());
+      _sofaCollider = (
+        centerX: _malloryX,
+        centerZ: _malloryZ,
+        halfWidth: size.x / 2,
+        halfDepth: size.z / 2,
+      );
     }
 
     sectional.traverse((object) {
@@ -971,20 +1020,6 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
 
   void _addSlopedCeilingDetails(three.Scene scene, double roomDepth) {
     final rearZ = -roomDepth / 2 + 0.24;
-
-    final leftSkylight =
-        three.Mesh(
-            three.BoxGeometry(1.42, 0.46, 0.04),
-            three.MeshPhongMaterial.fromMap({
-              'color': _hex(const Color(0xFF151718)),
-              'transparent': true,
-              'opacity': 0.86,
-            }),
-          )
-          ..position.setValues(-4.22, 4.44, rearZ + 0.03)
-          ..rotation.z = -0.88
-          ..receiveShadow = true;
-    scene.add(leftSkylight);
 
     final topRail = _box(
       width: 4.6,
@@ -1454,6 +1489,20 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     );
     scene.add(radioBody);
 
+    // Invisible hit box around the radio so tapping it opens the music picker.
+    // A touch larger than the body, and resolved with priority over the desk
+    // tap target it sits inside (see _onPointerDown).
+    _addRoomTapTarget(
+      scene,
+      target: _RoomTapTarget.radio,
+      width: 0.92,
+      height: 0.6,
+      depth: 0.5,
+      x: 1.52,
+      y: 1.12,
+      z: deskZ + 0.05,
+    );
+
     final radioDial =
         three.Mesh(
             three.CylinderGeometry(0.085, 0.085, 0.035, 18),
@@ -1631,10 +1680,21 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         true,
       );
       if (roomIntersections.isNotEmpty) {
-        _pendingTapTarget = _resolveRoomTapTarget(
-          roomIntersections.first.object,
-        );
-        _pendingTapAnchor = roomIntersections.first.point?.clone();
+        // The radio hit box sits inside the larger desk hit box, so prefer the
+        // radio when the ray passes through it; otherwise take the nearest hit.
+        for (final hit in roomIntersections) {
+          final resolved = _resolveRoomTapTarget(hit.object);
+          if (resolved == null) {
+            continue;
+          }
+          _pendingTapTarget ??= resolved;
+          _pendingTapAnchor ??= hit.point?.clone();
+          if (resolved == _RoomTapTarget.radio) {
+            _pendingTapTarget = resolved;
+            _pendingTapAnchor = hit.point?.clone();
+            break;
+          }
+        }
         widget.controller.selectItem(null);
         _beginCameraTiltCandidate(event);
         return;
@@ -1827,12 +1887,16 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _cameraPitch = _currentCameraPitch;
     _yawAtDragStart = _cameraYaw;
     _pitchAtDragStart = _cameraPitch;
+    _deskYawAtDragStart = _deskYaw;
+    _deskPitchAtDragStart = _deskPitch;
     _cameraTiltPointerStartX = _eventClientX(event);
     _cameraTiltPointerStartY = _eventClientY(event);
   }
 
   void _updateCameraTilt(dynamic event) {
-    if (!_cameraTiltCandidate || widget.deskFocused || widget.nightMode) {
+    // Night mode is a fixed shot behind the good-night overlay, so it stays
+    // locked. The desk view allows a limited seated look (handled below).
+    if (!_cameraTiltCandidate || widget.nightMode) {
       return;
     }
 
@@ -1845,6 +1909,23 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
 
     _cameraTiltActive = true;
     _pendingTapTarget = null;
+
+    if (widget.deskFocused) {
+      // Seated: pan the gaze within the front hemisphere only, eye fixed.
+      _deskYaw =
+          (_deskYawAtDragStart -
+                  deltaX * _yawSensitivity * widget.cameraRotateSensitivity)
+              .clamp(-_deskYawLimit, _deskYawLimit)
+              .toDouble();
+      _deskPitch =
+          (_deskPitchAtDragStart +
+                  deltaY * _pitchSensitivity * widget.cameraRotateSensitivity)
+              .clamp(_deskPitchMin, _deskPitchMax)
+              .toDouble();
+      _refreshCamera();
+      return;
+    }
+
     // Full 360° turn — no clamp; wrap into [0, 2π) so the value stays bounded.
     _cameraYaw = _normalizeRadians(
       _yawAtDragStart -
@@ -1886,18 +1967,64 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         (-delta.dx * rightZ + delta.dy * forwardZ) * _cameraPanUnitsPerPixel;
     final maxPanX =
         RoomEditorController.roomWidth * RoomEditorController.cellSize / 2 -
-        _cameraPanWallPadding_x;
+        _cameraPanWallPaddingX;
     final maxPanZ =
         RoomEditorController.roomDepth * RoomEditorController.cellSize / 2 -
-        _cameraPanWallPadding_z;
+        _cameraPanWallPaddingZ;
 
-    _cameraPanOffset.x = (_cameraPanOffset.x + panX)
+    final targetX = (_cameraPanOffset.x + panX)
         .clamp(-maxPanX, maxPanX)
         .toDouble();
-    _cameraPanOffset.z = (_cameraPanOffset.z + panZ)
+    final targetZ = (_cameraPanOffset.z + panZ)
         .clamp(-maxPanZ, maxPanZ)
         .toDouble();
+
+    // Move each axis independently, accepting it only if the eye wouldn't end
+    // up inside a piece of furniture. This lets the camera slide along an edge
+    // instead of passing through — you go around furniture, never into it.
+    if (!_isEyeBlocked(targetX, _cameraPanOffset.z)) {
+      _cameraPanOffset.x = targetX;
+    }
+    if (!_isEyeBlocked(_cameraPanOffset.x, targetZ)) {
+      _cameraPanOffset.z = targetZ;
+    }
     _refreshCamera();
+  }
+
+  /// Whether the camera eye at world (x, z) would sit inside a furniture
+  /// collider — the placed items' grid footprints plus the built-in sofa, each
+  /// grown by [_cameraColliderRadius] so the lens keeps a small standoff.
+  bool _isEyeBlocked(double x, double z) {
+    for (final item in widget.controller.placedItems) {
+      final footprint = widget.controller.footprintForDefinition(
+        item.definitionId,
+        item.rotationQuarterTurns,
+      );
+      final center = _gridOriginToWorld(
+        definitionId: item.definitionId,
+        quarterTurns: item.rotationQuarterTurns,
+        origin: item.origin,
+      );
+      final halfWidth =
+          footprint.width * RoomEditorController.cellSize / 2 +
+          _cameraColliderRadius;
+      final halfDepth =
+          footprint.depth * RoomEditorController.cellSize / 2 +
+          _cameraColliderRadius;
+      if ((x - center.x).abs() < halfWidth &&
+          (z - center.z).abs() < halfDepth) {
+        return true;
+      }
+    }
+
+    final sofa = _sofaCollider;
+    if (sofa != null &&
+        (x - sofa.centerX).abs() < sofa.halfWidth + _cameraColliderRadius &&
+        (z - sofa.centerZ).abs() < sofa.halfDepth + _cameraColliderRadius) {
+      return true;
+    }
+
+    return false;
   }
 
   void _updateCameraHeightPan() {
@@ -2215,6 +2342,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         return;
       case _RoomTapTarget.bed:
         widget.onTapBed?.call();
+        return;
+      case _RoomTapTarget.radio:
+        widget.onTapRadio?.call();
         return;
       case null:
         return;
