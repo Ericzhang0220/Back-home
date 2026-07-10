@@ -121,6 +121,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   // focus camera can fly to the furniture's actual spot instead of a fixed one.
   three.Vector3? _pendingTapAnchor;
   three.Vector3? _focusAnchor;
+  bool _preserveNightEntryLookDirection = false;
   String? _pendingFurnitureTapItemId;
   double _pointerDownX = 0;
   double _pointerDownY = 0;
@@ -266,6 +267,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         _zoom = previous.zoom;
         _currentZoom = previous.zoom;
         _preNightCameraState = null;
+        _preserveNightEntryLookDirection = false;
       } else {
         // Other focused views retain their designed fresh framing.
         _zoom = 1.0;
@@ -463,6 +465,16 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         eyeHeight: 1.8,
         lookHeight: 0.85,
       );
+      if (_preserveNightEntryLookDirection) {
+        lookAt = basePos.clone()
+          ..add(
+            three.Vector3(
+              math.sin(_currentCameraYaw),
+              _currentCameraPitch,
+              -math.cos(_currentCameraYaw),
+            ),
+          );
+      }
       baseFov = _focusFov;
     } else {
       // Centred free-look: stand in the middle of the room and turn 360°.
@@ -2565,6 +2577,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         widget.onTapDesk?.call();
         return;
       case _RoomTapTarget.bed:
+        _preserveNightEntryLookDirection = _centerRayHitsBedCollider();
         widget.onTapBed?.call();
         return;
       case _RoomTapTarget.radio:
@@ -2573,6 +2586,35 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       case null:
         return;
     }
+  }
+
+  bool _centerRayHitsBedCollider() {
+    if (_furnitureColliderMeshes.isEmpty) {
+      return false;
+    }
+    _camera.updateMatrixWorld(true);
+    _raycaster.setFromCamera(three.Vector2.zero(), _camera);
+    final hits = _raycaster.intersectObjects(
+      _furnitureColliderMeshes.values.toList(),
+    );
+    if (hits.isEmpty) {
+      return false;
+    }
+    final hitMesh = hits.first.object;
+    String? hitItemId;
+    for (final entry in _furnitureColliderMeshes.entries) {
+      if (identical(entry.value, hitMesh)) {
+        hitItemId = entry.key;
+        break;
+      }
+    }
+    if (hitItemId == null) {
+      return false;
+    }
+    final item = widget.controller.placedItemById(hitItemId);
+    return item != null &&
+        widget.controller.definitionFor(item.definitionId).visualKind ==
+            RoomItemVisualKind.bed;
   }
 
   void _recordPointerPosition(dynamic event, {required bool isDown}) {
