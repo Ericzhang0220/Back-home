@@ -2135,11 +2135,25 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       return;
     }
 
-    _cameraPanOffset.y =
-        (_cameraPanOffset.y + delta.dy * _cameraHeightPanUnitsPerPixel)
+    final currentOffsetY = _cameraPanOffset.y;
+    final targetOffsetY =
+        (currentOffsetY + delta.dy * _cameraHeightPanUnitsPerPixel)
             .clamp(_minCameraHeightOffset, _maxCameraHeightOffset)
             .toDouble();
-    _refreshCamera();
+    final currentY = _eyeHeight + currentOffsetY;
+    final targetY = _eyeHeight + targetOffsetY;
+    final targetBlocked = _isEyeBlocked(
+      _cameraPanOffset.x,
+      targetY,
+      _cameraPanOffset.z,
+    );
+    final escapingUpward =
+        targetY > currentY &&
+        _isEyeBlocked(_cameraPanOffset.x, currentY, _cameraPanOffset.z);
+    if (!targetBlocked || escapingUpward) {
+      _cameraPanOffset.y = targetOffsetY;
+      _refreshCamera();
+    }
   }
 
   Offset? _pointerCentroid({required int minPointers}) {
