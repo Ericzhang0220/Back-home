@@ -36,8 +36,8 @@ class AppSettingsController extends ChangeNotifier {
 
   /// Bounds for the room camera's rotate sensitivity, matching the slider in
   /// the settings screen and the room view's expectations.
-  static const double minCameraRotateSensitivity = 0.4;
-  static const double maxCameraRotateSensitivity = 1.8;
+  static const double minCameraRotateSensitivity = 0.1;
+  static const double maxCameraRotateSensitivity = 2.0;
 
   SharedPreferences? _preferences;
   ReadingComfort _readingComfort = ReadingComfort.medium;
@@ -228,9 +228,7 @@ class AppSettingsController extends ChangeNotifier {
     _cameraRotateSensitivity = normalized;
     _cameraRotateSensitivityDirty = true;
     notifyListeners();
-    unawaited(
-      _preferences?.setDouble(_cameraRotateSensitivityKey, normalized),
-    );
+    unawaited(_preferences?.setDouble(_cameraRotateSensitivityKey, normalized));
   }
 
   double _normalizeVolume(double value) {

@@ -212,7 +212,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   static const double _debugCenterRayLength = 20.0;
   // Higher = snappier camera transitions (eases ~this fraction per second).
   static const double _cameraLerpSpeed = 7.0;
-  static const double _bedFocusCameraLerpSpeed = 2.5;
+  static const double _bedFocusCameraLerpSpeed = 2.0;
   static const double _zoomLerpSpeed = 9.0;
   static const double _rotationLerpSpeed = 9.0;
   static const double _rotationDragDegreesPerPixel = 0.12;
