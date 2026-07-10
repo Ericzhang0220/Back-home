@@ -159,6 +159,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   double _cameraTargetBaseFov = _mainFov;
   final Set<int> _activePointers = <int>{};
   final Map<int, Offset> _activePointerPositions = <int, Offset>{};
+  bool _multiTouchSequenceActive = false;
   final three.Vector3 _cameraPanOffset = three.Vector3.zero();
   Offset? _lastPanCentroid;
   // World-space footprint of the built-in sofa, captured on load so the camera
@@ -1658,6 +1659,8 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     );
     if (_isPinching) {
       // More than one finger is a gesture, not a drag/tilt.
+      _multiTouchSequenceActive = true;
+      _cancelPendingRoomTap();
       _cancelInteraction();
       return;
     }
@@ -1828,6 +1831,18 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
           ? _pointerCentroid(minPointers: _cameraPanPointerCount)
           : null;
       _recordPointerPosition(event, isDown: false);
+    }
+
+    if (_multiTouchSequenceActive) {
+      _pendingTapTarget = null;
+      _pendingTapAnchor = null;
+      _pendingFurnitureTapItemId = null;
+      _cameraTiltCandidate = false;
+      _cameraTiltActive = false;
+      if (_activePointers.isEmpty) {
+        _multiTouchSequenceActive = false;
+      }
+      return;
     }
 
     final tapTarget = _pointerTravel <= 10 ? _pendingTapTarget : null;
