@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../audio/background_music_controller.dart';
@@ -73,6 +74,7 @@ class _RoomScreenState extends State<RoomScreen> {
   SkyWeather? _autoWeather; // latest reading from WeatherService
   double? _skyTimeOfDay; // null = live (real clock)
   double _cameraZoom = 1.0;
+  bool _showFurnitureColliders = false;
 
   bool get _inSubview => _deskFocused || _nightMode;
 
@@ -258,7 +260,10 @@ class _RoomScreenState extends State<RoomScreen> {
     final panelHeight = math.min(media.size.height * 0.62, 520.0);
 
     return AnimatedBuilder(
-      animation: Listenable.merge([widget.controller, widget.settingsController]),
+      animation: Listenable.merge([
+        widget.controller,
+        widget.settingsController,
+      ]),
       builder: (context, _) {
         final selectedItem = widget.controller.selectedItemId == null
             ? null
@@ -302,6 +307,7 @@ class _RoomScreenState extends State<RoomScreen> {
                       cameraZoom: _cameraZoom,
                       cameraRotateSensitivity:
                           widget.settingsController.cameraRotateSensitivity,
+                      showFurnitureColliders: _showFurnitureColliders,
                     );
                   },
                 ),
@@ -331,6 +337,23 @@ class _RoomScreenState extends State<RoomScreen> {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (kDebugMode)
+                      Tooltip(
+                        message: _showFurnitureColliders
+                            ? 'Hide furniture colliders'
+                            : 'Show furniture colliders',
+                        child: _SceneButton(
+                          icon: _showFurnitureColliders
+                              ? Icons.view_in_ar_rounded
+                              : Icons.view_in_ar_outlined,
+                          onTap: () {
+                            setState(() {
+                              _showFurnitureColliders =
+                                  !_showFurnitureColliders;
+                            });
+                          },
+                        ),
+                      ),
                     Expanded(
                       child: Container(),
                       // child: _FloatingTitle(
@@ -443,8 +466,9 @@ class _RoomScreenState extends State<RoomScreen> {
                               setState(() => _skyTimeOfDay = t),
                           onCameraZoom: (value) =>
                               setState(() => _cameraZoom = value),
-                          onCameraRotateSensitivity:
-                              widget.settingsController.setCameraRotateSensitivity,
+                          onCameraRotateSensitivity: widget
+                              .settingsController
+                              .setCameraRotateSensitivity,
                         ),
                       ),
                     ),

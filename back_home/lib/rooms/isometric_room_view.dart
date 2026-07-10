@@ -23,6 +23,7 @@ class IsometricRoomView extends StatefulWidget {
     this.skyTimeOfDay,
     this.cameraZoom = 1,
     this.cameraRotateSensitivity = 1,
+    this.showFurnitureColliders = false,
     this.canMoveFurniture = false,
     this.onSelectedScreenPositionChanged,
     this.rotateSelectedWithDrag = false,
@@ -48,6 +49,7 @@ class IsometricRoomView extends StatefulWidget {
   final double? skyTimeOfDay;
   final double cameraZoom;
   final double cameraRotateSensitivity;
+  final bool showFurnitureColliders;
 
   /// Enables the room editor's drag-to-move furniture interactions.
   final bool canMoveFurniture;
@@ -94,6 +96,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   late final three.PerspectiveCamera _camera;
 
   final Map<String, _SceneFurniture> _sceneFurniture = {};
+  final Map<String, three.Mesh> _furnitureColliderMeshes = {};
   final three.Raycaster _raycaster = three.Raycaster();
   final three.Vector2 _pointer = three.Vector2.zero();
   final three.Plane _dragPlane = three.Plane();
@@ -166,6 +169,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   // pans around it like it does the placed furniture.
   ({double centerX, double centerZ, double halfWidth, double halfDepth})?
   _sofaCollider;
+  three.Mesh? _sofaColliderMesh;
 
   static const double _minZoom = 0.62;
   static const double _maxZoom = 2.4;
@@ -241,6 +245,10 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         _threeJs != null &&
         widget.cameraZoom != oldWidget.cameraZoom) {
       _refreshCamera();
+    }
+    if (_sceneReady &&
+        widget.showFurnitureColliders != oldWidget.showFurnitureColliders) {
+      _syncColliderVisibility();
     }
     _syncSkyClock();
 
@@ -1006,6 +1014,15 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         halfWidth: size.x / 2,
         halfDepth: size.z / 2,
       );
+      _sofaColliderMesh = _createColliderMesh()
+        ..position.setValues(_malloryX, 1.1, _malloryZ)
+        ..scale.setValues(
+          size.x + _cameraColliderRadius * 2,
+          2.2,
+          size.z + _cameraColliderRadius * 2,
+        )
+        ..visible = widget.showFurnitureColliders;
+      scene.add(_sofaColliderMesh!);
     }
 
     sectional.traverse((object) {
@@ -2109,6 +2126,10 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         if (removed != null) {
           _threeJs!.scene.remove(removed.root);
         }
+        final removedCollider = _furnitureColliderMeshes.remove(instanceId);
+        if (removedCollider != null) {
+          _threeJs!.scene.remove(removedCollider);
+        }
       }
     }
 
@@ -2117,6 +2138,11 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         item.instanceId,
         () => _createSceneFurniture(item),
       );
+      _furnitureColliderMeshes.putIfAbsent(item.instanceId, () {
+        final mesh = _createColliderMesh();
+        _threeJs!.scene.add(mesh);
+        return mesh;
+      });
     }
 
     for (final item in widget.controller.placedItems) {
@@ -2132,12 +2158,56 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         isDragging: isDragging,
         isValid: isValid,
       );
+      _updateFurnitureCollider(item, previewOrigin ?? item.origin);
     }
 
     if (mounted) {
       setState(() {});
     }
     _publishSelectedScreenPosition();
+  }
+
+  three.Mesh _createColliderMesh() {
+    final material = three.MeshBasicMaterial.fromMap({
+      'color': 0x39d5e8,
+      'transparent': true,
+      'opacity': 0.24,
+      'depthWrite': false,
+    });
+    return three.Mesh(three.BoxGeometry(1, 1, 1), material)..renderOrder = 20;
+  }
+
+  void _updateFurnitureCollider(PlacedRoomItem item, GridPoint origin) {
+    final mesh = _furnitureColliderMeshes[item.instanceId];
+    if (mesh == null) {
+      return;
+    }
+    final footprint = widget.controller.footprintForDefinition(
+      item.definitionId,
+      item.rotationQuarterTurns,
+    );
+    final center = _gridOriginToWorld(
+      definitionId: item.definitionId,
+      quarterTurns: item.rotationQuarterTurns,
+      origin: origin,
+    );
+    mesh
+      ..position.setValues(center.x, 1.1, center.z)
+      ..scale.setValues(
+        footprint.width * RoomEditorController.cellSize +
+            _cameraColliderRadius * 2,
+        2.2,
+        footprint.depth * RoomEditorController.cellSize +
+            _cameraColliderRadius * 2,
+      )
+      ..visible = widget.showFurnitureColliders;
+  }
+
+  void _syncColliderVisibility() {
+    for (final collider in _furnitureColliderMeshes.values) {
+      collider.visible = widget.showFurnitureColliders;
+    }
+    _sofaColliderMesh?.visible = widget.showFurnitureColliders;
   }
 
   void _publishSelectedScreenPosition() {
