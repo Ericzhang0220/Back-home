@@ -97,6 +97,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
 
   final Map<String, _SceneFurniture> _sceneFurniture = {};
   final Map<String, three.Mesh> _furnitureColliderMeshes = {};
+  three.Mesh? _cameraColliderMesh;
   final three.Raycaster _raycaster = three.Raycaster();
   final three.Vector2 _pointer = three.Vector2.zero();
   final three.Plane _dragPlane = three.Plane();
@@ -336,6 +337,15 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     );
 
     _configureCamera(Size(initialWidth, initialHeight));
+    _cameraColliderMesh = _createColliderMesh(color: 0xffc857, opacity: 0.34)
+      ..scale.setValues(
+        _cameraColliderRadius * 2,
+        0.08,
+        _cameraColliderRadius * 2,
+      )
+      ..visible = widget.showFurnitureColliders;
+    _updateCameraColliderMesh();
+    threeJs.scene.add(_cameraColliderMesh!);
     threeJs.addAnimationEvent(_animateCamera);
     await _buildRoomShell();
     if (!mounted) {
@@ -489,6 +499,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     if (!_cameraPosed) {
       return;
     }
+    _updateCameraColliderMesh();
     final nextZoom = _lerpDouble(
       _currentZoom,
       _zoom,
@@ -538,6 +549,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     }
     final t = (1 - math.exp(-dt * _cameraLerpSpeed)).clamp(0.0, 1.0).toDouble();
     _camera.position.lerp(_cameraTargetPos, t);
+    _updateCameraColliderMesh();
     if (mainFreeLook) {
       _cameraCurrentLook.setValues(
         _camera.position.x + math.sin(_currentCameraYaw),
@@ -1015,12 +1027,8 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         halfDepth: size.z / 2,
       );
       _sofaColliderMesh = _createColliderMesh()
-        ..position.setValues(_malloryX, 1.1, _malloryZ)
-        ..scale.setValues(
-          size.x + _cameraColliderRadius * 2,
-          2.2,
-          size.z + _cameraColliderRadius * 2,
-        )
+        ..position.setValues(_malloryX, 2.4, _malloryZ)
+        ..scale.setValues(size.x, 4.8, size.z)
         ..visible = widget.showFurnitureColliders;
       scene.add(_sofaColliderMesh!);
     }
@@ -2167,11 +2175,14 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _publishSelectedScreenPosition();
   }
 
-  three.Mesh _createColliderMesh() {
+  three.Mesh _createColliderMesh({
+    int color = 0x39d5e8,
+    double opacity = 0.24,
+  }) {
     final material = three.MeshBasicMaterial.fromMap({
-      'color': 0x39d5e8,
+      'color': color,
       'transparent': true,
-      'opacity': 0.24,
+      'opacity': opacity,
       'depthWrite': false,
     });
     return three.Mesh(three.BoxGeometry(1, 1, 1), material)..renderOrder = 20;
@@ -2192,15 +2203,21 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       origin: origin,
     );
     mesh
-      ..position.setValues(center.x, 1.1, center.z)
+      ..position.setValues(center.x, 2.4, center.z)
       ..scale.setValues(
-        footprint.width * RoomEditorController.cellSize +
-            _cameraColliderRadius * 2,
-        2.2,
-        footprint.depth * RoomEditorController.cellSize +
-            _cameraColliderRadius * 2,
+        footprint.width * RoomEditorController.cellSize,
+        4.8,
+        footprint.depth * RoomEditorController.cellSize,
       )
       ..visible = widget.showFurnitureColliders;
+  }
+
+  void _updateCameraColliderMesh() {
+    _cameraColliderMesh?.position.setValues(
+      _camera.position.x,
+      0.08,
+      _camera.position.z,
+    );
   }
 
   void _syncColliderVisibility() {
@@ -2208,6 +2225,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       collider.visible = widget.showFurnitureColliders;
     }
     _sofaColliderMesh?.visible = widget.showFurnitureColliders;
+    _cameraColliderMesh?.visible = widget.showFurnitureColliders;
   }
 
   void _publishSelectedScreenPosition() {
