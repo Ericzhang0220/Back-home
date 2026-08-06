@@ -2,15 +2,48 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../rooms/furniture_preview.dart';
 import '../rooms/room_state.dart';
-import '../rooms/room_visuals.dart';
 import '../widgets/app_ui.dart';
 import 'room_edit_screen.dart';
 
-class ShopScreen extends StatelessWidget {
+class ShopScreen extends StatefulWidget {
   const ShopScreen({super.key, required this.controller});
 
   final RoomEditorController controller;
+
+  @override
+  State<ShopScreen> createState() => _ShopScreenState();
+}
+
+class _ShopScreenState extends State<ShopScreen> {
+  RoomItemDefinition? _previewed;
+
+  @override
+  void initState() {
+    super.initState();
+    final catalog = widget.controller.catalog;
+    _previewed = catalog.isEmpty ? null : catalog.first;
+  }
+
+  List<RoomItemVisualKind> get _catalogKinds {
+    final kinds = <RoomItemVisualKind>[];
+    for (final definition in widget.controller.catalog) {
+      if (!kinds.contains(definition.visualKind)) {
+        kinds.add(definition.visualKind);
+      }
+    }
+    return kinds;
+  }
+
+  void _preview(RoomItemDefinition definition) {
+    if (_previewed?.id == definition.id) {
+      return;
+    }
+    setState(() {
+      _previewed = definition;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -23,7 +56,7 @@ class ShopScreen extends StatelessWidget {
           Positioned.fill(
             child: SafeArea(
               child: AnimatedBuilder(
-                animation: controller,
+                animation: widget.controller,
                 builder: (context, _) {
                   return AppPage(
                     eyebrow: Row(
@@ -87,7 +120,7 @@ class ShopScreen extends StatelessWidget {
                                   ),
                                   const SizedBox(height: 8),
                                   Text(
-                                    '${controller.likesBalance}',
+                                    '${widget.controller.likesBalance}',
                                     style: const TextStyle(
                                       fontSize: 34,
                                       fontWeight: FontWeight.w700,
@@ -115,6 +148,11 @@ class ShopScreen extends StatelessWidget {
                             ),
                           ],
                         ),
+                      ),
+                      const SizedBox(height: 28),
+                      _PreviewPanel(
+                        definition: _previewed,
+                        bakeKinds: _catalogKinds,
                       ),
                       const SizedBox(height: 28),
                       const SectionHeader(
@@ -148,7 +186,9 @@ class ShopScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 20),
                       _ShopCatalogGrid(
-                        controller: controller,
+                        controller: widget.controller,
+                        previewedId: _previewed?.id,
+                        onPreview: _preview,
                         onBuy: (definitionId) => _buy(context, definitionId),
                         onPlaceOwnedAndEdit: (definitionId) => _openEditor(
                           context,
@@ -173,7 +213,7 @@ class ShopScreen extends StatelessWidget {
   }
 
   void _buy(BuildContext context, String definitionId) {
-    final result = controller.purchaseItem(definitionId);
+    final result = widget.controller.purchaseItem(definitionId);
     _showResult(context, result);
   }
 
@@ -184,9 +224,83 @@ class ShopScreen extends StatelessWidget {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => RoomEditScreen(
-          controller: controller,
+          controller: widget.controller,
           initialDefinitionId: initialDefinitionId,
         ),
+      ),
+    );
+  }
+}
+
+/// The live turntable. This is the app's one GL context while the shop is open,
+/// and it also bakes the thumbnails the cards below use.
+class _PreviewPanel extends StatelessWidget {
+  const _PreviewPanel({required this.definition, required this.bakeKinds});
+
+  final RoomItemDefinition? definition;
+  final List<RoomItemVisualKind> bakeKinds;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final tint = definition?.tint ?? const Color(0xFFF1E4D6);
+
+    return SoftCard(
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      definition?.title ?? 'Preview',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      definition?.typeLabel ?? 'Pick a piece below',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: AppColors.muted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const InfoPill(
+                icon: Icons.threed_rotation_rounded,
+                label: 'Preview',
+                value: 'Drag to spin',
+                tint: Color(0xFFEADFCF),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: tint.withValues(alpha: 0.92),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: FurniturePreviewStage(
+              definition: definition,
+              bakeKinds: bakeKinds,
+            ),
+          ),
+          if (definition != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              definition!.description,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: AppColors.muted,
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -195,11 +309,15 @@ class ShopScreen extends StatelessWidget {
 class _ShopCatalogGrid extends StatelessWidget {
   const _ShopCatalogGrid({
     required this.controller,
+    required this.previewedId,
+    required this.onPreview,
     required this.onBuy,
     required this.onPlaceOwnedAndEdit,
   });
 
   final RoomEditorController controller;
+  final String? previewedId;
+  final ValueChanged<RoomItemDefinition> onPreview;
   final ValueChanged<String> onBuy;
   final ValueChanged<String> onPlaceOwnedAndEdit;
 
@@ -237,6 +355,8 @@ class _ShopCatalogGrid extends StatelessWidget {
                   likesBalance: controller.likesBalance,
                   ownedCount: controller.ownedCount(item.id),
                   availableToPlace: controller.availableToPlace(item.id),
+                  isPreviewed: previewedId == item.id,
+                  onPreview: () => onPreview(item),
                   onBuy: () => onBuy(item.id),
                   onPlaceOwned: controller.availableToPlace(item.id) > 0
                       ? () => onPlaceOwnedAndEdit(item.id)
@@ -256,6 +376,8 @@ class _ShopItemCard extends StatelessWidget {
     required this.likesBalance,
     required this.ownedCount,
     required this.availableToPlace,
+    required this.isPreviewed,
+    required this.onPreview,
     required this.onBuy,
     this.onPlaceOwned,
   });
@@ -264,6 +386,8 @@ class _ShopItemCard extends StatelessWidget {
   final int likesBalance;
   final int ownedCount;
   final int availableToPlace;
+  final bool isPreviewed;
+  final VoidCallback onPreview;
   final VoidCallback onBuy;
   final VoidCallback? onPlaceOwned;
 
@@ -273,75 +397,93 @@ class _ShopItemCard extends StatelessWidget {
     final canAfford = likesBalance >= definition.price;
     final canEdit = availableToPlace > 0;
 
-    return SoftCard(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _FurnitureModelPreview(definition: definition),
-          const SizedBox(height: 16),
-          Text(
-            definition.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.titleMedium,
+    return GestureDetector(
+      onTap: onPreview,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(28),
+          border: Border.all(
+            color: isPreviewed ? AppColors.clay : Colors.transparent,
+            width: 2,
           ),
-          const SizedBox(height: 12),
-          Row(
+        ),
+        child: SoftCard(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(
-                Icons.favorite_rounded,
-                size: 18,
-                color: AppColors.clay,
-              ),
-              const SizedBox(width: 6),
-              Text('${definition.price}', style: theme.textTheme.labelLarge),
-              const Spacer(),
+              _FurnitureModelPreview(definition: definition),
+              const SizedBox(height: 16),
               Text(
-                '$ownedCount bought',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  fontWeight: FontWeight.w700,
+                definition.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.titleMedium,
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  const Icon(
+                    Icons.favorite_rounded,
+                    size: 18,
+                    color: AppColors.clay,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '${definition.price}',
+                    style: theme.textTheme.labelLarge,
+                  ),
+                  const Spacer(),
+                  Text(
+                    '$ownedCount bought',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+              const Spacer(),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: canAfford ? onBuy : null,
+                  child: Text(canAfford ? 'Buy' : 'Need more likes'),
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: canEdit ? onPlaceOwned : null,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: AppColors.ink,
+                    disabledBackgroundColor: Colors.white.withValues(
+                      alpha: 0.58,
+                    ),
+                    disabledForegroundColor: AppColors.muted.withValues(
+                      alpha: 0.54,
+                    ),
+                    side: const BorderSide(color: AppColors.stroke),
+                  ),
+                  child: const Text('Edit'),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerRight,
+                child: Text(
+                  'You have: $availableToPlace',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: AppColors.ink,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ),
             ],
           ),
-          const Spacer(),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              onPressed: canAfford ? onBuy : null,
-              child: Text(canAfford ? 'Buy' : 'Need more likes'),
-            ),
-          ),
-          const SizedBox(height: 8),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              onPressed: canEdit ? onPlaceOwned : null,
-              style: FilledButton.styleFrom(
-                backgroundColor: Colors.white,
-                foregroundColor: AppColors.ink,
-                disabledBackgroundColor: Colors.white.withValues(alpha: 0.58),
-                disabledForegroundColor: AppColors.muted.withValues(
-                  alpha: 0.54,
-                ),
-                side: const BorderSide(color: AppColors.stroke),
-              ),
-              child: const Text('Edit'),
-            ),
-          ),
-          const SizedBox(height: 10),
-          Align(
-            alignment: Alignment.centerRight,
-            child: Text(
-              'You have: $availableToPlace',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: AppColors.ink,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -382,7 +524,7 @@ class _FurnitureModelPreview extends StatelessWidget {
               ),
             ),
           ),
-          RoomSpriteThumbnail(definition: definition, size: 132),
+          FurnitureThumbnail(definition: definition, size: 132),
         ],
       ),
     );

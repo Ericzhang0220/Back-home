@@ -7,12 +7,12 @@ import 'package:flutter/material.dart';
 
 import '../audio/background_music_controller.dart';
 import '../rooms/isometric_room_view.dart';
+import '../rooms/room_gl_gate.dart';
 import '../rooms/room_state.dart';
 import '../rooms/room_visuals.dart';
 import '../services/weather_service.dart';
 import '../settings/app_settings_controller.dart';
 import '../widgets/app_ui.dart';
-import 'room_edit_screen.dart';
 
 class RoomScreen extends StatefulWidget {
   const RoomScreen({
@@ -281,15 +281,16 @@ class _RoomScreenState extends State<RoomScreen> {
           child: Stack(
             children: [
               Positioned.fill(
-                child: ValueListenableBuilder<bool>(
-                  valueListenable: RoomEditScreen.editorActive,
-                  builder: (context, editorActive, _) {
-                    // The furniture editor runs its own 3D renderer, and mobile
-                    // GL can't keep two live at once. While it's open we drop
-                    // this view entirely so its context is released; on return
-                    // it rebuilds fresh (new State -> new renderer), which is
-                    // what un-freezes the camera after an edit.
-                    if (editorActive) {
+                child: ValueListenableBuilder<Object?>(
+                  valueListenable: RoomGlGate.activeOwner,
+                  builder: (context, glOwner, _) {
+                    // The furniture editor and the shop's 3D previews run their
+                    // own renderers, and mobile GL can't keep two live at once.
+                    // While either holds the claim we drop this view entirely so
+                    // its context is released; on return it rebuilds fresh (new
+                    // State -> new renderer), which is what un-freezes the
+                    // camera after an edit.
+                    if (glOwner != null) {
                       return const ColoredBox(color: Color(0xFF191513));
                     }
                     return IsometricRoomView(

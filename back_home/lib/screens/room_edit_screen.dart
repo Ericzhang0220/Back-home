@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 
 import '../rooms/isometric_room_view.dart';
+import '../rooms/room_gl_gate.dart';
 import '../rooms/room_state.dart';
 
 class RoomEditScreen extends StatefulWidget {
@@ -15,13 +16,6 @@ class RoomEditScreen extends StatefulWidget {
   final RoomEditorController controller;
   final String? initialDefinitionId;
 
-  /// True while an editor is on screen. The editor runs its own 3D renderer,
-  /// and the mobile GL backend can't safely keep two live renderers at once —
-  /// so the background room view watches this to release its context while we
-  /// edit and rebuild fresh afterwards. Without it, returning from an edit left
-  /// the room's renderer wedged and the camera frozen.
-  static final ValueNotifier<bool> editorActive = ValueNotifier<bool>(false);
-
   @override
   State<RoomEditScreen> createState() => _RoomEditScreenState();
 }
@@ -29,6 +23,11 @@ class RoomEditScreen extends StatefulWidget {
 class _RoomEditScreenState extends State<RoomEditScreen> {
   static const double _moveNudgeAmount = 0.05;
   static const double _rotationNudgeDegrees = 1;
+
+  /// The editor runs its own 3D renderer, so it takes the GL claim for as long
+  /// as it is on screen; the room view behind it (and the shop's previews, when
+  /// the editor was opened from there) release theirs until we pop.
+  final Object _glToken = Object();
 
   late final RoomEditorController _draftController;
   final List<RoomEditSnapshot> _undoStack = [];
@@ -75,23 +74,17 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
     }
     _undoStack.add(_draftController.createEditSnapshot());
     _draftController.addListener(_handleDraftChanged);
-    // Signal the background room view to release its renderer so only one GL
-    // context is ever live at a time. Deferred out of the build phase — writing
-    // the notifier here directly would rebuild the room's listener mid-build and
-    // race its renderer's ticker into a half-torn-down EGL context (crash).
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      RoomEditScreen.editorActive.value = true;
-    });
+    // Take the GL claim so whatever was rendering behind us releases its
+    // context. The gate defers the actual hand-off out of this build phase.
+    RoomGlGate.claim(_glToken);
   }
 
   @override
   void dispose() {
-    // Deferred for the same reason as initState, and so it lands after our own
-    // renderer has fully torn down — the room view then rebuilds from a clean
-    // slate with no second context alive.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      RoomEditScreen.editorActive.value = false;
-    });
+    // The gate's post-frame hand-back lands after our own renderer has fully
+    // torn down, so the screen behind us rebuilds against a clean slate with no
+    // second context alive.
+    RoomGlGate.release(_glToken);
     _draftController.removeListener(_handleDraftChanged);
     _draftController.dispose();
     super.dispose();

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:back_home/app.dart';
+import 'package:back_home/rooms/furniture_preview.dart';
 import 'package:back_home/rooms/isometric_room_view.dart';
 import 'package:back_home/rooms/room_state.dart';
 import 'package:back_home/screens/shop_screen.dart';
@@ -9,6 +10,11 @@ import 'package:back_home/theme/app_theme.dart';
 import 'package:back_home/widgets/app_ui.dart';
 
 void main() {
+  // The shop's turntable would otherwise open a real GL context, whose platform
+  // channels never answer under the test binding.
+  setUp(() => FurniturePreviewStage.rendererEnabled = false);
+  tearDown(() => FurniturePreviewStage.rendererEnabled = true);
+
   testWidgets('renders the Back Home shell and switches tabs', (
     WidgetTester tester,
   ) async {
@@ -82,6 +88,34 @@ void main() {
     expect(find.text('Buy'), findsWidgets);
     expect(find.text('Edit'), findsWidgets);
     expect(find.textContaining('You have:'), findsWidgets);
+  });
+
+  testWidgets('tapping a catalog card moves it onto the preview turntable', (
+    WidgetTester tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(430, 932));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(),
+        home: ShopScreen(controller: RoomEditorController()),
+      ),
+    );
+
+    // The first catalog piece starts on the turntable, so its name shows twice:
+    // once in the preview panel, once on its own card.
+    expect(find.text('Sunset bed'), findsNWidgets(2));
+    expect(find.text('Soft nightstand'), findsOneWidget);
+
+    final nightstandCard = find.text('Soft nightstand');
+    await tester.ensureVisible(nightstandCard);
+    await tester.pumpAndSettle();
+    await tester.tap(nightstandCard);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Soft nightstand'), findsNWidgets(2));
+    expect(find.text('Sunset bed'), findsOneWidget);
   });
 
   testWidgets('shop buy adds inventory without opening the editor', (
