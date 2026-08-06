@@ -403,10 +403,10 @@ class _ShopItemCard extends StatelessWidget {
         duration: const Duration(milliseconds: 180),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(28),
-          border: Border.all(
-            color: isPreviewed ? AppColors.clay : Colors.transparent,
-            width: 2,
-          ),
+          // border: Border.all(
+          //   color: isPreviewed ? AppColors.clay : Colors.transparent,
+          //   width: 2,
+          // ),
         ),
         child: SoftCard(
           padding: const EdgeInsets.all(16),
