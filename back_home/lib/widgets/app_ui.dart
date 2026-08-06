@@ -41,13 +41,13 @@ class AmbientBackground extends StatelessWidget {
       ),
       child: Stack(
         children: [
-          if (showTopGlow)
-            const _GlowOrb(
-              alignment: Alignment.topRight,
-              color: Color(0x55FFFFFF),
-              size: 240,
-              offset: Offset(60, -40),
-            ),
+          // if (showTopGlow)
+          //   const _GlowOrb(
+          //     alignment: Alignment.topRight,
+          //     color: Color(0x55FFFFFF),
+          //     size: 240,
+          //     offset: Offset(60, -40),
+          //   ),
           if (showSideGlow)
             const _GlowOrb(
               alignment: Alignment.centerLeft,

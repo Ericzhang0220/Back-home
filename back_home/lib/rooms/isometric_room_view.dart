@@ -125,11 +125,10 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   GridPoint? _dragPreviewOrigin;
   bool _dragPreviewValid = true;
   _RoomTapTarget? _pendingTapTarget;
-  // World-space point that was tapped to open a desk/bed activity view, so the
-  // focus camera can fly to the furniture's actual spot instead of a fixed one.
+  // The pending point comes from the touch ray; the focus anchor is normalized
+  // to the relevant furniture centre before opening the activity view.
   three.Vector3? _pendingTapAnchor;
   three.Vector3? _focusAnchor;
-  bool _preserveNightEntryLookDirection = false;
   String? _pendingFurnitureTapItemId;
   double _pointerDownX = 0;
   double _pointerDownY = 0;
@@ -213,6 +212,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   // Higher = snappier camera transitions (eases ~this fraction per second).
   static const double _cameraLerpSpeed = 7.0;
   static const double _bedFocusCameraLerpSpeed = 2.0;
+  // The good-night camera settles directly over the bed, high enough to clear
+  // its headboard and pillows without feeling detached from it.
+  static const double _bedOverheadCameraHeight = 2.1;
   static const double _zoomLerpSpeed = 9.0;
   static const double _rotationLerpSpeed = 9.0;
   static const double _rotationDragDegreesPerPixel = 0.12;
@@ -260,7 +262,6 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       } else if (leavingNight && _preNightCameraState != null) {
         _restoreCameraViewState(_preNightCameraState!);
         _preNightCameraState = null;
-        _preserveNightEntryLookDirection = false;
       } else if (enteringDesk) {
         _preDeskCameraState = _captureCameraViewState();
         _resetFocusedCameraState();
@@ -483,24 +484,20 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
           : (lookAt.y - basePos.y) / horizontal;
       baseFov = _focusFov;
     } else if (widget.nightMode) {
-      // Turn toward the tapped bed; the good-night overlay covers most of the
-      // frame. Same room-centre-side framing, a touch closer and lower.
-      (basePos, lookAt) = _focusFraming(
-        fallbackAnchor: three.Vector3(-0.5, 0, -3.4),
-        standDistance: 2.6,
-        eyeHeight: 1.8,
-        lookHeight: 0.85,
-      );
-      if (_preserveNightEntryLookDirection) {
-        lookAt = basePos.clone()
-          ..add(
-            three.Vector3(
-              math.sin(_currentCameraYaw),
-              _currentCameraPitch,
-              -math.cos(_currentCameraYaw),
-            ),
-          );
-      }
+      // The good-night overlay does not need a bed close-up, so fly straight
+      // above the bed instead of orbiting toward it. Keeping the current look
+      // direction avoids a disorienting turn when entering from elsewhere in
+      // the room.
+      final anchor = _focusAnchor ?? three.Vector3(-0.5, 0, -3.4);
+      basePos = three.Vector3(anchor.x, _bedOverheadCameraHeight, anchor.z);
+      lookAt = basePos.clone()
+        ..add(
+          three.Vector3(
+            math.sin(_currentCameraYaw),
+            _currentCameraPitch,
+            -math.cos(_currentCameraYaw),
+          ),
+        );
       baseFov = _focusFov;
     } else {
       // Centred free-look: stand in the middle of the room and turn 360°.
@@ -2636,16 +2633,16 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   }
 
   void _handleRoomTapTarget(_RoomTapTarget? target, [three.Vector3? anchor]) {
-    // Remember where the furniture was tapped so the focus camera frames its
-    // real position. Set before the callback flips deskFocused/nightMode, which
-    // triggers _configureCamera on the next build.
-    _focusAnchor = anchor?.clone();
+    // Resolve beds to their centre rather than preserving the surface point
+    // under the finger. That gives every bed tap the same flight destination.
+    // Set it before the callback flips deskFocused/nightMode, which triggers
+    // _configureCamera on the next build.
+    _focusAnchor = _focusAnchorForTapTarget(target, anchor);
     switch (target) {
       case _RoomTapTarget.desk:
         widget.onTapDesk?.call();
         return;
       case _RoomTapTarget.bed:
-        _preserveNightEntryLookDirection = _centerRayHitsBedCollider();
         widget.onTapBed?.call();
         return;
       case _RoomTapTarget.radio:
@@ -2656,33 +2653,36 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     }
   }
 
-  bool _centerRayHitsBedCollider() {
-    if (_furnitureColliderMeshes.isEmpty) {
-      return false;
+  three.Vector3? _focusAnchorForTapTarget(
+    _RoomTapTarget? target,
+    three.Vector3? tapAnchor,
+  ) {
+    if (target != _RoomTapTarget.bed) {
+      return tapAnchor?.clone();
     }
-    _camera.updateMatrixWorld(true);
-    _raycaster.setFromCamera(three.Vector2.zero(), _camera);
-    final hits = _raycaster.intersectObjects(
-      _furnitureColliderMeshes.values.toList(),
-    );
-    if (hits.isEmpty) {
-      return false;
-    }
-    final hitMesh = hits.first.object;
-    String? hitItemId;
-    for (final entry in _furnitureColliderMeshes.entries) {
-      if (identical(entry.value, hitMesh)) {
-        hitItemId = entry.key;
-        break;
+
+    three.Vector3? nearestBedCenter;
+    var nearestDistanceSquared = double.infinity;
+    for (final bed in widget.controller.placedItems) {
+      if (widget.controller.definitionFor(bed.definitionId).visualKind !=
+          RoomItemVisualKind.bed) {
+        continue;
+      }
+      final bedCenter = _gridOriginToWorld(
+        definitionId: bed.definitionId,
+        quarterTurns: bed.rotationQuarterTurns,
+        origin: bed.origin,
+      );
+      final distanceSquared = tapAnchor == null
+          ? 0.0
+          : (bedCenter.x - tapAnchor.x) * (bedCenter.x - tapAnchor.x) +
+                (bedCenter.z - tapAnchor.z) * (bedCenter.z - tapAnchor.z);
+      if (distanceSquared < nearestDistanceSquared) {
+        nearestBedCenter = bedCenter;
+        nearestDistanceSquared = distanceSquared;
       }
     }
-    if (hitItemId == null) {
-      return false;
-    }
-    final item = widget.controller.placedItemById(hitItemId);
-    return item != null &&
-        widget.controller.definitionFor(item.definitionId).visualKind ==
-            RoomItemVisualKind.bed;
+    return nearestBedCenter ?? tapAnchor?.clone();
   }
 
   void _recordPointerPosition(dynamic event, {required bool isDown}) {

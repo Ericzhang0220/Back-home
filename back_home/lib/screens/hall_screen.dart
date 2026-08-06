@@ -47,118 +47,181 @@ class _HallScreenState extends State<HallScreen> {
       onRefresh: _refreshPosts,
       color: AppColors.clay,
       child: Scaffold(
-        appBar: AppBar(
-          surfaceTintColor: Colors.transparent,
-          title: Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _searchController,
-                  onChanged: (value) {
-                    setState(() {
-                      _searchQuery = value.trim();
-                    });
-                  },
-                  decoration: InputDecoration(
-                    hintText: 'Search posts, moods, or topics',
-                    prefixIcon: const Icon(Icons.search_rounded),
-                    suffixIcon: _searchQuery.isEmpty
-                        ? null
-                        : IconButton(
-                            onPressed: () {
-                              _searchController.clear();
-                              setState(() {
-                                _searchQuery = '';
-                              });
-                            },
-                            icon: const Icon(Icons.close_rounded),
-                          ),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(22),
-                      borderSide: BorderSide.none,
-                    ),
-                    filled: true,
-                    fillColor: Colors.white.withValues(alpha: 0.8),
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 0,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              IconButton.filled(
-                onPressed: _openCreatePost,
-                icon: const Icon(Icons.edit_rounded),
-                tooltip: 'Create new post',
-              ),
-            ],
-          ),
-        ),
-        body: AppPage(
-          title: '',
-          subtitle: '',
-          physics: const AlwaysScrollableScrollPhysics(),
+        // appBar: AppBar(
+        //   surfaceTintColor: Colors.transparent,
+        //   backgroundColor: Colors.transparent,
+        //   title: Row(
+        //     children: [
+        //       Expanded(
+        //         child: TextField(
+        //           controller: _searchController,
+        //           onChanged: (value) {
+        //             setState(() {
+        //               _searchQuery = value.trim();
+        //             });
+        //           },
+        //           decoration: InputDecoration(
+        //             hintText: 'Search posts, moods, or topics',
+        //             prefixIcon: const Icon(Icons.search_rounded),
+        //             suffixIcon: _searchQuery.isEmpty
+        //                 ? null
+        //                 : IconButton(
+        //                     onPressed: () {
+        //                       _searchController.clear();
+        //                       setState(() {
+        //                         _searchQuery = '';
+        //                       });
+        //                     },
+        //                     icon: const Icon(Icons.close_rounded),
+        //                   ),
+        //             border: OutlineInputBorder(
+        //               borderRadius: BorderRadius.circular(22),
+        //               borderSide: BorderSide.none,
+        //             ),
+        //             filled: true,
+        //             fillColor: Colors.white.withValues(alpha: 0.8),
+        //             contentPadding: const EdgeInsets.symmetric(
+        //               horizontal: 16,
+        //               vertical: 0,
+        //             ),
+        //           ),
+        //         ),
+        //       ),
+        //       const SizedBox(width: 12),
+        //       IconButton.filled(
+        //         onPressed: _openCreatePost,
+        //         icon: const Icon(Icons.edit_rounded),
+        //         tooltip: 'Create new post',
+        //       ),
+        //     ],
+        //   ),
+        // ),
+        body: Stack(
           children: [
-            const SizedBox(height: 20),
-            StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: _postsRef
-                  .orderBy('createdAt', descending: true)
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (snapshot.hasError) {
-                  return _MessageCard(
-                    title: 'Could not load the Hall.',
-                    body: 'Check your connection and pull down to try again.',
-                  );
-                }
+            AppPage(
+              title: '',
+              subtitle: '',
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: [
+                const SizedBox(height: 20),
+                StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  stream: _postsRef
+                      .orderBy('createdAt', descending: true)
+                      .snapshots(),
+                  builder: (context, snapshot) {
+                    if (snapshot.hasError) {
+                      return _MessageCard(
+                        title: 'Could not load the Hall.',
+                        body:
+                            'Check your connection and pull down to try again.',
+                      );
+                    }
 
-                if (snapshot.connectionState == ConnectionState.waiting &&
-                    !snapshot.hasData) {
-                  return const Padding(
-                    padding: EdgeInsets.only(top: 24),
-                    child: Center(child: CircularProgressIndicator()),
-                  );
-                }
+                    if (snapshot.connectionState == ConnectionState.waiting &&
+                        !snapshot.hasData) {
+                      return const Padding(
+                        padding: EdgeInsets.only(top: 24),
+                        child: Center(child: CircularProgressIndicator()),
+                      );
+                    }
 
-                final allPosts = (snapshot.data?.docs ?? const [])
-                    .map((doc) => HallPost.fromDoc(doc, currentUid: currentUid))
-                    .toList(growable: false);
-                final posts = _filterPosts(allPosts);
+                    final allPosts = (snapshot.data?.docs ?? const [])
+                        .map(
+                          (doc) =>
+                              HallPost.fromDoc(doc, currentUid: currentUid),
+                        )
+                        .toList(growable: false);
+                    final posts = _filterPosts(allPosts);
 
-                if (posts.isEmpty) {
-                  return _MessageCard(
-                    title: _searchQuery.isEmpty
-                        ? 'No posts in the Hall yet.'
-                        : 'No posts match that search yet.',
-                    body: _searchQuery.isEmpty
-                        ? 'Tap the pencil to share the first one.'
-                        : 'Try a different word or create the first post for that mood.',
-                  );
-                }
+                    if (posts.isEmpty) {
+                      return _MessageCard(
+                        title: _searchQuery.isEmpty
+                            ? 'No posts in the Hall yet.'
+                            : 'No posts match that search yet.',
+                        body: _searchQuery.isEmpty
+                            ? 'Tap the pencil to share the first one.'
+                            : 'Try a different word or create the first post for that mood.',
+                      );
+                    }
 
-                return Column(
+                    return Column(
+                      children: [
+                        for (var index = 0; index < posts.length; index++) ...[
+                          StaggeredFadeIn(
+                            key: ValueKey(_postAnimationKey(posts[index])),
+                            delay: _postFadeDelay(index),
+                            child: HallPostCard(
+                              post: posts[index],
+                              onLikeTap: () => _toggleLike(posts[index]),
+                              onCommentTap: () => _openPostThread(posts[index]),
+                              onAuthorTap: () => _openUserProfile(posts[index]),
+                              onEdit: posts[index].canEdit
+                                  ? () => _openCreatePost(
+                                      existingPost: posts[index],
+                                    )
+                                  : null,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+                      ],
+                    );
+                  },
+                ),
+              ],
+            ),
+            Positioned(
+              top: 0,
+              left: MediaQuery.of(context).size.width * 0.05,
+              child: SizedBox(
+                width: MediaQuery.of(context).size.width * 0.9,
+                height: 72,
+                child: Row(
                   children: [
-                    for (var index = 0; index < posts.length; index++) ...[
-                      StaggeredFadeIn(
-                        key: ValueKey(_postAnimationKey(posts[index])),
-                        delay: _postFadeDelay(index),
-                        child: HallPostCard(
-                          post: posts[index],
-                          onLikeTap: () => _toggleLike(posts[index]),
-                          onCommentTap: () => _openPostThread(posts[index]),
-                          onAuthorTap: () => _openUserProfile(posts[index]),
-                          onEdit: posts[index].canEdit
-                              ? () =>
-                                    _openCreatePost(existingPost: posts[index])
-                              : null,
+                    Expanded(
+                      child: TextField(
+                        controller: _searchController,
+                        onChanged: (value) {
+                          setState(() {
+                            _searchQuery = value.trim();
+                          });
+                        },
+                        decoration: InputDecoration(
+                          hintText: 'Search posts, moods, or topics',
+                          prefixIcon: const Icon(Icons.search_rounded),
+                          suffixIcon: _searchQuery.isEmpty
+                              ? null
+                              : IconButton(
+                                  onPressed: () {
+                                    _searchController.clear();
+                                    setState(() {
+                                      _searchQuery = '';
+                                    });
+                                  },
+                                  icon: const Icon(Icons.close_rounded),
+                                ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(22),
+                            borderSide: BorderSide.none,
+                          ),
+                          filled: true,
+                          fillColor: Colors.white.withValues(alpha: 0.8),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 0,
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 12),
-                    ],
+                    ),
+                    const SizedBox(width: 12),
+                    IconButton.filled(
+                      onPressed: _openCreatePost,
+                      icon: const Icon(Icons.edit_rounded),
+                      tooltip: 'Create new post',
+                    ),
                   ],
-                );
-              },
+                ),
+              ),
             ),
           ],
         ),
