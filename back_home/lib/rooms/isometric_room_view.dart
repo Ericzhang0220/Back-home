@@ -216,6 +216,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   // The good-night camera settles directly over the bed, high enough to clear
   // its headboard and pillows without feeling detached from it.
   static const double _bedOverheadCameraHeight = 2.1;
+  // Stop slightly short of the bed's centre, on the side the camera entered
+  // from, so a side approach does not appear to fly past the bed.
+  static const double _bedApproachInset = 0.55;
   static const double _zoomLerpSpeed = 9.0;
   static const double _rotationLerpSpeed = 9.0;
   static const double _rotationDragDegreesPerPixel = 0.12;
@@ -490,7 +493,25 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       // direction avoids a disorienting turn when entering from elsewhere in
       // the room.
       final anchor = _focusAnchor ?? three.Vector3(-0.5, 0, -3.4);
-      basePos = three.Vector3(anchor.x, _bedOverheadCameraHeight, anchor.z);
+      var approachX = _camera.position.x - anchor.x;
+      var approachZ = _camera.position.z - anchor.z;
+      final approachLength = math.sqrt(
+        approachX * approachX + approachZ * approachZ,
+      );
+      if (approachLength < 1e-3) {
+        // When already over the centre, keep a small offset behind the view
+        // direction rather than arbitrarily choosing a side of the bed.
+        approachX = -math.sin(_currentCameraYaw);
+        approachZ = math.cos(_currentCameraYaw);
+      } else {
+        approachX /= approachLength;
+        approachZ /= approachLength;
+      }
+      basePos = three.Vector3(
+        anchor.x + approachX * _bedApproachInset,
+        _bedOverheadCameraHeight,
+        anchor.z + approachZ * _bedApproachInset,
+      );
       lookAt = basePos.clone()
         ..add(
           three.Vector3(
@@ -587,6 +608,8 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _applyCameraFov();
 
     final mainFreeLook = !widget.deskFocused && !widget.nightMode;
+    // The night camera moves the eye but never changes the user's heading.
+    final preserveLookDirection = mainFreeLook || widget.nightMode;
     var rotationSettled = true;
     if (mainFreeLook) {
       final rotationT = (1 - math.exp(-dt * _rotationLerpSpeed))
@@ -618,7 +641,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
 
     // Nothing to do once the camera has settled on its target.
     if (_camera.position.distanceToSquared(_cameraTargetPos) < 1e-8 &&
-        (mainFreeLook ||
+        (preserveLookDirection ||
             _cameraCurrentLook.distanceToSquared(_cameraTargetLook) < 1e-8) &&
         rotationSettled &&
         zoomSettled) {
@@ -630,7 +653,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     final t = (1 - math.exp(-dt * cameraLerpSpeed)).clamp(0.0, 1.0).toDouble();
     _camera.position.lerp(_cameraTargetPos, t);
     _updateCameraColliderMesh();
-    if (mainFreeLook) {
+    if (preserveLookDirection) {
       _cameraCurrentLook.setValues(
         _camera.position.x + math.sin(_currentCameraYaw),
         _camera.position.y + _currentCameraPitch,
