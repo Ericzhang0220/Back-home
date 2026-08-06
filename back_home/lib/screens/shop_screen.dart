@@ -275,7 +275,7 @@ class _PreviewPanel extends StatelessWidget {
               const InfoPill(
                 icon: Icons.threed_rotation_rounded,
                 label: 'Preview',
-                value: 'Drag to spin',
+                value: 'Tap to spin',
                 tint: Color(0xFFEADFCF),
               ),
             ],

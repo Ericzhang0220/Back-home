@@ -17,7 +17,9 @@ class RoomGlGate {
 
   /// The token currently allowed to render, or null when the background room
   /// view may run. Listen to this to release/rebuild a renderer.
-  static final ValueNotifier<Object?> activeOwner = ValueNotifier<Object?>(null);
+  static final ValueNotifier<Object?> activeOwner = ValueNotifier<Object?>(
+    null,
+  );
 
   static final List<Object> _claims = <Object>[];
 

@@ -157,7 +157,12 @@ class _FurniturePreviewStageState extends State<FurniturePreviewStage> {
   /// Set when that deferred teardown is the last thing standing between us and
   /// giving the context back — i.e. this State is already gone.
   bool _releaseTokenAfterDispose = false;
-  bool _spinning = true;
+
+  /// The turntable sits still until the student actually asks to see a piece —
+  /// tapping a catalog card to preview it, tapping the stage, or dragging it.
+  /// A preview that spins on its own the moment the shop opens is noise.
+  bool _spinning = false;
+  bool _spinningBeforeDrag = false;
   double _spinPhase = 0;
 
   @override
@@ -173,6 +178,8 @@ class _FurniturePreviewStageState extends State<FurniturePreviewStage> {
     super.didUpdateWidget(oldWidget);
     if (widget.definition?.visualKind != oldWidget.definition?.visualKind) {
       _showSelectedKind();
+      // Tapping a card to put a piece on the turntable is the ask.
+      _spinning = true;
     }
   }
 
@@ -357,7 +364,12 @@ class _FurniturePreviewStageState extends State<FurniturePreviewStage> {
     pivot.rotation.y = _spinPhase;
   }
 
+  void _toggleSpin() {
+    _spinning = !_spinning;
+  }
+
   void _handleDragStart(DragStartDetails details) {
+    _spinningBeforeDrag = _spinning;
     _spinning = false;
   }
 
@@ -372,7 +384,8 @@ class _FurniturePreviewStageState extends State<FurniturePreviewStage> {
   }
 
   void _handleDragEnd() {
-    _spinning = true;
+    // Back to however it was before the drag, rather than always spinning.
+    _spinning = _spinningBeforeDrag;
   }
 
   /// Swaps the turntable's piece, disposing the old geometry.
@@ -448,8 +461,11 @@ class _FurniturePreviewStageState extends State<FurniturePreviewStage> {
         pivot.rotation.y = 0;
         _frameCamera(camera, model);
 
+        // No setViewport here: it scales by the device pixel ratio, so asking
+        // for 208x208 on a dpr-3 phone set a 624x624 viewport on a 208x208
+        // buffer and every thumbnail came out as a 3x-magnified bottom-left
+        // crop. setRenderTarget already sizes the viewport to the target.
         renderer.setRenderTarget(target);
-        renderer.setViewport(0, 0, size.toDouble(), size.toDouble());
         renderer.clear();
         renderer.render(threeJs.scene, camera);
         renderer.readRenderTargetPixels(target, 0, 0, size, size, buffer);
@@ -567,6 +583,7 @@ class _FurniturePreviewStageState extends State<FurniturePreviewStage> {
       width: double.infinity,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
+        onTap: _toggleSpin,
         onHorizontalDragStart: _handleDragStart,
         onHorizontalDragUpdate: _handleDragUpdate,
         onHorizontalDragEnd: (_) => _handleDragEnd(),
