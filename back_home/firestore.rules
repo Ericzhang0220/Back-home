@@ -1,0 +1,109 @@
+rules_version = '2';
+
+// Back Home security rules.
+//
+// Covers every collection the app touches today. Review this against your
+// current console rules before deploying — deploying replaces them wholesale.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    // Profiles are discoverable so the Human chats tab can list app users.
+    // Only the owner can modify their own document.
+    match /users/{uid} {
+      allow read: if signedIn();
+      allow create, update: if isOwner(uid);
+      allow delete: if false;
+
+      // Private mood journal.
+      match /moodEntries/{entryId} {
+        allow read, write: if isOwner(uid);
+      }
+
+      // Server-only bookkeeping (AI rate-limit counters). The Admin SDK
+      // bypasses these rules, so closing it off here keeps clients from
+      // reading or resetting their own quota.
+      match /private/{docId} {
+        allow read, write: if false;
+      }
+
+      // AI companion characters, preset and user-authored.
+      match /aiCharacters/{characterId} {
+        allow read, write: if isOwner(uid);
+      }
+
+      // AI companion conversations.
+      match /aiChats/{characterId} {
+        allow read, write: if isOwner(uid);
+
+        match /messages/{messageId} {
+          allow read: if isOwner(uid);
+          // Clients may only append their own turns. Assistant turns are
+          // written by the Cloud Function, so a client cannot forge model
+          // output or poison the context sent to OpenAI.
+          allow create: if isOwner(uid)
+                        && request.resource.data.role == 'user';
+          allow update: if false;
+          allow delete: if isOwner(uid);
+        }
+      }
+
+      // Tutor conversations, same split as aiChats.
+      match /tutorSessions/{sessionId} {
+        allow read, write: if isOwner(uid);
+
+        match /messages/{messageId} {
+          allow read: if isOwner(uid);
+          allow create: if isOwner(uid)
+                        && request.resource.data.role == 'user';
+          allow update: if false;
+          allow delete: if isOwner(uid);
+        }
+      }
+    }
+
+    // Hall posts. Any signed-in user can like a post or add to its thread,
+    // which is why update is not restricted to the author.
+    match /posts/{postId} {
+      allow read: if signedIn();
+
+      // The sample posts seeded into an empty Hall carry a null authorUid,
+      // so creation is not tied to the caller's uid.
+      allow create: if signedIn();
+      allow update: if signedIn();
+      allow delete: if signedIn()
+                    && resource.data.authorUid == request.auth.uid;
+    }
+
+    // Direct human-to-human chats. Split per-operation because `resource` is
+    // absent on create and `request.resource` is absent on read/delete.
+    match /chats/{chatId} {
+      allow read: if signedIn()
+                  && request.auth.uid in resource.data.participantUids;
+      allow create: if signedIn()
+                    && request.auth.uid in request.resource.data.participantUids;
+      allow update: if signedIn()
+                    && request.auth.uid in resource.data.participantUids
+                    && request.auth.uid in request.resource.data.participantUids;
+      allow delete: if signedIn()
+                    && request.auth.uid in resource.data.participantUids;
+
+      match /messages/{messageId} {
+        allow read: if signedIn()
+                    && request.auth.uid in
+                       get(/databases/$(database)/documents/chats/$(chatId))
+                         .data.participantUids;
+        allow create: if signedIn()
+                      && request.resource.data.senderUid == request.auth.uid;
+        allow update, delete: if false;
+      }
+    }
+  }
+}

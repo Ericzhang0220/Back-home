@@ -37,8 +37,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
 
     expect(find.text('AI chats'), findsOneWidget);
+    // The character list is per-account Firestore data, so the signed-out
+    // shell shows the sign-in prompt rather than any seeded companion.
     expect(
-      find.text('Want music first, or a quiet unpacking of the day?'),
+      find.text('Sign in to use the AI chats and tutor.'),
       findsOneWidget,
     );
   });

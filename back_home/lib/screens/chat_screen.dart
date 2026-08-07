@@ -1,11 +1,10 @@
-import 'dart:typed_data';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../auth/app_auth_controller.dart';
-import '../chat/tutor_llm_client.dart';
+import '../chat/ai_chat_repository.dart';
+import '../chat/ai_models.dart';
 import '../widgets/app_ui.dart';
 import '../widgets/profile_avatar.dart';
 
@@ -48,84 +47,30 @@ class _ChatScreenState extends State<ChatScreen> {
   final _tutorSearchController = TextEditingController();
   final _messageController = TextEditingController();
   final _imagePicker = ImagePicker();
-  final _tutorClient = TutorLlmClient();
 
   _ChatPage _selectedPage = _ChatPage.ai;
-  int _selectedTutorSession = 0;
-  int _nextGeneratedUserId = 500000000;
   bool _isTutorSidebarOpen = false;
 
-  final List<_AiCharacter> _aiCharacters = [
-    const _AiCharacter(
-      userId: '128406731',
-      name: 'Ari',
-      personality: 'Gentle nightly companion',
-      preview: 'Want music first, or a quiet unpacking of the day?',
-      tint: Color(0xFFF2C6A8),
-      icon: Icons.auto_awesome_rounded,
-    ),
-    const _AiCharacter(
-      userId: '273914608',
-      name: 'Noah',
-      personality: 'Warm routine coach',
-      preview: 'I saved a calmer plan for getting through tonight.',
-      tint: Color(0xFFDDE8DD),
-      icon: Icons.psychology_alt_rounded,
-    ),
-    const _AiCharacter(
-      userId: '349805172',
-      name: 'Mentor Lin',
-      personality: 'Practical mentor',
-      preview: 'Let us turn that stress into three smaller tasks.',
-      tint: Color(0xFFFFE3B4),
-      icon: Icons.school_rounded,
-    ),
-  ];
+  AiChatRepository? _repository;
 
-  final List<_TutorSession> _tutorSessions = [
-    _TutorSession(
-      title: 'Weekly reset',
-      subtitle: 'Breaking Sunday prep into smaller pieces',
-      messages: const [
-        _TutorMessage(
-          isUser: false,
-          text: 'What would make this week feel easier by just ten percent?',
-        ),
-        _TutorMessage(
-          isUser: true,
-          text: 'I need help planning school work without getting overwhelmed.',
-        ),
-        _TutorMessage(
-          isUser: false,
-          text:
-              'Start with the closest deadline, then choose one task that takes under 20 minutes.',
-        ),
-      ],
-    ),
-    _TutorSession(
-      title: 'Room focus',
-      subtitle: 'Choosing a calm setup for homework',
-      messages: const [
-        _TutorMessage(
-          isUser: false,
-          text: 'Tell me what usually distracts you when you study.',
-        ),
-      ],
-    ),
-    _TutorSession(
-      title: 'Sleep question',
-      subtitle: 'A shorter routine for late nights',
-      messages: const [
-        _TutorMessage(
-          isUser: false,
-          text: 'We can make the routine tiny: water, lights, one note, bed.',
-        ),
-      ],
-    ),
-  ];
+  /// Null until the user opens the Tutor tab, at which point the most recent
+  /// session (or a freshly created one) is selected.
+  String? _selectedTutorSessionId;
+
+  /// Set while `askTutor` is in flight so the conversation can show a pending
+  /// bubble that does not exist in Firestore.
+  bool _isTutorReplying = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncRepository();
+    widget.authController.addListener(_syncRepository);
+  }
 
   @override
   void dispose() {
+    widget.authController.removeListener(_syncRepository);
     _aiSearchController.dispose();
     _humanSearchController.dispose();
     _tutorSearchController.dispose();
@@ -133,11 +78,39 @@ class _ChatScreenState extends State<ChatScreen> {
     super.dispose();
   }
 
+  /// Rebuilds the repository whenever the signed-in account changes, so one
+  /// user never sees another's conversations.
+  void _syncRepository() {
+    final uid = widget.authController.currentUser?.uid;
+    if (uid == _repository?.uid) {
+      return;
+    }
+
+    final repository = uid == null ? null : AiChatRepository(uid: uid);
+    if (mounted) {
+      setState(() {
+        _repository = repository;
+        _selectedTutorSessionId = null;
+      });
+    } else {
+      _repository = repository;
+      _selectedTutorSessionId = null;
+    }
+
+    if (repository != null) {
+      // Fire and forget: the character list is a stream, so the seeded docs
+      // arrive on their own once written.
+      repository.seedPresetCharactersIfNeeded().catchError((Object _) {});
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // No opaque background here: let the shared AmbientBackground gradient
     // (painted behind every tab) show through, matching the Hall and Profile
     // screens.
+    final repository = _repository;
+
     return Stack(
       children: [
         Column(
@@ -157,15 +130,23 @@ class _ChatScreenState extends State<ChatScreen> {
             Expanded(
               child: AnimatedSwitcher(
                 duration: const Duration(milliseconds: 180),
+                // Only the AI and Tutor pages need an account — the human
+                // directory still renders signed out, as it always has.
                 child: switch (_selectedPage) {
-                  _ChatPage.ai => _AiContactsPage(
-                    key: const ValueKey(_ChatPage.ai),
-                    searchController: _aiSearchController,
-                    characters: _filteredAiCharacters,
-                    onSearchChanged: (_) => setState(() {}),
-                    onPickAvatar: _pickAiAvatar,
-                    onOpenCharacter: _openAiConversation,
-                  ),
+                  _ChatPage.ai =>
+                    repository == null
+                        ? const _SignedOutNotice(
+                            key: ValueKey(_ChatPage.ai),
+                            text: 'Sign in to use the AI chats and tutor.',
+                          )
+                        : _AiContactsPage(
+                            key: const ValueKey(_ChatPage.ai),
+                            repository: repository,
+                            searchController: _aiSearchController,
+                            onSearchChanged: (_) => setState(() {}),
+                            onPickAvatar: _pickAiAvatar,
+                            onOpenCharacter: _openAiConversation,
+                          ),
                   _ChatPage.human => _HumanContactsPage(
                     key: const ValueKey(_ChatPage.human),
                     searchController: _humanSearchController,
@@ -173,16 +154,25 @@ class _ChatScreenState extends State<ChatScreen> {
                     currentUid: widget.authController.currentUser?.uid,
                     onOpenContact: _openHumanConversation,
                   ),
-                  _ChatPage.tutor => _TutorChatPage(
-                    key: const ValueKey(_ChatPage.tutor),
-                    messageController: _messageController,
-                    selectedSession: _selectedVisibleTutorSession,
-                    onSendMessage: _sendTutorMessage,
-                    onOpenHistory: () =>
-                        setState(() => _isTutorSidebarOpen = true),
-                    onCloseHistory: () =>
-                        setState(() => _isTutorSidebarOpen = false),
-                  ),
+                  _ChatPage.tutor =>
+                    repository == null
+                        ? const _SignedOutNotice(
+                            key: ValueKey(_ChatPage.tutor),
+                            text: 'Sign in to use the AI chats and tutor.',
+                          )
+                        : _TutorChatPage(
+                            key: const ValueKey(_ChatPage.tutor),
+                            repository: repository,
+                            messageController: _messageController,
+                            selectedSessionId: _selectedTutorSessionId,
+                            isReplying: _isTutorReplying,
+                            onSessionResolved: _rememberTutorSession,
+                            onSendMessage: _sendTutorMessage,
+                            onOpenHistory: () =>
+                                setState(() => _isTutorSidebarOpen = true),
+                            onCloseHistory: () =>
+                                setState(() => _isTutorSidebarOpen = false),
+                          ),
                 },
               ),
             ),
@@ -191,58 +181,38 @@ class _ChatScreenState extends State<ChatScreen> {
         // The tutor history drawer overlays the entire chat screen — header,
         // tabs and all — so it dominates the screen rather than sitting beside
         // the conversation card.
-        if (_selectedPage == _ChatPage.tutor)
+        if (_selectedPage == _ChatPage.tutor && repository != null)
           _TutorHistoryDrawer(
             isOpen: _isTutorSidebarOpen,
+            repository: repository,
             searchController: _tutorSearchController,
-            sessions: _filteredTutorSessions,
-            selectedSession: _selectedVisibleTutorSession,
+            selectedSessionId: _selectedTutorSessionId,
             onSearchChanged: (_) => setState(() {}),
             onSessionSelected: (session) {
-              _selectTutorSession(session);
-              setState(() => _isTutorSidebarOpen = false);
+              setState(() {
+                _selectedTutorSessionId = session.id;
+                _isTutorSidebarOpen = false;
+              });
             },
+            onDeleteSession: _deleteTutorSession,
             onClose: () => setState(() => _isTutorSidebarOpen = false),
           ),
       ],
     );
   }
 
-  List<_AiCharacter> get _filteredAiCharacters {
-    final query = _aiSearchController.text.trim().toLowerCase();
-    if (query.isEmpty) {
-      return _aiCharacters;
+  /// The tutor page resolves which session to show from the live stream;
+  /// this records that choice so the drawer and send handler agree on it.
+  void _rememberTutorSession(String sessionId) {
+    if (_selectedTutorSessionId == sessionId) {
+      return;
     }
-
-    return _aiCharacters.where((character) {
-      return character.name.toLowerCase().contains(query) ||
-          character.userId.contains(query) ||
-          character.personality.toLowerCase().contains(query);
-    }).toList();
-  }
-
-  List<_TutorSession> get _filteredTutorSessions {
-    final query = _tutorSearchController.text.trim().toLowerCase();
-    if (query.isEmpty) {
-      return _tutorSessions;
-    }
-
-    return _tutorSessions.where((session) {
-      return session.title.toLowerCase().contains(query) ||
-          session.subtitle.toLowerCase().contains(query);
-    }).toList();
-  }
-
-  _TutorSession get _selectedVisibleTutorSession {
-    final filtered = _filteredTutorSessions;
-    if (filtered.isEmpty) {
-      return _tutorSessions[_selectedTutorSession];
-    }
-    final current = _tutorSessions[_selectedTutorSession];
-    if (filtered.contains(current)) {
-      return current;
-    }
-    return filtered.first;
+    // Called from a builder, so defer the state write past the current frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _selectedTutorSessionId != sessionId) {
+        setState(() => _selectedTutorSessionId = sessionId);
+      }
+    });
   }
 
   void _handleAddPressed() {
@@ -257,187 +227,144 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _showAddAiCharacterDialog() async {
+    final repository = _repository;
+    if (repository == null) {
+      return;
+    }
+
     final nameController = TextEditingController();
     final personalityController = TextEditingController();
-    final userId = _generateUserId();
 
     try {
-      final character = await showDialog<_AiCharacter>(
+      final draft = await showDialog<_CharacterDraft>(
         context: context,
         builder: (context) {
           return _AddCharacterDialog(
-            userId: userId,
             nameController: nameController,
             personalityController: personalityController,
           );
         },
       );
 
-      if (character == null || !mounted) {
+      if (draft == null) {
         return;
       }
 
-      setState(() {
-        _aiCharacters.insert(0, character);
-      });
+      await repository.createCharacter(
+        name: draft.name,
+        personality: draft.personality,
+      );
+    } catch (error) {
+      _showError('Could not create that character.');
     } finally {
       nameController.dispose();
       personalityController.dispose();
     }
   }
 
-  Future<void> _pickAiAvatar(_AiCharacter character) async {
+  Future<void> _pickAiAvatar(AiCharacter character) async {
+    final repository = _repository;
+    if (repository == null) {
+      return;
+    }
+
     final image = await _imagePicker.pickImage(source: ImageSource.gallery);
-    if (image == null || !mounted) {
+    if (image == null) {
       return;
     }
 
     final bytes = await image.readAsBytes();
-    if (!mounted) {
-      return;
-    }
 
-    final index = _aiCharacters.indexOf(character);
-    if (index < 0) {
-      return;
+    try {
+      await repository.updateCharacterAvatar(
+        characterId: character.id,
+        bytes: bytes,
+        contentType: image.mimeType ?? 'image/jpeg',
+      );
+    } catch (error) {
+      _showError('Could not upload that picture.');
     }
-
-    setState(() {
-      _aiCharacters[index] = character.copyWith(avatarBytes: bytes);
-    });
   }
 
-  void _addTutorSession() {
-    if (!_selectedVisibleTutorSession.isDirty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Ask something in this new chat before starting another.',
-          ),
-        ),
-      );
+  Future<void> _addTutorSession() async {
+    final repository = _repository;
+    if (repository == null) {
       return;
     }
 
-    setState(() {
-      final sessionNumber = _tutorSessions.length + 1;
-      _tutorSessions.insert(
-        0,
-        _TutorSession(
-          title: 'New question $sessionNumber',
-          subtitle: 'Ask anything you want help thinking through',
-          messages: const [
-            _TutorMessage(
-              isUser: false,
-              text: 'What would you like to work through right now?',
-            ),
-          ],
-        ),
-      );
-      _selectedTutorSession = 0;
-      _selectedPage = _ChatPage.tutor;
-      _isTutorSidebarOpen = false;
-      _tutorSearchController.clear();
-    });
+    try {
+      final sessionId = await repository.createTutorSession();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _selectedTutorSessionId = sessionId;
+        _selectedPage = _ChatPage.tutor;
+        _isTutorSidebarOpen = false;
+        _tutorSearchController.clear();
+      });
+    } catch (error) {
+      _showError('Could not start a new tutor chat.');
+    }
   }
 
-  void _selectTutorSession(_TutorSession session) {
-    final index = _tutorSessions.indexOf(session);
-    if (index < 0) {
+  Future<void> _deleteTutorSession(TutorSession session) async {
+    final repository = _repository;
+    if (repository == null) {
       return;
     }
 
-    setState(() {
-      _selectedTutorSession = index;
-    });
+    try {
+      await repository.deleteTutorSession(session.id);
+      if (!mounted) {
+        return;
+      }
+      if (_selectedTutorSessionId == session.id) {
+        // Let the stream pick the next most recent session.
+        setState(() => _selectedTutorSessionId = null);
+      }
+    } catch (error) {
+      _showError('Could not delete that chat.');
+    }
   }
 
   Future<void> _sendTutorMessage() async {
+    final repository = _repository;
+    final sessionId = _selectedTutorSessionId;
     final message = _messageController.text.trim();
-    if (message.isEmpty) {
+
+    if (repository == null || sessionId == null || message.isEmpty) {
       return;
     }
-
-    final session = _selectedVisibleTutorSession;
-    final index = _tutorSessions.indexOf(session);
-    if (index < 0) {
+    if (_isTutorReplying) {
       return;
     }
-
-    final requestMessages = [
-      ...session.messages,
-      _TutorMessage(isUser: true, text: message),
-    ];
 
     setState(() {
-      _tutorSessions[index] = session.copyWith(
-        subtitle: message,
-        messages: [
-          ...requestMessages,
-          const _TutorMessage(
-            isUser: false,
-            text: 'Thinking...',
-            isPending: true,
-          ),
-        ],
-      );
-      _selectedTutorSession = index;
       _messageController.clear();
+      _isTutorReplying = true;
     });
 
-    final reply = await _tutorClient.ask(
-      sessionTitle: session.title,
-      messages: requestMessages
-          .map(
-            (message) => TutorChatMessage(
-              role: message.isUser ? 'user' : 'assistant',
-              text: message.text,
-            ),
-          )
-          .toList(),
-    );
+    try {
+      await repository.sendToTutor(sessionId: sessionId, text: message);
+    } on AiChatException catch (error) {
+      _showError(error.message);
+    } catch (error) {
+      _showError('The tutor could not reply. Please try again.');
+    } finally {
+      if (mounted) {
+        setState(() => _isTutorReplying = false);
+      }
+    }
+  }
 
+  void _showError(String message) {
     if (!mounted) {
       return;
     }
-
-    final latestIndex = _tutorSessions.indexWhere(
-      (candidate) => candidate.title == session.title,
-    );
-    if (latestIndex < 0) {
-      return;
-    }
-
-    final latestSession = _tutorSessions[latestIndex];
-    final updatedMessages = [...latestSession.messages];
-    final pendingIndex = updatedMessages.lastIndexWhere(
-      (message) => message.isPending,
-    );
-    final replyText = reply.usedFallback
-        ? '${reply.text}\n\nBackend: local fallback'
-        : reply.text;
-    if (pendingIndex >= 0) {
-      updatedMessages[pendingIndex] = _TutorMessage(
-        isUser: false,
-        text: replyText,
-      );
-    } else {
-      updatedMessages.add(_TutorMessage(isUser: false, text: replyText));
-    }
-
-    setState(() {
-      _tutorSessions[latestIndex] = latestSession.copyWith(
-        subtitle: message,
-        messages: updatedMessages,
-      );
-      _selectedTutorSession = latestIndex;
-    });
-  }
-
-  String _generateUserId() {
-    final id = _nextGeneratedUserId;
-    _nextGeneratedUserId += 1;
-    return id.toString().padLeft(9, '0');
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   void _showHumanDirectoryHint() {
@@ -446,21 +373,27 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Future<void> _openAiConversation(_AiCharacter character) async {
+  Future<void> _openAiConversation(AiCharacter character) async {
+    final repository = _repository;
+    if (repository == null) {
+      return;
+    }
+
     final peer = _ChatPeer.ai(
-      id: character.userId,
+      id: character.id,
+      publicUserId: character.publicId,
       displayName: character.name,
       subtitle: character.personality,
-      photoUrl: null,
+      photoUrl: character.avatarUrl,
       tint: character.tint,
       icon: character.icon,
-      avatarBytes: character.avatarBytes,
     );
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => _DirectChatScreen(
           peer: peer,
           currentUid: widget.authController.currentUser?.uid,
+          repository: repository,
         ),
       ),
     );
@@ -674,45 +607,99 @@ class _SearchField extends StatelessWidget {
 class _AiContactsPage extends StatelessWidget {
   const _AiContactsPage({
     super.key,
+    required this.repository,
     required this.searchController,
-    required this.characters,
     required this.onSearchChanged,
     required this.onPickAvatar,
     required this.onOpenCharacter,
   });
 
+  final AiChatRepository repository;
   final TextEditingController searchController;
-  final List<_AiCharacter> characters;
   final ValueChanged<String> onSearchChanged;
-  final ValueChanged<_AiCharacter> onPickAvatar;
-  final ValueChanged<_AiCharacter> onOpenCharacter;
+  final ValueChanged<AiCharacter> onPickAvatar;
+  final ValueChanged<AiCharacter> onOpenCharacter;
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 122),
-      children: [
-        _SearchField(
-          controller: searchController,
-          hintText: 'Search AI characters or ID',
-          onChanged: onSearchChanged,
+    return StreamBuilder<List<AiCharacter>>(
+      stream: repository.watchCharacters(),
+      builder: (context, charactersSnapshot) {
+        return StreamBuilder<Map<String, AiChatPreview>>(
+          stream: repository.watchCharacterPreviews(),
+          builder: (context, previewsSnapshot) {
+            final previews =
+                previewsSnapshot.data ?? const <String, AiChatPreview>{};
+            final query = searchController.text.trim().toLowerCase();
+            final characters =
+                charactersSnapshot.data
+                    ?.where((character) => character.matches(query))
+                    .toList() ??
+                const <AiCharacter>[];
+
+            return ListView(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 122),
+              children: [
+                _SearchField(
+                  controller: searchController,
+                  hintText: 'Search AI characters or ID',
+                  onChanged: onSearchChanged,
+                ),
+                const SizedBox(height: 12),
+                _DeviceStatusBanner(
+                  icon: Icons.memory_rounded,
+                  text: charactersSnapshot.hasError
+                      ? 'Could not load your AI characters.'
+                      : 'Preset characters and custom personalities',
+                ),
+                const SizedBox(height: 8),
+                if (charactersSnapshot.connectionState ==
+                    ConnectionState.waiting)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 30),
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                else ...[
+                  for (final character in characters)
+                    _AiCharacterTile(
+                      character: character,
+                      // A started conversation replaces the scripted preview
+                      // line with the last thing actually said.
+                      preview: previews[character.id]?.lastMessage,
+                      onPickAvatar: onPickAvatar,
+                      onOpen: () => onOpenCharacter(character),
+                    ),
+                  if (characters.isEmpty)
+                    const _EmptySearchResult(
+                      text: 'No AI characters match this search.',
+                    ),
+                ],
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _SignedOutNotice extends StatelessWidget {
+  const _SignedOutNotice({super.key, required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Text(
+          text,
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.bodyMedium,
         ),
-        const SizedBox(height: 12),
-        _DeviceStatusBanner(
-          icon: Icons.memory_rounded,
-          text: 'Preset characters and custom personalities',
-        ),
-        const SizedBox(height: 8),
-        for (final character in characters)
-          _AiCharacterTile(
-            character: character,
-            onPickAvatar: onPickAvatar,
-            onOpen: () => onOpenCharacter(character),
-          ),
-        if (characters.isEmpty)
-          const _EmptySearchResult(text: 'No AI characters match this search.'),
-      ],
+      ),
     );
   }
 }
@@ -865,15 +852,21 @@ class _HumanContactsPage extends StatelessWidget {
 class _TutorChatPage extends StatelessWidget {
   const _TutorChatPage({
     super.key,
+    required this.repository,
     required this.messageController,
-    required this.selectedSession,
+    required this.selectedSessionId,
+    required this.isReplying,
+    required this.onSessionResolved,
     required this.onSendMessage,
     required this.onOpenHistory,
     required this.onCloseHistory,
   });
 
+  final AiChatRepository repository;
   final TextEditingController messageController;
-  final _TutorSession selectedSession;
+  final String? selectedSessionId;
+  final bool isReplying;
+  final ValueChanged<String> onSessionResolved;
   final VoidCallback onSendMessage;
   final VoidCallback onOpenHistory;
   final VoidCallback onCloseHistory;
@@ -892,11 +885,87 @@ class _TutorChatPage extends StatelessWidget {
       },
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 100),
-        child: _TutorConversation(
-          session: selectedSession,
-          messageController: messageController,
-          onSendMessage: onSendMessage,
-          onOpenHistory: onOpenHistory,
+        child: StreamBuilder<List<TutorSession>>(
+          stream: repository.watchTutorSessions(),
+          builder: (context, sessionsSnapshot) {
+            if (sessionsSnapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            final sessions = sessionsSnapshot.data ?? const <TutorSession>[];
+            if (sessions.isEmpty) {
+              return _TutorEmptyState(onOpenHistory: onOpenHistory);
+            }
+
+            // Sessions stream newest-first; fall back to that when the
+            // selected id is stale (deleted, or a fresh sign-in).
+            final session = sessions.firstWhere(
+              (candidate) => candidate.id == selectedSessionId,
+              orElse: () => sessions.first,
+            );
+            onSessionResolved(session.id);
+
+            return StreamBuilder<List<AiMessage>>(
+              stream: repository.watchTutorMessages(session.id),
+              builder: (context, messagesSnapshot) {
+                final messages =
+                    messagesSnapshot.data ?? const <AiMessage>[];
+                return _TutorConversation(
+                  session: session,
+                  messages: [
+                    ...messages,
+                    if (isReplying) const AiMessage.pending(),
+                  ],
+                  isLoading:
+                      messagesSnapshot.connectionState ==
+                      ConnectionState.waiting,
+                  isReplying: isReplying,
+                  messageController: messageController,
+                  onSendMessage: onSendMessage,
+                  onOpenHistory: onOpenHistory,
+                );
+              },
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _TutorEmptyState extends StatelessWidget {
+  const _TutorEmptyState({required this.onOpenHistory});
+
+  final VoidCallback onOpenHistory;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.76),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.stroke),
+      ),
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.school_rounded, color: AppColors.clay, size: 42),
+              const SizedBox(height: 14),
+              Text(
+                'No tutor chats yet',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Tap the plus button above to start one.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -906,20 +975,22 @@ class _TutorChatPage extends StatelessWidget {
 class _TutorHistoryDrawer extends StatelessWidget {
   const _TutorHistoryDrawer({
     required this.isOpen,
+    required this.repository,
     required this.searchController,
-    required this.sessions,
-    required this.selectedSession,
+    required this.selectedSessionId,
     required this.onSearchChanged,
     required this.onSessionSelected,
+    required this.onDeleteSession,
     required this.onClose,
   });
 
   final bool isOpen;
+  final AiChatRepository repository;
   final TextEditingController searchController;
-  final List<_TutorSession> sessions;
-  final _TutorSession selectedSession;
+  final String? selectedSessionId;
   final ValueChanged<String> onSearchChanged;
-  final ValueChanged<_TutorSession> onSessionSelected;
+  final ValueChanged<TutorSession> onSessionSelected;
+  final ValueChanged<TutorSession> onDeleteSession;
   final VoidCallback onClose;
 
   @override
@@ -962,12 +1033,13 @@ class _TutorHistoryDrawer extends StatelessWidget {
               left: isOpen ? 0 : -(drawerWidth + 32),
               width: drawerWidth,
               child: _TutorSidebar(
+                repository: repository,
                 searchController: searchController,
-                sessions: sessions,
-                selectedSession: selectedSession,
+                selectedSessionId: selectedSessionId,
                 compact: compact,
                 onSearchChanged: onSearchChanged,
                 onSessionSelected: onSessionSelected,
+                onDeleteSession: onDeleteSession,
                 onCollapse: onClose,
               ),
             ),
@@ -980,21 +1052,23 @@ class _TutorHistoryDrawer extends StatelessWidget {
 
 class _TutorSidebar extends StatelessWidget {
   const _TutorSidebar({
+    required this.repository,
     required this.searchController,
-    required this.sessions,
-    required this.selectedSession,
+    required this.selectedSessionId,
     required this.compact,
     required this.onSearchChanged,
     required this.onSessionSelected,
+    required this.onDeleteSession,
     required this.onCollapse,
   });
 
+  final AiChatRepository repository;
   final TextEditingController searchController;
-  final List<_TutorSession> sessions;
-  final _TutorSession selectedSession;
+  final String? selectedSessionId;
   final bool compact;
   final ValueChanged<String> onSearchChanged;
-  final ValueChanged<_TutorSession> onSessionSelected;
+  final ValueChanged<TutorSession> onSessionSelected;
+  final ValueChanged<TutorSession> onDeleteSession;
   final VoidCallback onCollapse;
 
   @override
@@ -1043,28 +1117,41 @@ class _TutorSidebar extends StatelessWidget {
                   borderRadius: BorderRadius.circular(18),
                   border: Border.all(color: AppColors.stroke),
                 ),
-                child: ListView(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                  children: [
-                    for (final session in sessions)
-                      _TutorHistoryTile(
-                        session: session,
-                        isSelected: session == selectedSession,
-                        onTap: () => onSessionSelected(session),
-                      ),
-                    if (sessions.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.all(12),
-                        child: Text(
-                          'No saved chats',
-                          style: TextStyle(
-                            color: AppColors.muted,
-                            fontSize: 12,
-                            height: 1.3,
+                child: StreamBuilder<List<TutorSession>>(
+                  stream: repository.watchTutorSessions(),
+                  builder: (context, snapshot) {
+                    final query = searchController.text.trim().toLowerCase();
+                    final sessions =
+                        snapshot.data
+                            ?.where((session) => session.matches(query))
+                            .toList() ??
+                        const <TutorSession>[];
+
+                    return ListView(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      children: [
+                        for (final session in sessions)
+                          _TutorHistoryTile(
+                            session: session,
+                            isSelected: session.id == selectedSessionId,
+                            onTap: () => onSessionSelected(session),
+                            onDelete: () => onDeleteSession(session),
                           ),
-                        ),
-                      ),
-                  ],
+                        if (sessions.isEmpty)
+                          const Padding(
+                            padding: EdgeInsets.all(12),
+                            child: Text(
+                              'No saved chats',
+                              style: TextStyle(
+                                color: AppColors.muted,
+                                fontSize: 12,
+                                height: 1.3,
+                              ),
+                            ),
+                          ),
+                      ],
+                    );
+                  },
                 ),
               ),
             ),
@@ -1111,22 +1198,26 @@ class _DeviceStatusBanner extends StatelessWidget {
 class _AiCharacterTile extends StatelessWidget {
   const _AiCharacterTile({
     required this.character,
+    required this.preview,
     required this.onPickAvatar,
     required this.onOpen,
   });
 
-  final _AiCharacter character;
-  final ValueChanged<_AiCharacter> onPickAvatar;
+  final AiCharacter character;
+  final String? preview;
+  final ValueChanged<AiCharacter> onPickAvatar;
   final VoidCallback onOpen;
 
   @override
   Widget build(BuildContext context) {
+    final lastMessage = preview?.trim() ?? '';
+
     return _ChatRow(
       onTap: onOpen,
       avatar: _EditableAvatar(character: character, onPickAvatar: onPickAvatar),
       title: character.name,
-      subtitle: character.preview,
-      meta: character.personality,
+      subtitle: lastMessage.isEmpty ? character.preview : lastMessage,
+      meta: character.publicId,
       trailing: character.isCustom
           ? const Icon(Icons.image_outlined, color: AppColors.muted, size: 20)
           : const Icon(
@@ -1273,15 +1364,15 @@ class _ChatRow extends StatelessWidget {
 class _EditableAvatar extends StatelessWidget {
   const _EditableAvatar({required this.character, required this.onPickAvatar});
 
-  final _AiCharacter character;
-  final ValueChanged<_AiCharacter> onPickAvatar;
+  final AiCharacter character;
+  final ValueChanged<AiCharacter> onPickAvatar;
 
   @override
   Widget build(BuildContext context) {
     final avatar = _AvatarBox(
       color: character.tint,
       icon: character.icon,
-      imageBytes: character.avatarBytes,
+      photoUrl: character.avatarUrl,
     );
 
     if (!character.isCustom) {
@@ -1323,16 +1414,10 @@ class _EditableAvatar extends StatelessWidget {
 }
 
 class _AvatarBox extends StatelessWidget {
-  const _AvatarBox({
-    required this.color,
-    required this.icon,
-    this.imageBytes,
-    this.photoUrl,
-  });
+  const _AvatarBox({required this.color, required this.icon, this.photoUrl});
 
   final Color color;
   final IconData icon;
-  final Uint8List? imageBytes;
   final String? photoUrl;
 
   @override
@@ -1348,9 +1433,7 @@ class _AvatarBox extends StatelessWidget {
             color: color,
             borderRadius: BorderRadius.circular(14),
           ),
-          child: imageBytes != null
-              ? Image.memory(imageBytes!, fit: BoxFit.cover)
-              : (photoUrl != null && photoUrl!.isNotEmpty)
+          child: (photoUrl != null && photoUrl!.isNotEmpty)
               ? Image.network(photoUrl!, fit: BoxFit.cover)
               : Icon(icon, color: AppColors.ink, size: 29),
         ),
@@ -1364,11 +1447,13 @@ class _TutorHistoryTile extends StatelessWidget {
     required this.session,
     required this.isSelected,
     required this.onTap,
+    required this.onDelete,
   });
 
-  final _TutorSession session;
+  final TutorSession session;
   final bool isSelected;
   final VoidCallback onTap;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -1379,32 +1464,49 @@ class _TutorHistoryTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         child: InkWell(
           onTap: onTap,
+          onLongPress: () => _confirmDelete(context),
           borderRadius: BorderRadius.circular(14),
           child: Padding(
             padding: const EdgeInsets.all(12),
-            child: Column(
+            child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  session.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: AppColors.ink,
-                    fontSize: 16,
-                    fontWeight: isSelected ? FontWeight.w800 : FontWeight.w700,
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        session.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: AppColors.ink,
+                          fontSize: 16,
+                          fontWeight: isSelected
+                              ? FontWeight.w800
+                              : FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        session.subtitle,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.muted,
+                          fontSize: 13,
+                          height: 1.25,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  session.subtitle,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.muted,
-                    fontSize: 13,
-                    height: 1.25,
-                  ),
+                IconButton(
+                  tooltip: 'Delete chat',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => _confirmDelete(context),
+                  icon: const Icon(Icons.delete_outline_rounded, size: 19),
+                  color: AppColors.muted,
                 ),
               ],
             ),
@@ -1413,17 +1515,47 @@ class _TutorHistoryTile extends StatelessWidget {
       ),
     );
   }
+
+  Future<void> _confirmDelete(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete this chat?'),
+        content: Text('"${session.title}" and its messages will be removed.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed ?? false) {
+      onDelete();
+    }
+  }
 }
 
 class _TutorConversation extends StatelessWidget {
   const _TutorConversation({
     required this.session,
+    required this.messages,
+    required this.isLoading,
+    required this.isReplying,
     required this.messageController,
     required this.onSendMessage,
     required this.onOpenHistory,
   });
 
-  final _TutorSession session;
+  final TutorSession session;
+  final List<AiMessage> messages;
+  final bool isLoading;
+  final bool isReplying;
   final TextEditingController messageController;
   final VoidCallback onSendMessage;
   final VoidCallback onOpenHistory;
@@ -1465,13 +1597,31 @@ class _TutorConversation extends StatelessWidget {
             ),
           ),
           Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.all(12),
-              itemCount: session.messages.length,
-              itemBuilder: (context, index) {
-                return _TutorBubble(message: session.messages[index]);
-              },
-            ),
+            child: isLoading && messages.isEmpty
+                ? const Center(child: CircularProgressIndicator())
+                : messages.isEmpty
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Text(
+                        'What would you like to work through right now?',
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.all(12),
+                    // Newest messages sit at the bottom, so anchoring the
+                    // list there keeps the latest reply in view as it grows.
+                    reverse: true,
+                    itemCount: messages.length,
+                    itemBuilder: (context, index) {
+                      return _TutorBubble(
+                        message: messages[messages.length - 1 - index],
+                      );
+                    },
+                  ),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
@@ -1482,10 +1632,11 @@ class _TutorConversation extends StatelessWidget {
                     controller: messageController,
                     minLines: 1,
                     maxLines: 3,
+                    enabled: !isReplying,
                     textInputAction: TextInputAction.send,
                     onSubmitted: (_) => onSendMessage(),
                     decoration: InputDecoration(
-                      hintText: 'Ask the tutor',
+                      hintText: isReplying ? 'Waiting for reply' : 'Ask the tutor',
                       filled: true,
                       fillColor: AppColors.cream,
                       contentPadding: const EdgeInsets.symmetric(
@@ -1501,7 +1652,7 @@ class _TutorConversation extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 IconButton.filled(
-                  onPressed: onSendMessage,
+                  onPressed: isReplying ? null : onSendMessage,
                   icon: const Icon(Icons.arrow_upward_rounded),
                   tooltip: 'Send',
                   style: IconButton.styleFrom(
@@ -1521,7 +1672,7 @@ class _TutorConversation extends StatelessWidget {
 class _TutorBubble extends StatelessWidget {
   const _TutorBubble({required this.message});
 
-  final _TutorMessage message;
+  final AiMessage message;
 
   @override
   Widget build(BuildContext context) {
@@ -1536,22 +1687,85 @@ class _TutorBubble extends StatelessWidget {
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: AppColors.stroke),
         ),
-        child: Text(
-          message.text,
-          style: Theme.of(
-            context,
-          ).textTheme.bodyMedium?.copyWith(color: AppColors.ink, fontSize: 13),
-        ),
+        child: message.isPending
+            ? const _TypingIndicator()
+            : Text(
+                message.text,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: AppColors.ink,
+                  fontSize: 13,
+                ),
+              ),
       ),
     );
   }
 }
 
+/// Three-dot "typing" affordance shown while a reply is in flight.
+class _TypingIndicator extends StatefulWidget {
+  const _TypingIndicator();
+
+  @override
+  State<_TypingIndicator> createState() => _TypingIndicatorState();
+}
+
+class _TypingIndicatorState extends State<_TypingIndicator>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1100),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: List.generate(3, (index) {
+            // Each dot peaks a third of a cycle after the previous one.
+            final phase = (_controller.value - index * 0.2) % 1.0;
+            final opacity = 0.3 + 0.7 * (1 - (phase * 2 - 1).abs()).clamp(0, 1);
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+              child: Opacity(
+                opacity: opacity.toDouble(),
+                child: Container(
+                  height: 7,
+                  width: 7,
+                  decoration: const BoxDecoration(
+                    color: AppColors.muted,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+            );
+          }),
+        );
+      },
+    );
+  }
+}
+
 class _DirectChatScreen extends StatefulWidget {
-  const _DirectChatScreen({required this.peer, required this.currentUid});
+  const _DirectChatScreen({
+    required this.peer,
+    required this.currentUid,
+    this.repository,
+  });
 
   final _ChatPeer peer;
   final String? currentUid;
+
+  /// Present for AI peers, whose turns are produced by a Cloud Function.
+  final AiChatRepository? repository;
 
   @override
   State<_DirectChatScreen> createState() => _DirectChatScreenState();
@@ -1559,15 +1773,9 @@ class _DirectChatScreen extends StatefulWidget {
 
 class _DirectChatScreenState extends State<_DirectChatScreen> {
   final _controller = TextEditingController();
-  late final List<_DirectMessage> _aiMessages = [
-    _DirectMessage(
-      isMine: false,
-      text: widget.peer.isAi
-          ? 'Hi, I am ${widget.peer.displayName}. What do you want to talk through?'
-          : '',
-      sentAt: DateTime.now(),
-    ),
-  ];
+
+  /// True while `chatWithCharacter` is in flight.
+  bool _isReplying = false;
 
   @override
   void dispose() {
@@ -1610,7 +1818,11 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
         child: Column(
           children: [
             Expanded(child: _buildMessages()),
-            _MessageComposer(controller: _controller, onSend: _sendMessage),
+            _MessageComposer(
+              controller: _controller,
+              onSend: _sendMessage,
+              isBusy: _isReplying,
+            ),
           ],
         ),
       ),
@@ -1619,7 +1831,7 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
 
   Widget _buildMessages() {
     if (widget.peer.isAi) {
-      return _MessageList(messages: _aiMessages);
+      return _buildAiMessages();
     }
 
     final currentUid = widget.currentUid;
@@ -1667,28 +1879,84 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
     );
   }
 
+  Widget _buildAiMessages() {
+    final repository = widget.repository;
+    if (repository == null) {
+      return const Center(child: Text('Sign in to start chatting.'));
+    }
+
+    return StreamBuilder<List<AiMessage>>(
+      stream: repository.watchCharacterMessages(widget.peer.id),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final messages = snapshot.data ?? const <AiMessage>[];
+        if (messages.isEmpty && !_isReplying) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(28),
+              child: Text(
+                'Hi, I am ${widget.peer.displayName}. '
+                'What do you want to talk through?',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ),
+          );
+        }
+
+        return _MessageList(
+          messages: [
+            for (final message in messages)
+              _DirectMessage(
+                isMine: message.isUser,
+                text: message.text,
+                sentAt: message.createdAt,
+              ),
+            if (_isReplying)
+              const _DirectMessage(
+                isMine: false,
+                text: '',
+                sentAt: null,
+                isPending: true,
+              ),
+          ],
+        );
+      },
+    );
+  }
+
   Future<void> _sendMessage() async {
     final text = _controller.text.trim();
-    if (text.isEmpty) {
+    if (text.isEmpty || _isReplying) {
       return;
     }
 
     _controller.clear();
 
     if (widget.peer.isAi) {
-      setState(() {
-        _aiMessages.add(
-          _DirectMessage(isMine: true, text: text, sentAt: DateTime.now()),
+      final repository = widget.repository;
+      if (repository == null) {
+        return;
+      }
+
+      setState(() => _isReplying = true);
+      try {
+        await repository.sendToCharacter(
+          characterId: widget.peer.id,
+          text: text,
         );
-        _aiMessages.add(
-          _DirectMessage(
-            isMine: false,
-            text:
-                'I hear you. Let us break that into one feeling, one fact, and one next step.',
-            sentAt: DateTime.now(),
-          ),
-        );
-      });
+      } on AiChatException catch (error) {
+        _showError(error.message);
+      } catch (error) {
+        _showError('${widget.peer.displayName} could not reply right now.');
+      } finally {
+        if (mounted) {
+          setState(() => _isReplying = false);
+        }
+      }
       return;
     }
 
@@ -1709,6 +1977,15 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
       'text': text,
       'createdAt': FieldValue.serverTimestamp(),
     });
+  }
+
+  void _showError(String message) {
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   void _showPeerProfile() {
@@ -1744,9 +2021,11 @@ class _MessageList extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
+      // Anchored to the bottom so a new reply is visible without scrolling.
+      reverse: true,
       itemCount: messages.length,
       itemBuilder: (context, index) {
-        final message = messages[index];
+        final message = messages[messages.length - 1 - index];
         return Align(
           alignment: message.isMine
               ? Alignment.centerRight
@@ -1760,7 +2039,9 @@ class _MessageList extends StatelessWidget {
               borderRadius: BorderRadius.circular(17),
               border: Border.all(color: AppColors.stroke),
             ),
-            child: Text(message.text),
+            child: message.isPending
+                ? const _TypingIndicator()
+                : Text(message.text),
           ),
         );
       },
@@ -1769,10 +2050,15 @@ class _MessageList extends StatelessWidget {
 }
 
 class _MessageComposer extends StatelessWidget {
-  const _MessageComposer({required this.controller, required this.onSend});
+  const _MessageComposer({
+    required this.controller,
+    required this.onSend,
+    this.isBusy = false,
+  });
 
   final TextEditingController controller;
   final VoidCallback onSend;
+  final bool isBusy;
 
   @override
   Widget build(BuildContext context) {
@@ -1789,9 +2075,10 @@ class _MessageComposer extends StatelessWidget {
               controller: controller,
               minLines: 1,
               maxLines: 3,
+              enabled: !isBusy,
               onSubmitted: (_) => onSend(),
               decoration: InputDecoration(
-                hintText: 'Message',
+                hintText: isBusy ? 'Waiting for reply' : 'Message',
                 filled: true,
                 fillColor: Colors.white,
                 border: OutlineInputBorder(
@@ -1803,7 +2090,7 @@ class _MessageComposer extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           IconButton.filled(
-            onPressed: onSend,
+            onPressed: isBusy ? null : onSend,
             icon: const Icon(Icons.arrow_upward_rounded),
             style: IconButton.styleFrom(
               backgroundColor: AppColors.clay,
@@ -1898,21 +2185,28 @@ class _PeerAvatar extends StatelessWidget {
         color: peer.tint,
         borderRadius: BorderRadius.circular(size * 0.24),
       ),
-      child: peer.avatarBytes != null
-          ? Image.memory(peer.avatarBytes!, fit: BoxFit.cover)
+      child: (peer.photoUrl?.isNotEmpty ?? false)
+          ? Image.network(peer.photoUrl!, fit: BoxFit.cover)
           : Icon(peer.icon, color: AppColors.ink, size: size * 0.48),
     );
   }
 }
 
+/// Values collected by [_AddCharacterDialog]; the document itself is created
+/// by the repository so the dialog stays free of Firestore concerns.
+class _CharacterDraft {
+  const _CharacterDraft({required this.name, required this.personality});
+
+  final String name;
+  final String personality;
+}
+
 class _AddCharacterDialog extends StatelessWidget {
   const _AddCharacterDialog({
-    required this.userId,
     required this.nameController,
     required this.personalityController,
   });
 
-  final String userId;
   final TextEditingController nameController;
   final TextEditingController personalityController;
 
@@ -1932,8 +2226,13 @@ class _AddCharacterDialog extends StatelessWidget {
           const SizedBox(height: 12),
           TextField(
             controller: personalityController,
+            minLines: 1,
+            maxLines: 3,
             textCapitalization: TextCapitalization.sentences,
-            decoration: const InputDecoration(labelText: 'Personality'),
+            decoration: const InputDecoration(
+              labelText: 'Personality',
+              helperText: 'How should they talk to you?',
+            ),
           ),
         ],
       ),
@@ -1951,15 +2250,7 @@ class _AddCharacterDialog extends StatelessWidget {
             }
 
             Navigator.of(context).pop(
-              _AiCharacter(
-                userId: userId,
-                name: name,
-                personality: personality,
-                preview: 'Custom companion ready to chat.',
-                tint: AppColors.peach,
-                icon: Icons.favorite_rounded,
-                isCustom: true,
-              ),
+              _CharacterDraft(name: name, personality: personality),
             );
           },
           child: const Text('Add'),
@@ -1999,28 +2290,26 @@ class _ChatPeer {
     required this.tint,
     required this.icon,
     this.photoUrl,
-    this.avatarBytes,
   });
 
   factory _ChatPeer.ai({
     required String id,
+    required String publicUserId,
     required String displayName,
     required String subtitle,
     required Color tint,
     required IconData icon,
-    Uint8List? avatarBytes,
     String? photoUrl,
   }) {
     return _ChatPeer._(
       id: id,
-      publicUserId: id,
+      publicUserId: publicUserId,
       displayName: displayName,
       subtitle: subtitle,
       isAi: true,
       tint: tint,
       icon: icon,
       photoUrl: photoUrl,
-      avatarBytes: avatarBytes,
     );
   }
 
@@ -2052,7 +2341,6 @@ class _ChatPeer {
   final Color tint;
   final IconData icon;
   final String? photoUrl;
-  final Uint8List? avatarBytes;
 }
 
 class _DirectMessage {
@@ -2060,46 +2348,15 @@ class _DirectMessage {
     required this.isMine,
     required this.text,
     required this.sentAt,
+    this.isPending = false,
   });
 
   final bool isMine;
   final String text;
   final DateTime? sentAt;
-}
 
-class _AiCharacter {
-  const _AiCharacter({
-    required this.userId,
-    required this.name,
-    required this.personality,
-    required this.preview,
-    required this.tint,
-    required this.icon,
-    this.isCustom = false,
-    this.avatarBytes,
-  });
-
-  final String userId;
-  final String name;
-  final String personality;
-  final String preview;
-  final Color tint;
-  final IconData icon;
-  final bool isCustom;
-  final Uint8List? avatarBytes;
-
-  _AiCharacter copyWith({Uint8List? avatarBytes}) {
-    return _AiCharacter(
-      userId: userId,
-      name: name,
-      personality: personality,
-      preview: preview,
-      tint: tint,
-      icon: icon,
-      isCustom: isCustom,
-      avatarBytes: avatarBytes ?? this.avatarBytes,
-    );
-  }
+  /// Local-only placeholder rendered as a typing indicator.
+  final bool isPending;
 }
 
 class _ChatPreview {
@@ -2190,36 +2447,3 @@ class _HumanContact {
   }
 }
 
-class _TutorSession {
-  _TutorSession({
-    required this.title,
-    required this.subtitle,
-    required this.messages,
-  });
-
-  final String title;
-  final String subtitle;
-  final List<_TutorMessage> messages;
-
-  bool get isDirty => messages.any((message) => message.isUser);
-
-  _TutorSession copyWith({String? subtitle, List<_TutorMessage>? messages}) {
-    return _TutorSession(
-      title: title,
-      subtitle: subtitle ?? this.subtitle,
-      messages: messages ?? this.messages,
-    );
-  }
-}
-
-class _TutorMessage {
-  const _TutorMessage({
-    required this.isUser,
-    required this.text,
-    this.isPending = false,
-  });
-
-  final bool isUser;
-  final String text;
-  final bool isPending;
-}
