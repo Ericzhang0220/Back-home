@@ -124,10 +124,30 @@ class AiChatRepository {
     await _charactersRef.doc(characterId).delete();
   }
 
+  /// Live view of a single character, so a screen already scoped to one
+  /// companion can follow its friend state without watching the whole list.
+  /// Emits null once the character no longer exists.
+  Stream<AiCharacter?> watchCharacter(String characterId) {
+    return _charactersRef.doc(characterId).snapshots().map((doc) {
+      final data = doc.data();
+      return data == null
+          ? null
+          : AiCharacter.fromData(id: doc.id, data: data);
+    });
+  }
+
   /// Saves a discovered built-in character to the person's AI friends list.
   Future<void> addCharacterAsFriend(String characterId) {
     return _charactersRef.doc(characterId).set({
       'isFriend': true,
+    }, SetOptions(merge: true));
+  }
+
+  /// Drops a built-in character back out of the friends list. The conversation
+  /// itself is left alone, so re-adding them picks the thread back up.
+  Future<void> removeCharacterAsFriend(String characterId) {
+    return _charactersRef.doc(characterId).set({
+      'isFriend': false,
     }, SetOptions(merge: true));
   }
 

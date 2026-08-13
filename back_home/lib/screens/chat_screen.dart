@@ -2335,6 +2335,10 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
   /// True while `chatWithCharacter` is in flight.
   bool _isReplying = false;
 
+  /// True while the friend toggle is being written, so a double tap cannot
+  /// queue two conflicting writes.
+  bool _isUpdatingFriend = false;
+
   @override
   void dispose() {
     _controller.dispose();
@@ -2350,26 +2354,29 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
         foregroundColor: AppColors.ink,
         surfaceTintColor: Colors.transparent,
         titleSpacing: 0,
-        title: Row(
-          children: [
-            _PeerAvatar(peer: widget.peer, size: 36),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                widget.peer.displayName,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
+        // The action slot belongs to the heart for AI friends, so the profile
+        // moves onto the name itself.
+        title: InkWell(
+          onTap: _showPeerProfile,
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+            child: Row(
+              children: [
+                _PeerAvatar(peer: widget.peer, size: 36),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    widget.peer.displayName,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
-        actions: [
-          IconButton(
-            tooltip: 'Profile',
-            onPressed: _showPeerProfile,
-            icon: const Icon(Icons.info_outline_rounded),
           ),
-        ],
+        ),
+        actions: [_buildAppBarAction()],
       ),
       body: SafeArea(
         top: false,
@@ -2385,6 +2392,87 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
         ),
       ),
     );
+  }
+
+  /// A liked AI companion gets a heart in place of the profile button, so the
+  /// same control that added them can drop them again. Human contacts and the
+  /// characters you made yourself — which are always in your list — keep the
+  /// profile button.
+  Widget _buildAppBarAction() {
+    final repository = widget.repository;
+    if (!widget.peer.isAi || repository == null) {
+      return _buildProfileButton();
+    }
+
+    return StreamBuilder<AiCharacter?>(
+      stream: repository.watchCharacter(widget.peer.id),
+      builder: (context, snapshot) {
+        final character = snapshot.data;
+        if (character == null || character.isCustom) {
+          return _buildProfileButton();
+        }
+
+        final isFriend = character.isFriend;
+        return IconButton(
+          tooltip: isFriend ? 'Remove from AI friends' : 'Add to AI friends',
+          onPressed: _isUpdatingFriend
+              ? null
+              : () => _setFriend(isFriend: !isFriend),
+          icon: Icon(
+            isFriend ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+            color: isFriend ? AppColors.clay : AppColors.muted,
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildProfileButton() {
+    return IconButton(
+      tooltip: 'Profile',
+      onPressed: _showPeerProfile,
+      icon: const Icon(Icons.info_outline_rounded),
+    );
+  }
+
+  Future<void> _setFriend({required bool isFriend}) async {
+    final repository = widget.repository;
+    if (repository == null || _isUpdatingFriend) {
+      return;
+    }
+
+    setState(() => _isUpdatingFriend = true);
+    try {
+      if (isFriend) {
+        await repository.addCharacterAsFriend(widget.peer.id);
+      } else {
+        await repository.removeCharacterAsFriend(widget.peer.id);
+      }
+      if (mounted) {
+        final name = widget.peer.displayName;
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              content: Text(
+                isFriend
+                    ? '$name is back in your AI friends.'
+                    : '$name was removed from your AI friends.',
+              ),
+            ),
+          );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not update that AI friend.')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isUpdatingFriend = false);
+      }
+    }
   }
 
   Widget _buildMessages() {

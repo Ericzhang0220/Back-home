@@ -368,9 +368,15 @@ class AiCharacter {
   ];
 
   factory AiCharacter.fromDoc(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data();
+    return AiCharacter.fromData(id: doc.id, data: doc.data());
+  }
+
+  factory AiCharacter.fromData({
+    required String id,
+    required Map<String, dynamic> data,
+  }) {
     return AiCharacter(
-      id: doc.id,
+      id: id,
       name: _readString(data['name']) ?? 'Companion',
       personality: _readString(data['personality']) ?? 'A warm, steady friend',
       introduction:
