@@ -54,6 +54,10 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _showAiFriends = false;
   bool _isTutorSidebarOpen = false;
 
+  /// Held here rather than inside `_AiDiscoveryPage` so that toggling to the
+  /// friends list and back returns to the same profile instead of reshuffling.
+  String? _discoveryCharacterId;
+
   AiChatRepository? _repository;
 
   /// Null until the user opens the Tutor tab, at which point the most recent
@@ -127,6 +131,12 @@ class _ChatScreenState extends State<ChatScreen> {
             child: _AiDiscoveryPage(
               repository: repository,
               onAddFriend: _addAiFriend,
+              characterId: _discoveryCharacterId,
+              onCharacterChanged: (id) {
+                if (_discoveryCharacterId != id) {
+                  setState(() => _discoveryCharacterId = id);
+                }
+              },
             ),
           ),
         Column(
@@ -496,7 +506,7 @@ class _TopTabs extends StatelessWidget {
   }
 }
 
-class _TabButton extends StatelessWidget {
+class _TabButton extends StatefulWidget {
   const _TabButton({
     required this.label,
     required this.icon,
@@ -512,64 +522,121 @@ class _TabButton extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
+  State<_TabButton> createState() => _TabButtonState();
+}
+
+/// Swaps its label with a quarter turn: the outgoing wording rotates away to
+/// edge-on while the next one swings in from the neighbouring face, as if both
+/// were printed on the sides of an invisible cube. The faces never pass 90°,
+/// so the words are never seen mirrored.
+class _TabButtonState extends State<_TabButton>
+    with SingleTickerProviderStateMixin {
+  /// Half the cube's edge — matched to the button height so the words sit on a
+  /// cube the size of the tab itself.
+  static const double _halfEdge = 22;
+
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 420),
+    value: 1,
+  );
+
+  String? _outgoingLabel;
+
+  @override
+  void didUpdateWidget(covariant _TabButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.flipLabel && widget.label != oldWidget.label) {
+      _outgoingLabel = oldWidget.label;
+      _controller.forward(from: 0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  /// Places [child] on a cube face turned [angle] radians about the vertical
+  /// axis, offset forward so it rides the cube's surface rather than spinning
+  /// through its centre.
+  Widget _face(Widget child, double angle) {
+    final transform = Matrix4.identity()
+      ..setEntry(3, 2, 0.0016)
+      ..rotateY(angle)
+      ..translateByDouble(0, 0, -_halfEdge, 1);
+    return Transform(
+      alignment: Alignment.center,
+      transform: transform,
+      child: child,
+    );
+  }
+
+  Widget _content(String label) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          widget.icon,
+          size: 18,
+          color: widget.isSelected ? Colors.white : AppColors.muted,
+        ),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            label,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: widget.isSelected ? Colors.white : AppColors.ink,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Material(
-      color: isSelected ? AppColors.clay : Colors.white.withValues(alpha: 0.7),
+      color: widget.isSelected
+          ? AppColors.clay
+          : Colors.white.withValues(alpha: 0.7),
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        onTap: onTap,
+        onTap: widget.onTap,
         child: Container(
           height: 44,
           alignment: Alignment.center,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: isSelected ? AppColors.clay : AppColors.stroke,
+              color: widget.isSelected ? AppColors.clay : AppColors.stroke,
             ),
           ),
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 420),
-            transitionBuilder: (child, animation) {
-              final rotation = Tween<double>(
-                begin: math.pi,
-                end: 0,
-              ).animate(animation);
-              return AnimatedBuilder(
-                animation: rotation,
-                child: child,
-                builder: (context, child) {
-                  return Transform(
-                    alignment: Alignment.center,
-                    transform: Matrix4.rotationY(rotation.value),
-                    child: child,
-                  );
-                },
+          child: AnimatedBuilder(
+            animation: _controller,
+            builder: (context, _) {
+              final outgoingLabel = _outgoingLabel;
+              if (_controller.isCompleted || outgoingLabel == null) {
+                return _content(widget.label);
+              }
+
+              // The cube turns a single quarter: the leaving face goes 0 → -90°
+              // as the arriving one comes from +90° → 0°.
+              final turn =
+                  Curves.easeInOut.transform(_controller.value) * math.pi / 2;
+              return Stack(
+                alignment: Alignment.center,
+                children: [
+                  _face(_content(outgoingLabel), -turn),
+                  _face(_content(widget.label), math.pi / 2 - turn),
+                ],
               );
             },
-            child: Row(
-              key: ValueKey(flipLabel ? label : icon),
-              mainAxisAlignment: MainAxisAlignment.center,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  icon,
-                  size: 18,
-                  color: isSelected ? Colors.white : AppColors.muted,
-                ),
-                const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    label,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: isSelected ? Colors.white : AppColors.ink,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-              ],
-            ),
           ),
         ),
       ),
@@ -717,10 +784,20 @@ class _AiContactsPage extends StatelessWidget {
 /// setting `avatarUrl` on their character documents; until then each profile
 /// uses its character color and icon as a deliberate visual placeholder.
 class _AiDiscoveryPage extends StatefulWidget {
-  const _AiDiscoveryPage({required this.repository, required this.onAddFriend});
+  const _AiDiscoveryPage({
+    required this.repository,
+    required this.onAddFriend,
+    required this.characterId,
+    required this.onCharacterChanged,
+  });
 
   final AiChatRepository repository;
   final Future<void> Function(AiCharacter character) onAddFriend;
+
+  /// The profile to show. Owned by the chat screen so it survives the
+  /// AI ⇄ Friend toggle, which tears this page down and rebuilds it.
+  final String? characterId;
+  final ValueChanged<String?> onCharacterChanged;
 
   @override
   State<_AiDiscoveryPage> createState() => _AiDiscoveryPageState();
@@ -729,8 +806,9 @@ class _AiDiscoveryPage extends StatefulWidget {
 class _AiDiscoveryPageState extends State<_AiDiscoveryPage> {
   final math.Random _random = math.Random();
   final TextEditingController _messageController = TextEditingController();
-  String? _currentCharacterId;
   bool _isReplying = false;
+
+  String? get _currentCharacterId => widget.characterId;
 
   @override
   void dispose() {
@@ -751,12 +829,10 @@ class _AiDiscoveryPageState extends State<_AiDiscoveryPage> {
         )
         .toList();
     if (choices.isEmpty) {
-      setState(() => _currentCharacterId = null);
+      widget.onCharacterChanged(null);
       return;
     }
-    setState(
-      () => _currentCharacterId = choices[_random.nextInt(choices.length)].id,
-    );
+    widget.onCharacterChanged(choices[_random.nextInt(choices.length)].id);
   }
 
   Future<void> _sendMessage(AiCharacter character) async {
@@ -814,7 +890,7 @@ class _AiDiscoveryPageState extends State<_AiDiscoveryPage> {
         if (selected != null && selected.id != _currentCharacterId) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted && _currentCharacterId != selected.id) {
-              setState(() => _currentCharacterId = selected.id);
+              widget.onCharacterChanged(selected.id);
             }
           });
         }
