@@ -244,12 +244,10 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
 
-    setState(() {
-      _selectedPage = page;
-      if (page == _ChatPage.ai) {
-        _showAiFriends = false;
-      }
-    });
+    // `_showAiFriends` is deliberately left alone: leaving for Human or Tutor
+    // and coming back should land on whichever side of the toggle the user was
+    // last looking at.
+    setState(() => _selectedPage = page);
   }
 
   Future<void> _showAddAiCharacterDialog() async {

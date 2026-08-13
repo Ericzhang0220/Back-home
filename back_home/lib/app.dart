@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:firebase_auth/firebase_auth.dart';
@@ -192,11 +193,8 @@ class _AppShellState extends State<AppShell> {
   final Set<AppTab> _initializedTabs = <AppTab>{};
   AppTab _currentTab = AppTab.home;
 
-  // Room chrome (the floating nav card + shop button) auto-hides after a short
-  // hold. It fades IN fast so a reveal snaps to full opacity, stays for the hold
-  // window, then fades OUT slowly. The hold must comfortably exceed the fade-in
-  // so the card actually reaches full opacity and lingers before hiding again.
-  static const Duration _roomChromeFadeIn = Duration(milliseconds: 320);
+  // Room chrome (the shop button) auto-hides after a short hold, then fades out
+  // slowly. The nav card has its own dock-style timing below.
   static const Duration _roomChromeFadeOut = Duration(seconds: 2);
   static const Duration _roomChromeHold = Duration(seconds: 4);
 
@@ -206,17 +204,63 @@ class _AppShellState extends State<AppShell> {
   bool _roomChromeInteractive = true;
   bool _roomInSubview = false;
 
+  // The floating nav card behaves like the macOS dock: it slides itself away
+  // after a short idle window and comes back on a swipe up. The reveal target
+  // deliberately stops short of the very bottom of the screen, which iOS
+  // reserves for its own home-indicator gestures.
+  static const Duration _navIdleHold = Duration(seconds: 4);
+  static const Duration _navSlideIn = Duration(milliseconds: 260);
+  static const Duration _navSlideOut = Duration(milliseconds: 380);
+  static const double _navRevealZoneHeight = 56;
+  static const double _navRevealZoneBottomGap = 22;
+
+  Timer? _navHideTimer;
+  bool _navVisible = true;
+  double _navRevealDrag = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleNavHide();
+  }
+
   @override
   void dispose() {
     _roomChromeFadeTimer?.cancel();
     _roomChromeInputTimer?.cancel();
+    _navHideTimer?.cancel();
     _roomController.dispose();
     super.dispose();
+  }
+
+  void _scheduleNavHide() {
+    _navHideTimer?.cancel();
+    _navHideTimer = Timer(_navIdleHold, () {
+      if (!mounted || !_navVisible) {
+        return;
+      }
+      setState(() => _navVisible = false);
+    });
+  }
+
+  void _revealNav() {
+    if (!_navVisible) {
+      setState(() => _navVisible = true);
+    }
+    _scheduleNavHide();
+  }
+
+  void _hideNav() {
+    _navHideTimer?.cancel();
+    if (_navVisible) {
+      setState(() => _navVisible = false);
+    }
   }
 
   void _selectTab(AppTab tab) {
     setState(() {
       _currentTab = tab;
+      _navVisible = true;
       if (tab == AppTab.room) {
         _roomChromeVisible = true;
         _roomChromeInteractive = true;
@@ -230,6 +274,7 @@ class _AppShellState extends State<AppShell> {
         _initializedTabs.add(tab);
       }
     });
+    _scheduleNavHide();
     if (tab == AppTab.room) {
       _scheduleRoomChromeFade();
     }
@@ -266,6 +311,8 @@ class _AppShellState extends State<AppShell> {
       _roomChromeInteractive = true;
     });
     _scheduleRoomChromeFade();
+    // A double-tap in the room asks for the chrome back, nav card included.
+    _revealNav();
   }
 
   void _handleRoomSubviewChanged(bool inSubview) {
@@ -274,15 +321,17 @@ class _AppShellState extends State<AppShell> {
     }
     if (!inSubview) {
       // Returning to the main room view leaves the nav bar hidden until the user
-      // double-taps to bring it up — so drop any pending auto-hide and hide it.
+      // double-taps or swipes it up — so drop any pending auto-hide and hide it.
       _roomChromeFadeTimer?.cancel();
       _roomChromeInputTimer?.cancel();
+      _navHideTimer?.cancel();
     }
     setState(() {
       _roomInSubview = inSubview;
       if (!inSubview) {
         _roomChromeVisible = false;
         _roomChromeInteractive = false;
+        _navVisible = false;
       }
     });
   }
@@ -373,9 +422,15 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     final isRoomTab = _currentTab == AppTab.room;
-    // The nav bar only shows in the main room view — not in the desk/night
-    // subviews — and otherwise follows the chrome auto-hide.
-    final navShown = !isRoomTab || (_roomChromeVisible && !_roomInSubview);
+    // The nav bar auto-hides everywhere, and is additionally forced away in the
+    // room's desk/night subviews.
+    final navShown = _navVisible && !(isRoomTab && _roomInSubview);
+    // Keep the swipe target clear of the strip iOS reserves for its own
+    // home-indicator gestures, so a reveal never dismisses the app instead.
+    final revealZoneBottom = math.max(
+      MediaQuery.paddingOf(context).bottom,
+      _navRevealZoneBottomGap,
+    );
 
     return Scaffold(
       backgroundColor: isRoomTab
@@ -399,25 +454,59 @@ class _AppShellState extends State<AppShell> {
                   right: 0,
                   bottom: 0,
                   child: IgnorePointer(
-                    ignoring:
-                        isRoomTab &&
-                        (!_roomChromeInteractive || _roomInSubview),
-                    child: AnimatedOpacity(
-                      duration: isRoomTab
-                          ? (navShown
-                                ? _roomChromeFadeIn
-                                // Snappy hide when entering a subview; gentle
-                                // 2s fade for the idle auto-hide.
-                                : (_roomInSubview
-                                      ? _roomChromeFadeIn
-                                      : _roomChromeFadeOut))
-                          : const Duration(milliseconds: 220),
-                      curve: Curves.easeInOutCubic,
-                      opacity: navShown ? 1 : 0,
-                      child: _FloatingNavBar(
-                        currentTab: _currentTab,
-                        onSelect: _selectTab,
+                    ignoring: !navShown,
+                    child: AnimatedSlide(
+                      duration: navShown ? _navSlideIn : _navSlideOut,
+                      curve: navShown
+                          ? Curves.easeOutCubic
+                          : Curves.easeInCubic,
+                      // A full child-height offset parks the card just off the
+                      // bottom edge, the way the dock tucks itself away.
+                      offset: Offset(0, navShown ? 0 : 1),
+                      child: AnimatedOpacity(
+                        duration: navShown ? _navSlideIn : _navSlideOut,
+                        curve: Curves.easeInOutCubic,
+                        opacity: navShown ? 1 : 0,
+                        child: GestureDetector(
+                          // Flick the card back down to dismiss it early.
+                          onVerticalDragEnd: (details) {
+                            if ((details.primaryVelocity ?? 0) > 180) {
+                              _hideNav();
+                            }
+                          },
+                          child: _FloatingNavBar(
+                            currentTab: _currentTab,
+                            onSelect: _selectTab,
+                          ),
+                        ),
                       ),
+                    ),
+                  ),
+                ),
+                // Invisible swipe-up target that brings the card back. It only
+                // takes gestures while the card is away, so it never competes
+                // with the content underneath the rest of the time.
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: revealZoneBottom,
+                  height: _navRevealZoneHeight,
+                  child: IgnorePointer(
+                    ignoring: navShown,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.translucent,
+                      onVerticalDragStart: (_) => _navRevealDrag = 0,
+                      onVerticalDragUpdate: (details) {
+                        _navRevealDrag += details.delta.dy;
+                        if (_navRevealDrag <= -14) {
+                          _revealNav();
+                        }
+                      },
+                      onVerticalDragEnd: (details) {
+                        if ((details.primaryVelocity ?? 0) < -180) {
+                          _revealNav();
+                        }
+                      },
                     ),
                   ),
                 ),
