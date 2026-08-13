@@ -40,6 +40,8 @@ class AiCharacter {
     required this.iconCodePoint,
     this.isCustom = false,
     this.isFriend = false,
+    this.isPublic = false,
+    this.authorUid,
     this.avatarUrl,
   });
 
@@ -57,6 +59,13 @@ class AiCharacter {
 
   /// Whether this character appears in the person's saved AI friends list.
   final bool isFriend;
+
+  /// True for a character its author shared with everyone, which publishes a
+  /// template copy to the top-level `publicAiCharacters` collection.
+  final bool isPublic;
+
+  /// Who authored a shared character. Null for the built-in presets.
+  final String? authorUid;
 
   /// Firebase Storage download URL, set once the user picks a picture.
   final String? avatarUrl;
@@ -389,6 +398,8 @@ class AiCharacter {
       iconCodePoint: _readString(data['iconKey']) ?? customIconCodePoint,
       isCustom: data['isCustom'] == true,
       isFriend: data['isFriend'] == true || data['isCustom'] == true,
+      isPublic: data['isPublic'] == true,
+      authorUid: _readString(data['authorUid']),
       avatarUrl: _readString(data['avatarUrl']),
     );
   }
@@ -403,6 +414,24 @@ class AiCharacter {
       'iconKey': iconCodePoint,
       'isCustom': isCustom,
       'isFriend': isFriend,
+      'isPublic': isPublic,
+      if (authorUid != null) 'authorUid': authorUid,
+    };
+  }
+
+  /// The shape stored in the shared `publicAiCharacters` catalog: everything
+  /// another account needs to render and adopt the character, and nothing
+  /// about the author's own copy of it.
+  Map<String, dynamic> toPublicTemplate({required String authorUid}) {
+    return {
+      'name': name,
+      'personality': personality,
+      'introduction': introduction,
+      'preview': preview,
+      'colorValue': colorValue,
+      'iconKey': iconCodePoint,
+      'isPublic': true,
+      'authorUid': authorUid,
     };
   }
 

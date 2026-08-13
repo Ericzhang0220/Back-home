@@ -39,6 +39,12 @@ service cloud.firestore {
         allow read, write: if isOwner(uid);
       }
 
+      // The Human tab's friends list. Private to the owner: liking someone is
+      // one-way and is never visible to the person being liked.
+      match /humanFriends/{friendUid} {
+        allow read, write: if isOwner(uid);
+      }
+
       // AI companion conversations.
       match /aiChats/{characterId} {
         allow read, write: if isOwner(uid);
@@ -67,6 +73,18 @@ service cloud.firestore {
           allow delete: if isOwner(uid);
         }
       }
+    }
+
+    // Characters their authors chose to publish. Every signed-in account can
+    // read the catalog to discover them; only the author can change or
+    // withdraw their own entry. Private characters are never written here —
+    // they stay in the author's own `aiCharacters` subcollection.
+    match /publicAiCharacters/{characterId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+                    && request.resource.data.authorUid == request.auth.uid;
+      allow update, delete: if signedIn()
+                            && resource.data.authorUid == request.auth.uid;
     }
 
     // Hall posts. Any signed-in user can like a post or add to its thread,

@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import '../auth/app_auth_controller.dart';
 import '../chat/ai_chat_repository.dart';
 import '../chat/ai_models.dart';
+import '../chat/human_friends_repository.dart';
 import '../widgets/app_ui.dart';
 import '../widgets/profile_avatar.dart';
 
@@ -18,6 +19,34 @@ String _publicUserIdForUid(String uid) {
     hash = (hash * 31 + unit) & 0x7fffffff;
   }
   return (100000000 + (hash % 900000000)).toString();
+}
+
+/// Direct chats are keyed by both participants, sorted so either side derives
+/// the same document id.
+String _chatIdFor(String a, String b) {
+  final ids = [a, b]..sort();
+  return '${ids[0]}_${ids[1]}';
+}
+
+/// Appends a human-to-human message, creating the chat document on first send.
+Future<void> _sendDirectMessage({
+  required String currentUid,
+  required String peerUid,
+  required String text,
+}) async {
+  final chatRef = FirebaseFirestore.instance
+      .collection('chats')
+      .doc(_chatIdFor(currentUid, peerUid));
+  await chatRef.set({
+    'participantUids': [currentUid, peerUid]..sort(),
+    'updatedAt': FieldValue.serverTimestamp(),
+    'lastMessage': text,
+  }, SetOptions(merge: true));
+  await chatRef.collection('messages').add({
+    'senderUid': currentUid,
+    'text': text,
+    'createdAt': FieldValue.serverTimestamp(),
+  });
 }
 
 Color _tintForUid(String uid) {
@@ -52,13 +81,16 @@ class _ChatScreenState extends State<ChatScreen> {
 
   _ChatPage _selectedPage = _ChatPage.ai;
   bool _showAiFriends = false;
+  bool _showHumanFriends = false;
   bool _isTutorSidebarOpen = false;
 
-  /// Held here rather than inside `_AiDiscoveryPage` so that toggling to the
+  /// Held here rather than inside the discovery pages so that toggling to a
   /// friends list and back returns to the same profile instead of reshuffling.
   String? _discoveryCharacterId;
+  String? _discoveryContactUid;
 
   AiChatRepository? _repository;
+  HumanFriendsRepository? _humanFriends;
 
   /// Null until the user opens the Tutor tab, at which point the most recent
   /// session (or a freshly created one) is selected.
@@ -98,14 +130,21 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     final repository = uid == null ? null : AiChatRepository(uid: uid);
+    final humanFriends = uid == null
+        ? null
+        : HumanFriendsRepository(uid: uid);
     if (mounted) {
       setState(() {
         _repository = repository;
+        _humanFriends = humanFriends;
         _selectedTutorSessionId = null;
+        _discoveryContactUid = null;
       });
     } else {
       _repository = repository;
+      _humanFriends = humanFriends;
       _selectedTutorSessionId = null;
+      _discoveryContactUid = null;
     }
 
     if (repository != null) {
@@ -121,8 +160,18 @@ class _ChatScreenState extends State<ChatScreen> {
     // (painted behind every tab) show through, matching the Hall and Profile
     // screens.
     final repository = _repository;
+    final humanFriends = _humanFriends;
+    final currentUid = widget.authController.currentUser?.uid;
     final isAiDiscovery =
         _selectedPage == _ChatPage.ai && !_showAiFriends && repository != null;
+    // The human deck needs an account for the friends list it filters against,
+    // so signed out the tab falls back to the plain directory it always was.
+    final isHumanDiscovery =
+        _selectedPage == _ChatPage.human &&
+        !_showHumanFriends &&
+        humanFriends != null &&
+        currentUid != null;
+    final isDiscovery = isAiDiscovery || isHumanDiscovery;
 
     return Stack(
       children: [
@@ -130,11 +179,24 @@ class _ChatScreenState extends State<ChatScreen> {
           Positioned.fill(
             child: _AiDiscoveryPage(
               repository: repository,
-              onAddFriend: _addAiFriend,
+              onToggleFriend: _toggleAiFriend,
               characterId: _discoveryCharacterId,
               onCharacterChanged: (id) {
                 if (_discoveryCharacterId != id) {
                   setState(() => _discoveryCharacterId = id);
+                }
+              },
+            ),
+          ),
+        if (isHumanDiscovery)
+          Positioned.fill(
+            child: _HumanDiscoveryPage(
+              friendsRepository: humanFriends,
+              currentUid: currentUid,
+              contactUid: _discoveryContactUid,
+              onContactChanged: (uid) {
+                if (_discoveryContactUid != uid) {
+                  setState(() => _discoveryContactUid = uid);
                 }
               },
             ),
@@ -144,10 +206,11 @@ class _ChatScreenState extends State<ChatScreen> {
             _TopTabs(
               selectedPage: _selectedPage,
               isAiFriends: _showAiFriends,
+              isHumanFriends: _showHumanFriends,
               overlay: true,
               onChanged: _selectPage,
             ),
-            if (!isAiDiscovery)
+            if (!isDiscovery)
               Expanded(
                 child: AnimatedSwitcher(
                   duration: const Duration(milliseconds: 180),
@@ -173,7 +236,8 @@ class _ChatScreenState extends State<ChatScreen> {
                       key: const ValueKey(_ChatPage.human),
                       searchController: _humanSearchController,
                       onSearchChanged: (_) => setState(() {}),
-                      currentUid: widget.authController.currentUser?.uid,
+                      currentUid: currentUid,
+                      friendsRepository: humanFriends,
                       onOpenContact: _openHumanConversation,
                     ),
                     _ChatPage.tutor =>
@@ -239,14 +303,21 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _selectPage(_ChatPage page) {
-    if (page == _ChatPage.ai && _selectedPage == _ChatPage.ai) {
-      setState(() => _showAiFriends = !_showAiFriends);
-      return;
+    // Tapping the tab you are already on flips that tab between its discovery
+    // deck and its friends list. The AI and Human tabs each keep their own.
+    if (page == _selectedPage) {
+      if (page == _ChatPage.ai) {
+        setState(() => _showAiFriends = !_showAiFriends);
+        return;
+      }
+      if (page == _ChatPage.human) {
+        setState(() => _showHumanFriends = !_showHumanFriends);
+        return;
+      }
     }
 
-    // `_showAiFriends` is deliberately left alone: leaving for Human or Tutor
-    // and coming back should land on whichever side of the toggle the user was
-    // last looking at.
+    // Those flags are deliberately left alone: leaving a tab and coming back
+    // should land on whichever side of the toggle the user was last looking at.
     setState(() => _selectedPage = page);
   }
 
@@ -277,6 +348,7 @@ class _ChatScreenState extends State<ChatScreen> {
       await repository.createCharacter(
         name: draft.name,
         personality: draft.personality,
+        isPublic: draft.isPublic,
       );
     } catch (error) {
       _showError('Could not create that character.');
@@ -310,19 +382,34 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  Future<void> _addAiFriend(AiCharacter character) async {
+  Future<void> _toggleAiFriend(
+    AiCharacter character, {
+    required bool isSharedTemplate,
+  }) async {
     final repository = _repository;
-    if (repository == null || character.isFriend) {
+    if (repository == null) {
       return;
     }
 
+    final add = !character.isFriend;
     try {
-      await repository.addCharacterAsFriend(character.id);
+      if (isSharedTemplate) {
+        // Nothing to flag yet — take a copy of the shared character first.
+        await repository.adoptPublicCharacter(character);
+      } else if (add) {
+        await repository.addCharacterAsFriend(character.id);
+      } else {
+        await repository.removeCharacterAsFriend(character.id);
+      }
       if (mounted) {
-        _showError('${character.name} was added to your AI friends.');
+        _showError(
+          add
+              ? '${character.name} was added to your AI friends.'
+              : '${character.name} was removed from your AI friends.',
+        );
       }
     } catch (_) {
-      _showError('Could not add that AI friend. Please try again.');
+      _showError('Could not update that AI friend. Please try again.');
     }
   }
 
@@ -450,6 +537,7 @@ class _ChatScreenState extends State<ChatScreen> {
         builder: (_) => _DirectChatScreen(
           peer: peer,
           currentUid: widget.authController.currentUser?.uid,
+          humanFriends: _humanFriends,
         ),
       ),
     );
@@ -460,12 +548,14 @@ class _TopTabs extends StatelessWidget {
   const _TopTabs({
     required this.selectedPage,
     required this.isAiFriends,
+    required this.isHumanFriends,
     required this.overlay,
     required this.onChanged,
   });
 
   final _ChatPage selectedPage;
   final bool isAiFriends;
+  final bool isHumanFriends;
   final bool overlay;
   final ValueChanged<_ChatPage> onChanged;
 
@@ -483,7 +573,7 @@ class _TopTabs extends StatelessWidget {
               child: _TabButton(
                 label: switch (page) {
                   _ChatPage.ai => isAiFriends ? 'Friend' : 'AI',
-                  _ChatPage.human => 'Human',
+                  _ChatPage.human => isHumanFriends ? 'Friend' : 'Human',
                   _ChatPage.tutor => 'Tutor',
                 },
                 icon: switch (page) {
@@ -492,7 +582,7 @@ class _TopTabs extends StatelessWidget {
                   _ChatPage.tutor => Icons.school_rounded,
                 },
                 isSelected: selectedPage == page,
-                flipLabel: page == _ChatPage.ai,
+                flipLabel: page != _ChatPage.tutor,
                 onTap: () => onChanged(page),
               ),
             ),
@@ -784,13 +874,20 @@ class _AiContactsPage extends StatelessWidget {
 class _AiDiscoveryPage extends StatefulWidget {
   const _AiDiscoveryPage({
     required this.repository,
-    required this.onAddFriend,
+    required this.onToggleFriend,
     required this.characterId,
     required this.onCharacterChanged,
   });
 
   final AiChatRepository repository;
-  final Future<void> Function(AiCharacter character) onAddFriend;
+
+  /// [isSharedTemplate] marks a character that lives only in the public
+  /// catalog, which has to be copied into this account rather than flagged.
+  final Future<void> Function(
+    AiCharacter character, {
+    required bool isSharedTemplate,
+  })
+  onToggleFriend;
 
   /// The profile to show. Owned by the chat screen so it survives the
   /// AI ⇄ Friend toggle, which tears this page down and rebuilds it.
@@ -833,7 +930,10 @@ class _AiDiscoveryPageState extends State<_AiDiscoveryPage> {
     widget.onCharacterChanged(choices[_random.nextInt(choices.length)].id);
   }
 
-  Future<void> _sendMessage(AiCharacter character) async {
+  Future<void> _sendMessage(
+    AiCharacter character, {
+    required bool isSharedTemplate,
+  }) async {
     final text = _messageController.text.trim();
     if (text.isEmpty || _isReplying) {
       return;
@@ -844,6 +944,15 @@ class _AiDiscoveryPageState extends State<_AiDiscoveryPage> {
       _isReplying = true;
     });
     try {
+      if (isSharedTemplate) {
+        // The reply function reads the character from this account, so take a
+        // copy first. It stays out of the friends list until the heart is
+        // tapped.
+        await widget.repository.adoptPublicCharacter(
+          character,
+          asFriend: false,
+        );
+      }
       await widget.repository.sendToCharacter(
         characterId: character.id,
         text: text,
@@ -872,200 +981,318 @@ class _AiDiscoveryPageState extends State<_AiDiscoveryPage> {
     return StreamBuilder<List<AiCharacter>>(
       stream: widget.repository.watchCharacters(),
       builder: (context, snapshot) {
-        final characters = snapshot.data ?? const <AiCharacter>[];
-        final discoverable = characters
-            .where((character) => !character.isCustom && !character.isFriend)
-            .toList();
-        final current = characters.where(
-          (character) => character.id == _currentCharacterId,
-        );
-        final selected = current.isNotEmpty
-            ? current.first
-            : (discoverable.isNotEmpty
-                  ? discoverable[_random.nextInt(discoverable.length)]
-                  : null);
-
-        if (selected != null && selected.id != _currentCharacterId) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted && _currentCharacterId != selected.id) {
-              widget.onCharacterChanged(selected.id);
-            }
-          });
-        }
-
-        if (snapshot.connectionState == ConnectionState.waiting &&
-            selected == null) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
-        if (selected == null) {
-          return const _DiscoveryCompleteState();
-        }
-
-        return StreamBuilder<List<AiMessage>>(
-          stream: widget.repository.watchCharacterMessages(selected.id),
-          builder: (context, messagesSnapshot) {
-            final messages = messagesSnapshot.data ?? const <AiMessage>[];
-            return GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onHorizontalDragEnd: (details) {
-                if ((details.primaryVelocity ?? 0) < -250) {
-                  _showNext(characters);
-                }
-              },
-              child: ClipRect(
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 360),
-                  switchInCurve: Curves.easeOutCubic,
-                  switchOutCurve: Curves.easeInCubic,
-                  transitionBuilder: (child, animation) {
-                    final isIncoming =
-                        child.key == ValueKey(_currentCharacterId);
-                    final offset = isIncoming
-                        ? Tween<Offset>(
-                            begin: const Offset(1, 0),
-                            end: Offset.zero,
-                          ).animate(animation)
-                        : Tween<Offset>(
-                            begin: const Offset(-1, 0),
-                            end: Offset.zero,
-                          ).animate(animation);
-                    return SlideTransition(position: offset, child: child);
-                  },
-                  child: _DiscoveryPortrait(
-                    key: ValueKey(selected.id),
-                    character: selected,
-                    messages: messages,
-                    messageController: _messageController,
-                    isReplying: _isReplying,
-                    onAddFriend: () => widget.onAddFriend(selected),
-                    onSendMessage: () => _sendMessage(selected),
-                  ),
-                ),
-              ),
+        return StreamBuilder<List<AiCharacter>>(
+          stream: widget.repository.watchPublicCharacters(),
+          builder: (context, publicSnapshot) {
+            return _buildDeck(
+              context,
+              snapshot,
+              publicSnapshot.data ?? const <AiCharacter>[],
             );
           },
         );
       },
     );
   }
+
+  Widget _buildDeck(
+    BuildContext context,
+    AsyncSnapshot<List<AiCharacter>> snapshot,
+    List<AiCharacter> published,
+  ) {
+    final owned = snapshot.data ?? const <AiCharacter>[];
+    final ownedIds = owned.map((character) => character.id).toSet();
+    // Characters other people shared, minus the ones already copied into
+    // this account — those are represented by the local copy instead.
+    final shared = published
+        .where(
+          (template) =>
+              template.authorUid != widget.repository.uid &&
+              !ownedIds.contains(template.id),
+        )
+        .toList();
+    final characters = [...owned, ...shared];
+    final discoverable = [
+      ...owned.where(
+        (character) => !character.isCustom && !character.isFriend,
+      ),
+      ...shared,
+    ];
+    final current = characters.where(
+      (character) => character.id == _currentCharacterId,
+    );
+    final selected = current.isNotEmpty
+        ? current.first
+        : (discoverable.isNotEmpty
+              ? discoverable[_random.nextInt(discoverable.length)]
+              : null);
+
+    if (selected != null && selected.id != _currentCharacterId) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _currentCharacterId != selected.id) {
+          widget.onCharacterChanged(selected.id);
+        }
+      });
+    }
+
+    if (snapshot.connectionState == ConnectionState.waiting &&
+        selected == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (selected == null) {
+      // The tab button shows the side you are on, so the deck is left by
+      // tapping the button that currently reads "AI".
+      return const _DiscoveryCompleteState(
+        title: 'You have met everyone',
+        text: 'Tap AI above to chat with your saved AI friends.',
+      );
+    }
+
+    final isSharedTemplate = shared.any(
+      (template) => template.id == selected.id,
+    );
+
+    return StreamBuilder<List<AiMessage>>(
+      stream: widget.repository.watchCharacterMessages(selected.id),
+      builder: (context, messagesSnapshot) {
+        final messages = messagesSnapshot.data ?? const <AiMessage>[];
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          // Anywhere on the card that is not the message field itself puts
+          // the keyboard away.
+          onTap: () => FocusScope.of(context).unfocus(),
+          onHorizontalDragEnd: (details) {
+            if ((details.primaryVelocity ?? 0) < -250) {
+              _showNext(characters);
+            }
+          },
+          child: ClipRect(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 360),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              transitionBuilder: (child, animation) {
+                final isIncoming =
+                    child.key == ValueKey(_currentCharacterId);
+                final offset = isIncoming
+                    ? Tween<Offset>(
+                        begin: const Offset(1, 0),
+                        end: Offset.zero,
+                      ).animate(animation)
+                    : Tween<Offset>(
+                        begin: const Offset(-1, 0),
+                        end: Offset.zero,
+                      ).animate(animation);
+                return SlideTransition(position: offset, child: child);
+              },
+              child: _DiscoveryPortrait(
+                key: ValueKey(selected.id),
+                title: selected.name,
+                photoUrl: selected.avatarUrl,
+                tint: selected.tint,
+                icon: selected.icon,
+                isFriend: selected.isFriend,
+                friendsLabel: 'AI friends',
+                bubbles: [
+                  _DiscoveryBubble(text: selected.introduction),
+                  for (final message
+                      in messages.reversed.take(2).toList().reversed)
+                    _DiscoveryBubble(
+                      text: message.text,
+                      isUser: message.isUser,
+                      isPending: message.isPending,
+                    ),
+                ],
+                messageController: _messageController,
+                isBusy: _isReplying,
+                onToggleFriend: () => widget.onToggleFriend(
+                  selected,
+                  isSharedTemplate: isSharedTemplate,
+                ),
+                onSendMessage: () =>
+                    _sendMessage(selected, isSharedTemplate: isSharedTemplate),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
 }
 
+/// One line of the conversation preview printed over a discovery card.
+class _DiscoveryBubble {
+  const _DiscoveryBubble({
+    required this.text,
+    this.isUser = false,
+    this.isPending = false,
+  });
+
+  final String text;
+  final bool isUser;
+  final bool isPending;
+}
+
+/// The full-bleed "meet someone" card. Shared by the AI and Human decks, which
+/// differ only in where their portrait, bubbles and friend state come from.
 class _DiscoveryPortrait extends StatelessWidget {
   const _DiscoveryPortrait({
     super.key,
-    required this.character,
-    required this.messages,
+    required this.title,
+    required this.photoUrl,
+    required this.tint,
+    required this.icon,
+    required this.isFriend,
+    required this.friendsLabel,
+    required this.bubbles,
     required this.messageController,
-    required this.isReplying,
-    required this.onAddFriend,
+    required this.isBusy,
+    required this.onToggleFriend,
     required this.onSendMessage,
+    this.subtitle,
   });
 
-  final AiCharacter character;
-  final List<AiMessage> messages;
+  final String title;
+  final String? subtitle;
+  final String? photoUrl;
+  final Color tint;
+  final IconData icon;
+  final bool isFriend;
+
+  /// Names the list the heart adds to, e.g. 'AI friends'.
+  final String friendsLabel;
+  final List<_DiscoveryBubble> bubbles;
   final TextEditingController messageController;
-  final bool isReplying;
-  final VoidCallback onAddFriend;
+  final bool isBusy;
+  final VoidCallback onToggleFriend;
   final VoidCallback onSendMessage;
+
+  /// Distance from the bottom of the card to the *top* of the composer. The
+  /// composer is anchored by its top edge so a growing message expands down
+  /// into the empty band below — the floating nav card hovers over that band
+  /// only while it is summoned.
+  static const double _composerTop = 152;
+  static const double _composerBottomGap = 12;
 
   @override
   Widget build(BuildContext context) {
-    final hasPortrait = character.avatarUrl?.isNotEmpty ?? false;
+    final hasPortrait = photoUrl?.isNotEmpty ?? false;
 
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        if (hasPortrait)
-          Image.network(character.avatarUrl!, fit: BoxFit.cover)
-        else
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  character.tint.withValues(alpha: 0.98),
-                  AppColors.ink.withValues(alpha: 0.96),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            if (hasPortrait)
+              Image.network(photoUrl!, fit: BoxFit.cover)
+            else
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      tint.withValues(alpha: 0.98),
+                      AppColors.ink.withValues(alpha: 0.96),
+                    ],
+                  ),
+                ),
+                child: Center(
+                  child: Icon(
+                    icon,
+                    size: 180,
+                    color: Colors.white.withValues(alpha: 0.74),
+                  ),
+                ),
+              ),
+            const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Colors.black26, Colors.transparent, Colors.black87],
+                  stops: [0, 0.38, 1],
+                ),
+              ),
+            ),
+            Positioned(
+              top: MediaQuery.paddingOf(context).top + 76,
+              left: 18,
+              child: _DiscoveryHeartButton(
+                isFriend: isFriend,
+                friendsLabel: friendsLabel,
+                onPressed: onToggleFriend,
+              ),
+            ),
+            Positioned(
+              left: 20,
+              right: 20,
+              bottom: 166,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      shadows: const [
+                        Shadow(color: Colors.black54, blurRadius: 10),
+                      ],
+                    ),
+                  ),
+                  if (subtitle != null)
+                    Text(
+                      subtitle!,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.88),
+                        fontWeight: FontWeight.w600,
+                        shadows: const [
+                          Shadow(color: Colors.black54, blurRadius: 8),
+                        ],
+                      ),
+                    ),
+                  for (final bubble in bubbles) ...[
+                    const SizedBox(height: 8),
+                    _DiscoveryChatBubble(
+                      text: bubble.text,
+                      isUser: bubble.isUser,
+                      isPending: bubble.isPending,
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  Text(
+                    'Swipe left to meet someone new',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Colors.white.withValues(alpha: 0.9),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ],
               ),
             ),
-            child: Center(
-              child: Icon(
-                character.icon,
-                size: 180,
-                color: Colors.white.withValues(alpha: 0.74),
+            // Anchored by its top edge, with the leftover space below it as
+            // headroom, so a long message grows downward instead of climbing
+            // over the bio.
+            Positioned(
+              left: 16,
+              right: 16,
+              top: math.max(0, constraints.maxHeight - _composerTop),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: math.max(0, _composerTop - _composerBottomGap),
+                ),
+                child: _DiscoveryComposer(
+                  controller: messageController,
+                  isReplying: isBusy,
+                  onSendMessage: onSendMessage,
+                ),
               ),
             ),
-          ),
-        const DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [Colors.black26, Colors.transparent, Colors.black87],
-              stops: [0, 0.38, 1],
-            ),
-          ),
-        ),
-        Positioned(
-          top: MediaQuery.paddingOf(context).top + 76,
-          left: 18,
-          child: _DiscoveryHeartButton(
-            isFriend: character.isFriend,
-            onPressed: onAddFriend,
-          ),
-        ),
-        Positioned(
-          left: 20,
-          right: 20,
-          bottom: 166,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                character.name,
-                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
-                  shadows: const [
-                    Shadow(color: Colors.black54, blurRadius: 10),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 10),
-              _DiscoveryChatBubble(text: character.introduction, isUser: false),
-              for (final message
-                  in messages.reversed.take(2).toList().reversed) ...[
-                const SizedBox(height: 8),
-                _DiscoveryChatBubble(
-                  text: message.text,
-                  isUser: message.isUser,
-                  isPending: message.isPending,
-                ),
-              ],
-              const SizedBox(height: 12),
-              Text(
-                'Swipe left to meet someone new',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Colors.white.withValues(alpha: 0.9),
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-        ),
-        Positioned(
-          left: 16,
-          right: 16,
-          bottom: 104,
-          child: _DiscoveryComposer(
-            controller: messageController,
-            isReplying: isReplying,
-            onSendMessage: onSendMessage,
-          ),
-        ),
-      ],
+          ],
+        );
+      },
     );
   }
 }
@@ -1121,13 +1348,15 @@ class _DiscoveryComposer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
+      // Keep the send button beside the last line as the field grows down.
+      crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         Expanded(
           child: TextField(
             controller: controller,
             enabled: !isReplying,
             minLines: 1,
-            maxLines: 2,
+            maxLines: 5,
             textInputAction: TextInputAction.send,
             onSubmitted: (_) => onSendMessage(),
             decoration: InputDecoration(
@@ -1160,13 +1389,18 @@ class _DiscoveryComposer extends StatelessWidget {
   }
 }
 
+/// Toggles the card's subject in and out of the matching friends list — a
+/// mistaken tap is undone by tapping again rather than by hunting for the
+/// person in another screen.
 class _DiscoveryHeartButton extends StatelessWidget {
   const _DiscoveryHeartButton({
     required this.isFriend,
+    required this.friendsLabel,
     required this.onPressed,
   });
 
   final bool isFriend;
+  final String friendsLabel;
   final VoidCallback onPressed;
 
   @override
@@ -1175,8 +1409,10 @@ class _DiscoveryHeartButton extends StatelessWidget {
       color: Colors.white.withValues(alpha: 0.9),
       borderRadius: BorderRadius.circular(24),
       child: IconButton(
-        tooltip: isFriend ? 'Added to AI friends' : 'Add to AI friends',
-        onPressed: isFriend ? null : onPressed,
+        tooltip: isFriend
+            ? 'Remove from $friendsLabel'
+            : 'Add to $friendsLabel',
+        onPressed: onPressed,
         icon: Icon(
           isFriend ? Icons.favorite_rounded : Icons.favorite_border_rounded,
           color: isFriend ? AppColors.clay : AppColors.ink,
@@ -1187,7 +1423,10 @@ class _DiscoveryHeartButton extends StatelessWidget {
 }
 
 class _DiscoveryCompleteState extends StatelessWidget {
-  const _DiscoveryCompleteState();
+  const _DiscoveryCompleteState({required this.title, required this.text});
+
+  final String title;
+  final String text;
 
   @override
   Widget build(BuildContext context) {
@@ -1206,14 +1445,14 @@ class _DiscoveryCompleteState extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               Text(
-                'You have met everyone',
+                title,
                 style: Theme.of(
                   context,
                 ).textTheme.titleLarge?.copyWith(color: Colors.white),
               ),
               const SizedBox(height: 8),
               Text(
-                'Tap Friend above to chat with your saved AI friends.',
+                text,
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: Colors.white.withValues(alpha: 0.82),
@@ -1247,90 +1486,332 @@ class _SignedOutNotice extends StatelessWidget {
   }
 }
 
+/// The Human tab's counterpart to `_AiDiscoveryPage`: one app user at a time,
+/// swipe left for the next, heart to save them to your people.
+class _HumanDiscoveryPage extends StatefulWidget {
+  const _HumanDiscoveryPage({
+    required this.friendsRepository,
+    required this.currentUid,
+    required this.contactUid,
+    required this.onContactChanged,
+  });
+
+  final HumanFriendsRepository friendsRepository;
+  final String currentUid;
+
+  /// Owned by the chat screen so it survives the Human ⇄ Friend toggle.
+  final String? contactUid;
+  final ValueChanged<String?> onContactChanged;
+
+  @override
+  State<_HumanDiscoveryPage> createState() => _HumanDiscoveryPageState();
+}
+
+class _HumanDiscoveryPageState extends State<_HumanDiscoveryPage> {
+  final math.Random _random = math.Random();
+  final TextEditingController _messageController = TextEditingController();
+  bool _isSending = false;
+
+  String? get _currentContactUid => widget.contactUid;
+
+  @override
+  void dispose() {
+    _messageController.dispose();
+    super.dispose();
+  }
+
+  void _showNext(List<_HumanContact> discoverable) {
+    if (_isSending) {
+      return;
+    }
+    final choices = discoverable
+        .where((contact) => contact.uid != _currentContactUid)
+        .toList();
+    if (choices.isEmpty) {
+      widget.onContactChanged(null);
+      return;
+    }
+    widget.onContactChanged(choices[_random.nextInt(choices.length)].uid);
+  }
+
+  Future<void> _toggleFriend(_HumanContact contact, {required bool isFriend}) {
+    return isFriend
+        ? widget.friendsRepository.removeFriend(contact.uid)
+        : widget.friendsRepository.addFriend(contact.uid);
+  }
+
+  Future<void> _sendMessage(_HumanContact contact) async {
+    final text = _messageController.text.trim();
+    if (text.isEmpty || _isSending) {
+      return;
+    }
+
+    setState(() {
+      _messageController.clear();
+      _isSending = true;
+    });
+    try {
+      await _sendDirectMessage(
+        currentUid: widget.currentUid,
+        peerUid: contact.uid,
+        text: text,
+      );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not send that message.')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSending = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<Set<String>>(
+      stream: widget.friendsRepository.watchFriendUids(),
+      builder: (context, friendsSnapshot) {
+        final friendUids = friendsSnapshot.data ?? const <String>{};
+
+        return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: FirebaseFirestore.instance.collection('users').snapshots(),
+          builder: (context, usersSnapshot) {
+            final contacts =
+                usersSnapshot.data?.docs
+                    .where((doc) => doc.id != widget.currentUid)
+                    .map(_HumanContact.fromUserDoc)
+                    .toList() ??
+                const <_HumanContact>[];
+            final discoverable = contacts
+                .where((contact) => !friendUids.contains(contact.uid))
+                .toList();
+
+            final current = contacts.where(
+              (contact) => contact.uid == _currentContactUid,
+            );
+            final selected = current.isNotEmpty
+                ? current.first
+                : (discoverable.isNotEmpty
+                      ? discoverable[_random.nextInt(discoverable.length)]
+                      : null);
+
+            if (selected != null && selected.uid != _currentContactUid) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted && _currentContactUid != selected.uid) {
+                  widget.onContactChanged(selected.uid);
+                }
+              });
+            }
+
+            if (usersSnapshot.connectionState == ConnectionState.waiting &&
+                selected == null) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            if (selected == null) {
+              return const _DiscoveryCompleteState(
+                title: 'You have met everyone',
+                text: 'Tap Human above to see the people you saved.',
+              );
+            }
+
+            final isFriend = friendUids.contains(selected.uid);
+            return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: FirebaseFirestore.instance
+                  .collection('chats')
+                  .doc(_chatIdFor(widget.currentUid, selected.uid))
+                  .collection('messages')
+                  .orderBy('createdAt', descending: true)
+                  .limit(2)
+                  .snapshots(),
+              builder: (context, messagesSnapshot) {
+                // A chat that does not exist yet is unreadable by the rules, so
+                // an error here simply means "nothing said so far".
+                final docs = messagesSnapshot.hasError
+                    ? const <QueryDocumentSnapshot<Map<String, dynamic>>>[]
+                    : (messagesSnapshot.data?.docs ??
+                          const <QueryDocumentSnapshot<Map<String, dynamic>>>[]);
+
+                return GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => FocusScope.of(context).unfocus(),
+                  onHorizontalDragEnd: (details) {
+                    if ((details.primaryVelocity ?? 0) < -250) {
+                      _showNext(discoverable);
+                    }
+                  },
+                  child: ClipRect(
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 360),
+                      switchInCurve: Curves.easeOutCubic,
+                      switchOutCurve: Curves.easeInCubic,
+                      transitionBuilder: (child, animation) {
+                        final isIncoming =
+                            child.key == ValueKey(_currentContactUid);
+                        final offset = isIncoming
+                            ? Tween<Offset>(
+                                begin: const Offset(1, 0),
+                                end: Offset.zero,
+                              ).animate(animation)
+                            : Tween<Offset>(
+                                begin: const Offset(-1, 0),
+                                end: Offset.zero,
+                              ).animate(animation);
+                        return SlideTransition(position: offset, child: child);
+                      },
+                      child: _DiscoveryPortrait(
+                        key: ValueKey(selected.uid),
+                        title: selected.name,
+                        subtitle: selected.handle,
+                        photoUrl: selected.photoUrl,
+                        tint: selected.tint,
+                        icon: Icons.person_rounded,
+                        isFriend: isFriend,
+                        friendsLabel: 'your people',
+                        bubbles: [
+                          for (final doc in docs.reversed)
+                            _DiscoveryBubble(
+                              text: (doc.data()['text'] as String?)?.trim() ??
+                                  '',
+                              isUser:
+                                  doc.data()['senderUid'] == widget.currentUid,
+                            ),
+                        ],
+                        messageController: _messageController,
+                        isBusy: _isSending,
+                        onToggleFriend: () =>
+                            _toggleFriend(selected, isFriend: isFriend),
+                        onSendMessage: () => _sendMessage(selected),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
 class _HumanContactsPage extends StatelessWidget {
   const _HumanContactsPage({
     super.key,
     required this.searchController,
     required this.onSearchChanged,
     required this.currentUid,
+    required this.friendsRepository,
     required this.onOpenContact,
   });
 
   final TextEditingController searchController;
   final ValueChanged<String> onSearchChanged;
   final String? currentUid;
+
+  /// Null when signed out, in which case the tab falls back to listing the
+  /// whole directory the way it did before friends lists existed.
+  final HumanFriendsRepository? friendsRepository;
   final ValueChanged<_HumanContact> onOpenContact;
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance.collection('users').snapshots(),
-      builder: (context, usersSnapshot) {
+    final friendsRepository = this.friendsRepository;
+
+    return StreamBuilder<Set<String>>(
+      stream: friendsRepository?.watchFriendUids(),
+      builder: (context, friendsSnapshot) {
+        final friendUids = friendsSnapshot.data;
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: currentUid == null
-              ? null
-              : FirebaseFirestore.instance
-                    .collection('chats')
-                    .where('participantUids', arrayContains: currentUid)
-                    .snapshots(),
-          builder: (context, chatsSnapshot) {
-            final previews = _previewsByPeer(chatsSnapshot.data?.docs);
+          stream: FirebaseFirestore.instance.collection('users').snapshots(),
+          builder: (context, usersSnapshot) {
+            return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: currentUid == null
+                  ? null
+                  : FirebaseFirestore.instance
+                        .collection('chats')
+                        .where('participantUids', arrayContains: currentUid)
+                        .snapshots(),
+              builder: (context, chatsSnapshot) {
+                final previews = _previewsByPeer(chatsSnapshot.data?.docs);
 
-            final query = searchController.text.trim().toLowerCase();
-            final contacts =
-                usersSnapshot.data?.docs
-                    .where((doc) => doc.id != currentUid)
-                    .map(_HumanContact.fromUserDoc)
-                    .where((contact) => contact.matches(query))
-                    .map((contact) {
-                      final preview = previews[contact.uid];
-                      if (preview == null) {
-                        return contact;
-                      }
-                      return contact.copyWith(
-                        preview: preview.lastMessage,
-                        lastActivity: preview.updatedAt,
-                        hasConversation: true,
-                      );
-                    })
-                    .toList() ??
-                <_HumanContact>[];
-            contacts.sort(_compareContacts);
+                final query = searchController.text.trim().toLowerCase();
+                final contacts =
+                    usersSnapshot.data?.docs
+                        .where((doc) => doc.id != currentUid)
+                        .map(_HumanContact.fromUserDoc)
+                        .map((contact) {
+                          final preview = previews[contact.uid];
+                          if (preview == null) {
+                            return contact;
+                          }
+                          return contact.copyWith(
+                            preview: preview.lastMessage,
+                            lastActivity: preview.updatedAt,
+                            hasConversation: true,
+                          );
+                        })
+                        // Friends, plus anyone already mid-conversation so a
+                        // thread can never become unreachable by unliking.
+                        // Signed out there is no list to filter against, so
+                        // the tab stays the plain directory it always was.
+                        .where(
+                          (contact) =>
+                              friendsRepository == null ||
+                              (friendUids?.contains(contact.uid) ?? false) ||
+                              contact.hasConversation,
+                        )
+                        .where((contact) => contact.matches(query))
+                        .toList() ??
+                    <_HumanContact>[];
+                contacts.sort(_compareContacts);
 
-            return ListView(
-              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 122),
-              children: [
-                _SearchField(
-                  controller: searchController,
-                  hintText: 'Search app users or ID',
-                  onChanged: onSearchChanged,
-                ),
-                const SizedBox(height: 12),
-                _DeviceStatusBanner(
-                  icon: Icons.phone_iphone_rounded,
-                  text: usersSnapshot.hasError
-                      ? 'Could not load Firebase users.'
-                      : 'Regular chats with other Back Home users',
-                ),
-                const SizedBox(height: 8),
-                if (usersSnapshot.connectionState == ConnectionState.waiting)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 30),
-                    child: Center(child: CircularProgressIndicator()),
-                  )
-                else ...[
-                  for (final contact in contacts)
-                    _HumanContactTile(
-                      contact: contact,
-                      onOpen: () => onOpenContact(contact),
+                return ListView(
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 122),
+                  children: [
+                    _SearchField(
+                      controller: searchController,
+                      hintText: friendsRepository == null
+                          ? 'Search app users or ID'
+                          : 'Search your people or ID',
+                      onChanged: onSearchChanged,
                     ),
-                  if (contacts.isEmpty)
-                    const _EmptySearchResult(
-                      text: 'No people match this search.',
+                    const SizedBox(height: 12),
+                    _DeviceStatusBanner(
+                      icon: Icons.phone_iphone_rounded,
+                      text: usersSnapshot.hasError
+                          ? 'Could not load Firebase users.'
+                          : 'Your saved people and open conversations',
                     ),
-                ],
-              ],
+                    const SizedBox(height: 8),
+                    if (usersSnapshot.connectionState ==
+                        ConnectionState.waiting)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 30),
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    else ...[
+                      for (final contact in contacts)
+                        _HumanContactTile(
+                          contact: contact,
+                          onOpen: () => onOpenContact(contact),
+                        ),
+                      if (contacts.isEmpty)
+                        _EmptySearchResult(
+                          text: query.isEmpty
+                              ? 'No saved people yet. Tap Friend above to meet '
+                                    'someone.'
+                              : 'No people match this search.',
+                        ),
+                    ],
+                  ],
+                );
+              },
             );
           },
         );
@@ -2317,6 +2798,7 @@ class _DirectChatScreen extends StatefulWidget {
     required this.peer,
     required this.currentUid,
     this.repository,
+    this.humanFriends,
   });
 
   final _ChatPeer peer;
@@ -2324,6 +2806,9 @@ class _DirectChatScreen extends StatefulWidget {
 
   /// Present for AI peers, whose turns are produced by a Cloud Function.
   final AiChatRepository? repository;
+
+  /// Present for human peers when signed in, so the heart can toggle them.
+  final HumanFriendsRepository? humanFriends;
 
   @override
   State<_DirectChatScreen> createState() => _DirectChatScreenState();
@@ -2400,7 +2885,24 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
   /// profile button.
   Widget _buildAppBarAction() {
     final repository = widget.repository;
-    if (!widget.peer.isAi || repository == null) {
+    final humanFriends = widget.humanFriends;
+
+    if (!widget.peer.isAi) {
+      if (humanFriends == null) {
+        return _buildProfileButton();
+      }
+      return StreamBuilder<bool>(
+        stream: humanFriends.watchIsFriend(widget.peer.id),
+        builder: (context, snapshot) {
+          return _buildHeartButton(
+            isFriend: snapshot.data ?? false,
+            friendsLabel: 'your people',
+          );
+        },
+      );
+    }
+
+    if (repository == null) {
       return _buildProfileButton();
     }
 
@@ -2411,19 +2913,27 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
         if (character == null || character.isCustom) {
           return _buildProfileButton();
         }
-
-        final isFriend = character.isFriend;
-        return IconButton(
-          tooltip: isFriend ? 'Remove from AI friends' : 'Add to AI friends',
-          onPressed: _isUpdatingFriend
-              ? null
-              : () => _setFriend(isFriend: !isFriend),
-          icon: Icon(
-            isFriend ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-            color: isFriend ? AppColors.clay : AppColors.muted,
-          ),
+        return _buildHeartButton(
+          isFriend: character.isFriend,
+          friendsLabel: 'AI friends',
         );
       },
+    );
+  }
+
+  Widget _buildHeartButton({
+    required bool isFriend,
+    required String friendsLabel,
+  }) {
+    return IconButton(
+      tooltip: isFriend ? 'Remove from $friendsLabel' : 'Add to $friendsLabel',
+      onPressed: _isUpdatingFriend
+          ? null
+          : () => _setFriend(isFriend: !isFriend),
+      icon: Icon(
+        isFriend ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+        color: isFriend ? AppColors.clay : AppColors.muted,
+      ),
     );
   }
 
@@ -2437,27 +2947,44 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
 
   Future<void> _setFriend({required bool isFriend}) async {
     final repository = widget.repository;
-    if (repository == null || _isUpdatingFriend) {
+    final humanFriends = widget.humanFriends;
+    if (_isUpdatingFriend) {
       return;
     }
 
     setState(() => _isUpdatingFriend = true);
     try {
-      if (isFriend) {
-        await repository.addCharacterAsFriend(widget.peer.id);
+      if (widget.peer.isAi) {
+        if (repository == null) {
+          return;
+        }
+        if (isFriend) {
+          await repository.addCharacterAsFriend(widget.peer.id);
+        } else {
+          await repository.removeCharacterAsFriend(widget.peer.id);
+        }
       } else {
-        await repository.removeCharacterAsFriend(widget.peer.id);
+        if (humanFriends == null) {
+          return;
+        }
+        if (isFriend) {
+          await humanFriends.addFriend(widget.peer.id);
+        } else {
+          await humanFriends.removeFriend(widget.peer.id);
+        }
       }
+
       if (mounted) {
         final name = widget.peer.displayName;
+        final list = widget.peer.isAi ? 'your AI friends' : 'your people';
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
           ..showSnackBar(
             SnackBar(
               content: Text(
                 isFriend
-                    ? '$name is back in your AI friends.'
-                    : '$name was removed from your AI friends.',
+                    ? '$name is back in $list.'
+                    : '$name was removed from $list.',
               ),
             ),
           );
@@ -2465,7 +2992,7 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not update that AI friend.')),
+          const SnackBar(content: Text('Could not update that friend.')),
         );
       }
     } finally {
@@ -2611,18 +3138,11 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
       return;
     }
 
-    final chatId = _chatIdFor(currentUid, widget.peer.id);
-    final chatRef = FirebaseFirestore.instance.collection('chats').doc(chatId);
-    await chatRef.set({
-      'participantUids': [currentUid, widget.peer.id]..sort(),
-      'updatedAt': FieldValue.serverTimestamp(),
-      'lastMessage': text,
-    }, SetOptions(merge: true));
-    await chatRef.collection('messages').add({
-      'senderUid': currentUid,
-      'text': text,
-      'createdAt': FieldValue.serverTimestamp(),
-    });
+    await _sendDirectMessage(
+      currentUid: currentUid,
+      peerUid: widget.peer.id,
+      text: text,
+    );
   }
 
   void _showError(String message) {
@@ -2643,11 +3163,6 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
       ),
       builder: (context) => _PeerProfileSheet(peer: widget.peer),
     );
-  }
-
-  static String _chatIdFor(String a, String b) {
-    final ids = [a, b]..sort();
-    return '${ids[0]}_${ids[1]}';
   }
 
   static String? _stringValue(Object? value) {
@@ -2841,13 +3356,20 @@ class _PeerAvatar extends StatelessWidget {
 /// Values collected by [_AddCharacterDialog]; the document itself is created
 /// by the repository so the dialog stays free of Firestore concerns.
 class _CharacterDraft {
-  const _CharacterDraft({required this.name, required this.personality});
+  const _CharacterDraft({
+    required this.name,
+    required this.personality,
+    required this.isPublic,
+  });
 
   final String name;
   final String personality;
+
+  /// Shared with every account rather than kept to the creator.
+  final bool isPublic;
 }
 
-class _AddCharacterDialog extends StatelessWidget {
+class _AddCharacterDialog extends StatefulWidget {
   const _AddCharacterDialog({
     required this.nameController,
     required this.personalityController,
@@ -2857,30 +3379,57 @@ class _AddCharacterDialog extends StatelessWidget {
   final TextEditingController personalityController;
 
   @override
+  State<_AddCharacterDialog> createState() => _AddCharacterDialogState();
+}
+
+class _AddCharacterDialogState extends State<_AddCharacterDialog> {
+  // Private by default: sharing a character publishes it to everyone, so it
+  // should be something the creator opts into rather than out of.
+  bool _isPublic = false;
+
+  @override
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Add AI character'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: nameController,
-            autofocus: true,
-            textCapitalization: TextCapitalization.words,
-            decoration: const InputDecoration(labelText: 'Name'),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: personalityController,
-            minLines: 1,
-            maxLines: 3,
-            textCapitalization: TextCapitalization.sentences,
-            decoration: const InputDecoration(
-              labelText: 'Personality',
-              helperText: 'How should they talk to you?',
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: widget.nameController,
+              autofocus: true,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(labelText: 'Name'),
             ),
-          ),
-        ],
+            const SizedBox(height: 12),
+            TextField(
+              controller: widget.personalityController,
+              minLines: 1,
+              maxLines: 3,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: const InputDecoration(
+                labelText: 'Personality',
+                helperText: 'How should they talk to you?',
+              ),
+            ),
+            const SizedBox(height: 8),
+            SwitchListTile.adaptive(
+              value: _isPublic,
+              onChanged: (value) => setState(() => _isPublic = value),
+              contentPadding: EdgeInsets.zero,
+              title: Text(_isPublic ? 'Public' : 'Private'),
+              subtitle: Text(
+                _isPublic
+                    ? 'Everyone can find them in their AI tab and add their '
+                          'own copy. Your conversations stay yours.'
+                    : 'Only you can see and chat with them.',
+              ),
+              secondary: Icon(
+                _isPublic ? Icons.public_rounded : Icons.lock_rounded,
+              ),
+            ),
+          ],
+        ),
       ),
       actions: [
         TextButton(
@@ -2889,15 +3438,19 @@ class _AddCharacterDialog extends StatelessWidget {
         ),
         FilledButton(
           onPressed: () {
-            final name = nameController.text.trim();
-            final personality = personalityController.text.trim();
+            final name = widget.nameController.text.trim();
+            final personality = widget.personalityController.text.trim();
             if (name.isEmpty || personality.isEmpty) {
               return;
             }
 
-            Navigator.of(
-              context,
-            ).pop(_CharacterDraft(name: name, personality: personality));
+            Navigator.of(context).pop(
+              _CharacterDraft(
+                name: name,
+                personality: personality,
+                isPublic: _isPublic,
+              ),
+            );
           },
           child: const Text('Add'),
         ),

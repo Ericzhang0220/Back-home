@@ -35,6 +35,11 @@ class AiChatRepository {
   CollectionReference<Map<String, dynamic>> get _tutorSessionsRef =>
       _userRef.collection('tutorSessions');
 
+  /// Shared catalog of characters people chose to publish. Readable by every
+  /// signed-in account; each document is only writable by its author.
+  CollectionReference<Map<String, dynamic>> get _publicCharactersRef =>
+      _firestore.collection('publicAiCharacters');
+
   // ---------------------------------------------------------------- characters
 
   Stream<List<AiCharacter>> watchCharacters() {
@@ -98,6 +103,7 @@ class AiChatRepository {
   Future<AiCharacter> createCharacter({
     required String name,
     required String personality,
+    bool isPublic = false,
   }) async {
     final doc = _charactersRef.doc();
     final character = AiCharacter(
@@ -110,6 +116,8 @@ class AiChatRepository {
       iconCodePoint: AiCharacter.customIconCodePoint,
       isCustom: true,
       isFriend: true,
+      isPublic: isPublic,
+      authorUid: uid,
     );
 
     await doc.set({
@@ -117,11 +125,54 @@ class AiChatRepository {
       'createdAt': FieldValue.serverTimestamp(),
     });
 
+    // A private character never leaves the author's own subcollection, which
+    // no other account can read.
+    if (isPublic) {
+      await _publicCharactersRef.doc(doc.id).set({
+        ...character.toPublicTemplate(authorUid: uid),
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    }
+
     return character;
+  }
+
+  /// Everything other people have shared. The caller filters out its own
+  /// entries and anything already copied into its collection.
+  Stream<List<AiCharacter>> watchPublicCharacters() {
+    return _publicCharactersRef.snapshots().map((snapshot) {
+      return snapshot.docs.map(AiCharacter.fromDoc).toList();
+    }).handleError((Object _) {});
+  }
+
+  /// Copies a shared character into this account, keeping the template's id so
+  /// the catalog entry and the local copy stay matched up.
+  ///
+  /// Pass `asFriend: false` to take the copy without saving them to the
+  /// friends list — needed before chatting, because the reply function reads
+  /// the character from the caller's own collection.
+  Future<void> adoptPublicCharacter(
+    AiCharacter template, {
+    bool asFriend = true,
+  }) {
+    return _charactersRef.doc(template.id).set({
+      ...template.toFirestore(),
+      // Someone else authored it, so it is not "custom" here — that flag marks
+      // the characters this account made and can edit.
+      'isCustom': false,
+      'isFriend': asFriend,
+      'isPublic': true,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
   }
 
   Future<void> deleteCharacter(String characterId) async {
     await _charactersRef.doc(characterId).delete();
+    // Withdraw the shared copy too, if this account published one. Fails
+    // harmlessly for characters it did not author.
+    try {
+      await _publicCharactersRef.doc(characterId).delete();
+    } catch (_) {}
   }
 
   /// Live view of a single character, so a screen already scoped to one
