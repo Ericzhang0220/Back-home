@@ -36,13 +36,10 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
 
-    expect(find.text('AI chats'), findsOneWidget);
-    // The character list is per-account Firestore data, so the signed-out
-    // shell shows the sign-in prompt rather than any seeded companion.
-    expect(
-      find.text('Sign in to use the AI chats and tutor.'),
-      findsOneWidget,
-    );
+    expect(find.text('AI'), findsOneWidget);
+    // The discovery experience needs an account, so the signed-out shell
+    // shows the sign-in prompt rather than a suggested AI friend.
+    expect(find.text('Sign in to use the AI chats and tutor.'), findsOneWidget);
   });
 
   testWidgets('opens the monthly mood calendar from the profile chart', (

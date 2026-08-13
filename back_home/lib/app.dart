@@ -342,6 +342,7 @@ class _AppShellState extends State<AppShell> {
         return KeyedSubtree(
           key: const ValueKey(AppTab.chat),
           child: SafeArea(
+            bottom: false,
             child: ChatScreen(authController: widget.authController),
           ),
         );
@@ -399,7 +400,8 @@ class _AppShellState extends State<AppShell> {
                   bottom: 0,
                   child: IgnorePointer(
                     ignoring:
-                        isRoomTab && (!_roomChromeInteractive || _roomInSubview),
+                        isRoomTab &&
+                        (!_roomChromeInteractive || _roomInSubview),
                     child: AnimatedOpacity(
                       duration: isRoomTab
                           ? (navShown

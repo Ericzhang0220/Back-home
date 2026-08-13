@@ -59,7 +59,17 @@ class AiChatRepository {
     final batch = _firestore.batch();
     for (var index = 0; index < AiCharacter.presets.length; index++) {
       final preset = AiCharacter.presets[index];
-      if (!existingIds.contains(preset.id)) {
+      if (existingIds.contains(preset.id)) {
+        // Refresh built-in fields when the catalog changes, but retain a
+        // picture a person may later add to a preset and their saved-friend
+        // choice.
+        final refreshedFields = preset.toFirestore()..remove('isFriend');
+        batch.set(
+          _charactersRef.doc(preset.id),
+          refreshedFields,
+          SetOptions(merge: true),
+        );
+      } else {
         batch.set(_charactersRef.doc(preset.id), {
           ...preset.toFirestore(),
           // Preserves the authored order, since serverTimestamp would collapse
@@ -94,10 +104,12 @@ class AiChatRepository {
       id: doc.id,
       name: name,
       personality: personality,
+      introduction: 'Hi, I’m $name. I’m here whenever you would like to talk.',
       preview: 'Custom companion ready to chat.',
       colorValue: AiCharacter.customColorValue,
       iconCodePoint: AiCharacter.customIconCodePoint,
       isCustom: true,
+      isFriend: true,
     );
 
     await doc.set({
@@ -110,6 +122,13 @@ class AiChatRepository {
 
   Future<void> deleteCharacter(String characterId) async {
     await _charactersRef.doc(characterId).delete();
+  }
+
+  /// Saves a discovered built-in character to the person's AI friends list.
+  Future<void> addCharacterAsFriend(String characterId) {
+    return _charactersRef.doc(characterId).set({
+      'isFriend': true,
+    }, SetOptions(merge: true));
   }
 
   /// Uploads a picked avatar and stores its download URL on the character.

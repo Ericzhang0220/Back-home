@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -49,6 +51,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final _imagePicker = ImagePicker();
 
   _ChatPage _selectedPage = _ChatPage.ai;
+  bool _showAiFriends = false;
   bool _isTutorSidebarOpen = false;
 
   AiChatRepository? _repository;
@@ -114,66 +117,78 @@ class _ChatScreenState extends State<ChatScreen> {
     // (painted behind every tab) show through, matching the Hall and Profile
     // screens.
     final repository = _repository;
+    final isAiDiscovery =
+        _selectedPage == _ChatPage.ai && !_showAiFriends && repository != null;
 
     return Stack(
       children: [
+        if (isAiDiscovery)
+          Positioned.fill(
+            child: _AiDiscoveryPage(
+              repository: repository,
+              onAddFriend: _addAiFriend,
+            ),
+          ),
         Column(
           children: [
-            _ChatHeader(
+            _TopTabs(
               selectedPage: _selectedPage,
-              onAddPressed: _handleAddPressed,
+              isAiFriends: _showAiFriends,
+              overlay: true,
+              onChanged: _selectPage,
             ),
-            _TopTabs(selectedPage: _selectedPage, onChanged: _selectPage),
-            Expanded(
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 180),
-                // Only the AI and Tutor pages need an account — the human
-                // directory still renders signed out, as it always has.
-                child: switch (_selectedPage) {
-                  _ChatPage.ai =>
-                    repository == null
-                        ? const _SignedOutNotice(
-                            key: ValueKey(_ChatPage.ai),
-                            text: 'Sign in to use the AI chats and tutor.',
-                          )
-                        : _AiContactsPage(
-                            key: const ValueKey(_ChatPage.ai),
-                            repository: repository,
-                            searchController: _aiSearchController,
-                            onSearchChanged: (_) => setState(() {}),
-                            onPickAvatar: _pickAiAvatar,
-                            onOpenCharacter: _openAiConversation,
-                          ),
-                  _ChatPage.human => _HumanContactsPage(
-                    key: const ValueKey(_ChatPage.human),
-                    searchController: _humanSearchController,
-                    onSearchChanged: (_) => setState(() {}),
-                    currentUid: widget.authController.currentUser?.uid,
-                    onOpenContact: _openHumanConversation,
-                  ),
-                  _ChatPage.tutor =>
-                    repository == null
-                        ? const _SignedOutNotice(
-                            key: ValueKey(_ChatPage.tutor),
-                            text: 'Sign in to use the AI chats and tutor.',
-                          )
-                        : _TutorChatPage(
-                            key: const ValueKey(_ChatPage.tutor),
-                            repository: repository,
-                            messageController: _messageController,
-                            selectedSessionId: _selectedTutorSessionId,
-                            isReplying: _isTutorReplying,
-                            onSessionResolved: _rememberTutorSession,
-                            onSessionNeeded: _ensureTutorSession,
-                            onSendMessage: _sendTutorMessage,
-                            onOpenHistory: () =>
-                                setState(() => _isTutorSidebarOpen = true),
-                            onCloseHistory: () =>
-                                setState(() => _isTutorSidebarOpen = false),
-                          ),
-                },
+            if (!isAiDiscovery)
+              Expanded(
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 180),
+                  // Only the AI and Tutor pages need an account — the human
+                  // directory still renders signed out, as it always has.
+                  child: switch (_selectedPage) {
+                    _ChatPage.ai =>
+                      repository == null
+                          ? const _SignedOutNotice(
+                              key: ValueKey(_ChatPage.ai),
+                              text: 'Sign in to use the AI chats and tutor.',
+                            )
+                          : _AiContactsPage(
+                              key: const ValueKey(_ChatPage.ai),
+                              repository: repository,
+                              searchController: _aiSearchController,
+                              onSearchChanged: (_) => setState(() {}),
+                              onPickAvatar: _pickAiAvatar,
+                              onOpenCharacter: _openAiConversation,
+                              onCreateCharacter: _showAddAiCharacterDialog,
+                            ),
+                    _ChatPage.human => _HumanContactsPage(
+                      key: const ValueKey(_ChatPage.human),
+                      searchController: _humanSearchController,
+                      onSearchChanged: (_) => setState(() {}),
+                      currentUid: widget.authController.currentUser?.uid,
+                      onOpenContact: _openHumanConversation,
+                    ),
+                    _ChatPage.tutor =>
+                      repository == null
+                          ? const _SignedOutNotice(
+                              key: ValueKey(_ChatPage.tutor),
+                              text: 'Sign in to use the AI chats and tutor.',
+                            )
+                          : _TutorChatPage(
+                              key: const ValueKey(_ChatPage.tutor),
+                              repository: repository,
+                              messageController: _messageController,
+                              selectedSessionId: _selectedTutorSessionId,
+                              isReplying: _isTutorReplying,
+                              onSessionResolved: _rememberTutorSession,
+                              onSessionNeeded: _ensureTutorSession,
+                              onSendMessage: _sendTutorMessage,
+                              onOpenHistory: () =>
+                                  setState(() => _isTutorSidebarOpen = true),
+                              onCloseHistory: () =>
+                                  setState(() => _isTutorSidebarOpen = false),
+                            ),
+                  },
+                ),
               ),
-            ),
           ],
         ),
         // The tutor history drawer overlays the entire chat screen — header,
@@ -214,20 +229,17 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _selectPage(_ChatPage page) {
-    setState(() => _selectedPage = page);
-  }
-
-  void _handleAddPressed() {
-    switch (_selectedPage) {
-      case _ChatPage.ai:
-        _showAddAiCharacterDialog();
-      case _ChatPage.human:
-        _showHumanDirectoryHint();
-      case _ChatPage.tutor:
-        // The Tutor is a single assistant. Its first conversation is created
-        // automatically when the Tutor tab opens.
-        break;
+    if (page == _ChatPage.ai && _selectedPage == _ChatPage.ai) {
+      setState(() => _showAiFriends = !_showAiFriends);
+      return;
     }
+
+    setState(() {
+      _selectedPage = page;
+      if (page == _ChatPage.ai) {
+        _showAiFriends = false;
+      }
+    });
   }
 
   Future<void> _showAddAiCharacterDialog() async {
@@ -287,6 +299,22 @@ class _ChatScreenState extends State<ChatScreen> {
       );
     } catch (error) {
       _showError('Could not upload that picture.');
+    }
+  }
+
+  Future<void> _addAiFriend(AiCharacter character) async {
+    final repository = _repository;
+    if (repository == null || character.isFriend) {
+      return;
+    }
+
+    try {
+      await repository.addCharacterAsFriend(character.id);
+      if (mounted) {
+        _showError('${character.name} was added to your AI friends.');
+      }
+    } catch (_) {
+      _showError('Could not add that AI friend. Please try again.');
     }
   }
 
@@ -374,12 +402,6 @@ class _ChatScreenState extends State<ChatScreen> {
     ).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  void _showHumanDirectoryHint() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Human chats come from Firebase users.')),
-    );
-  }
-
   Future<void> _openAiConversation(AiCharacter character) async {
     final repository = _repository;
     if (repository == null) {
@@ -426,71 +448,25 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 }
 
-class _ChatHeader extends StatelessWidget {
-  const _ChatHeader({required this.selectedPage, required this.onAddPressed});
-
-  final _ChatPage selectedPage;
-  final VoidCallback onAddPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final title = switch (selectedPage) {
-      _ChatPage.ai => 'AI chats',
-      _ChatPage.human => 'Human chats',
-      _ChatPage.tutor => 'Tutor',
-    };
-    final showsAddButton = selectedPage != _ChatPage.tutor;
-
-    return Container(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-      decoration: BoxDecoration(
-        color: AppColors.card.withValues(alpha: 0.86),
-        border: const Border(bottom: BorderSide(color: AppColors.stroke)),
-      ),
-      child: Row(
-        children: [
-          const SizedBox(width: 44),
-          Expanded(
-            child: Text(
-              title,
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontSize: 20,
-                color: AppColors.ink,
-              ),
-            ),
-          ),
-          if (showsAddButton)
-            Tooltip(
-              message: 'Add chat',
-              child: IconButton.filledTonal(
-                onPressed: onAddPressed,
-                icon: const Icon(Icons.add_rounded),
-                color: AppColors.ink,
-                style: IconButton.styleFrom(
-                  backgroundColor: Colors.white.withValues(alpha: 0.76),
-                  side: const BorderSide(color: AppColors.stroke),
-                ),
-              ),
-            )
-          else
-            const SizedBox(width: 44),
-        ],
-      ),
-    );
-  }
-}
-
 class _TopTabs extends StatelessWidget {
-  const _TopTabs({required this.selectedPage, required this.onChanged});
+  const _TopTabs({
+    required this.selectedPage,
+    required this.isAiFriends,
+    required this.overlay,
+    required this.onChanged,
+  });
 
   final _ChatPage selectedPage;
+  final bool isAiFriends;
+  final bool overlay;
   final ValueChanged<_ChatPage> onChanged;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      color: AppColors.card.withValues(alpha: 0.62),
+      color: overlay
+          ? Colors.transparent
+          : AppColors.card.withValues(alpha: 0.62),
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
       child: Row(
         children: [
@@ -498,7 +474,7 @@ class _TopTabs extends StatelessWidget {
             Expanded(
               child: _TabButton(
                 label: switch (page) {
-                  _ChatPage.ai => 'AI',
+                  _ChatPage.ai => isAiFriends ? 'Friend' : 'AI',
                   _ChatPage.human => 'Human',
                   _ChatPage.tutor => 'Tutor',
                 },
@@ -508,6 +484,7 @@ class _TopTabs extends StatelessWidget {
                   _ChatPage.tutor => Icons.school_rounded,
                 },
                 isSelected: selectedPage == page,
+                flipLabel: page == _ChatPage.ai,
                 onTap: () => onChanged(page),
               ),
             ),
@@ -524,12 +501,14 @@ class _TabButton extends StatelessWidget {
     required this.label,
     required this.icon,
     required this.isSelected,
+    required this.flipLabel,
     required this.onTap,
   });
 
   final String label;
   final IconData icon;
   final bool isSelected;
+  final bool flipLabel;
   final VoidCallback onTap;
 
   @override
@@ -549,27 +528,48 @@ class _TabButton extends StatelessWidget {
               color: isSelected ? AppColors.clay : AppColors.stroke,
             ),
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                icon,
-                size: 18,
-                color: isSelected ? Colors.white : AppColors.muted,
-              ),
-              const SizedBox(width: 6),
-              Flexible(
-                child: Text(
-                  label,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: isSelected ? Colors.white : AppColors.ink,
-                    fontWeight: FontWeight.w800,
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 420),
+            transitionBuilder: (child, animation) {
+              final rotation = Tween<double>(
+                begin: math.pi,
+                end: 0,
+              ).animate(animation);
+              return AnimatedBuilder(
+                animation: rotation,
+                child: child,
+                builder: (context, child) {
+                  return Transform(
+                    alignment: Alignment.center,
+                    transform: Matrix4.rotationY(rotation.value),
+                    child: child,
+                  );
+                },
+              );
+            },
+            child: Row(
+              key: ValueKey(flipLabel ? label : icon),
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  icon,
+                  size: 18,
+                  color: isSelected ? Colors.white : AppColors.muted,
+                ),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    label,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: isSelected ? Colors.white : AppColors.ink,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -620,6 +620,7 @@ class _AiContactsPage extends StatelessWidget {
     required this.onSearchChanged,
     required this.onPickAvatar,
     required this.onOpenCharacter,
+    required this.onCreateCharacter,
   });
 
   final AiChatRepository repository;
@@ -627,6 +628,7 @@ class _AiContactsPage extends StatelessWidget {
   final ValueChanged<String> onSearchChanged;
   final ValueChanged<AiCharacter> onPickAvatar;
   final ValueChanged<AiCharacter> onOpenCharacter;
+  final VoidCallback onCreateCharacter;
 
   @override
   Widget build(BuildContext context) {
@@ -641,53 +643,512 @@ class _AiContactsPage extends StatelessWidget {
             final query = searchController.text.trim().toLowerCase();
             final characters =
                 charactersSnapshot.data
-                    ?.where((character) => character.matches(query))
+                    ?.where(
+                      (character) =>
+                          character.isFriend && character.matches(query),
+                    )
                     .toList() ??
                 const <AiCharacter>[];
 
-            return ListView(
-              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 122),
+            return Stack(
               children: [
-                _SearchField(
-                  controller: searchController,
-                  hintText: 'Search AI characters or ID',
-                  onChanged: onSearchChanged,
-                ),
-                const SizedBox(height: 12),
-                _DeviceStatusBanner(
-                  icon: Icons.memory_rounded,
-                  text: charactersSnapshot.hasError
-                      ? 'Could not load your AI characters.'
-                      : 'Preset characters and custom personalities',
-                ),
-                const SizedBox(height: 8),
-                if (charactersSnapshot.connectionState ==
-                    ConnectionState.waiting)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 30),
-                    child: Center(child: CircularProgressIndicator()),
-                  )
-                else ...[
-                  for (final character in characters)
-                    _AiCharacterTile(
-                      character: character,
-                      // A started conversation replaces the scripted preview
-                      // line with the last thing actually said.
-                      preview: previews[character.id]?.lastMessage,
-                      onPickAvatar: onPickAvatar,
-                      onOpen: () => onOpenCharacter(character),
+                ListView(
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 122),
+                  children: [
+                    _SearchField(
+                      controller: searchController,
+                      hintText: 'Search AI friends or ID',
+                      onChanged: onSearchChanged,
                     ),
-                  if (characters.isEmpty)
-                    const _EmptySearchResult(
-                      text: 'No AI characters match this search.',
+                    const SizedBox(height: 12),
+                    _DeviceStatusBanner(
+                      icon: Icons.memory_rounded,
+                      text: charactersSnapshot.hasError
+                          ? 'Could not load your AI friends.'
+                          : 'Your saved AI friends and custom personalities',
                     ),
-                ],
+                    const SizedBox(height: 8),
+                    if (charactersSnapshot.connectionState ==
+                        ConnectionState.waiting)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 30),
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    else ...[
+                      for (final character in characters)
+                        _AiCharacterTile(
+                          character: character,
+                          // A started conversation replaces the scripted preview
+                          // line with the last thing actually said.
+                          preview: previews[character.id]?.lastMessage,
+                          onPickAvatar: onPickAvatar,
+                          onOpen: () => onOpenCharacter(character),
+                        ),
+                      if (characters.isEmpty)
+                        const _EmptySearchResult(
+                          text: 'No AI friends match this search.',
+                        ),
+                    ],
+                  ],
+                ),
+                Positioned(
+                  right: 20,
+                  bottom: 104,
+                  child: FloatingActionButton.small(
+                    tooltip: 'Create an AI friend',
+                    onPressed: onCreateCharacter,
+                    backgroundColor: AppColors.clay,
+                    foregroundColor: Colors.white,
+                    child: const Icon(Icons.add_rounded),
+                  ),
+                ),
               ],
             );
           },
         );
       },
+    );
+  }
+}
+
+/// Full-screen AI friend discovery. Preset portraits can be supplied later by
+/// setting `avatarUrl` on their character documents; until then each profile
+/// uses its character color and icon as a deliberate visual placeholder.
+class _AiDiscoveryPage extends StatefulWidget {
+  const _AiDiscoveryPage({required this.repository, required this.onAddFriend});
+
+  final AiChatRepository repository;
+  final Future<void> Function(AiCharacter character) onAddFriend;
+
+  @override
+  State<_AiDiscoveryPage> createState() => _AiDiscoveryPageState();
+}
+
+class _AiDiscoveryPageState extends State<_AiDiscoveryPage> {
+  final math.Random _random = math.Random();
+  final TextEditingController _messageController = TextEditingController();
+  String? _currentCharacterId;
+  bool _isReplying = false;
+
+  @override
+  void dispose() {
+    _messageController.dispose();
+    super.dispose();
+  }
+
+  void _showNext(List<AiCharacter> characters) {
+    if (_isReplying) {
+      return;
+    }
+    final choices = characters
+        .where(
+          (character) =>
+              !character.isCustom &&
+              !character.isFriend &&
+              character.id != _currentCharacterId,
+        )
+        .toList();
+    if (choices.isEmpty) {
+      setState(() => _currentCharacterId = null);
+      return;
+    }
+    setState(
+      () => _currentCharacterId = choices[_random.nextInt(choices.length)].id,
+    );
+  }
+
+  Future<void> _sendMessage(AiCharacter character) async {
+    final text = _messageController.text.trim();
+    if (text.isEmpty || _isReplying) {
+      return;
+    }
+
+    setState(() {
+      _messageController.clear();
+      _isReplying = true;
+    });
+    try {
+      await widget.repository.sendToCharacter(
+        characterId: character.id,
+        text: text,
+      );
+    } on AiChatException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not send that message.')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isReplying = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<AiCharacter>>(
+      stream: widget.repository.watchCharacters(),
+      builder: (context, snapshot) {
+        final characters = snapshot.data ?? const <AiCharacter>[];
+        final discoverable = characters
+            .where((character) => !character.isCustom && !character.isFriend)
+            .toList();
+        final current = characters.where(
+          (character) => character.id == _currentCharacterId,
+        );
+        final selected = current.isNotEmpty
+            ? current.first
+            : (discoverable.isNotEmpty
+                  ? discoverable[_random.nextInt(discoverable.length)]
+                  : null);
+
+        if (selected != null && selected.id != _currentCharacterId) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted && _currentCharacterId != selected.id) {
+              setState(() => _currentCharacterId = selected.id);
+            }
+          });
+        }
+
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            selected == null) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (selected == null) {
+          return const _DiscoveryCompleteState();
+        }
+
+        return StreamBuilder<List<AiMessage>>(
+          stream: widget.repository.watchCharacterMessages(selected.id),
+          builder: (context, messagesSnapshot) {
+            final messages = messagesSnapshot.data ?? const <AiMessage>[];
+            return GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onHorizontalDragEnd: (details) {
+                if ((details.primaryVelocity ?? 0) < -250) {
+                  _showNext(characters);
+                }
+              },
+              child: ClipRect(
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 360),
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeInCubic,
+                  transitionBuilder: (child, animation) {
+                    final isIncoming =
+                        child.key == ValueKey(_currentCharacterId);
+                    final offset = isIncoming
+                        ? Tween<Offset>(
+                            begin: const Offset(1, 0),
+                            end: Offset.zero,
+                          ).animate(animation)
+                        : Tween<Offset>(
+                            begin: const Offset(-1, 0),
+                            end: Offset.zero,
+                          ).animate(animation);
+                    return SlideTransition(position: offset, child: child);
+                  },
+                  child: _DiscoveryPortrait(
+                    key: ValueKey(selected.id),
+                    character: selected,
+                    messages: messages,
+                    messageController: _messageController,
+                    isReplying: _isReplying,
+                    onAddFriend: () => widget.onAddFriend(selected),
+                    onSendMessage: () => _sendMessage(selected),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _DiscoveryPortrait extends StatelessWidget {
+  const _DiscoveryPortrait({
+    super.key,
+    required this.character,
+    required this.messages,
+    required this.messageController,
+    required this.isReplying,
+    required this.onAddFriend,
+    required this.onSendMessage,
+  });
+
+  final AiCharacter character;
+  final List<AiMessage> messages;
+  final TextEditingController messageController;
+  final bool isReplying;
+  final VoidCallback onAddFriend;
+  final VoidCallback onSendMessage;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasPortrait = character.avatarUrl?.isNotEmpty ?? false;
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        if (hasPortrait)
+          Image.network(character.avatarUrl!, fit: BoxFit.cover)
+        else
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  character.tint.withValues(alpha: 0.98),
+                  AppColors.ink.withValues(alpha: 0.96),
+                ],
+              ),
+            ),
+            child: Center(
+              child: Icon(
+                character.icon,
+                size: 180,
+                color: Colors.white.withValues(alpha: 0.74),
+              ),
+            ),
+          ),
+        const DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Colors.black26, Colors.transparent, Colors.black87],
+              stops: [0, 0.38, 1],
+            ),
+          ),
+        ),
+        Positioned(
+          top: MediaQuery.paddingOf(context).top + 76,
+          left: 18,
+          child: _DiscoveryHeartButton(
+            isFriend: character.isFriend,
+            onPressed: onAddFriend,
+          ),
+        ),
+        Positioned(
+          left: 20,
+          right: 20,
+          bottom: 166,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                character.name,
+                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  shadows: const [
+                    Shadow(color: Colors.black54, blurRadius: 10),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+              _DiscoveryChatBubble(text: character.introduction, isUser: false),
+              for (final message
+                  in messages.reversed.take(2).toList().reversed) ...[
+                const SizedBox(height: 8),
+                _DiscoveryChatBubble(
+                  text: message.text,
+                  isUser: message.isUser,
+                  isPending: message.isPending,
+                ),
+              ],
+              const SizedBox(height: 12),
+              Text(
+                'Swipe left to meet someone new',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Colors.white.withValues(alpha: 0.9),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+        Positioned(
+          left: 16,
+          right: 16,
+          bottom: 104,
+          child: _DiscoveryComposer(
+            controller: messageController,
+            isReplying: isReplying,
+            onSendMessage: onSendMessage,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DiscoveryChatBubble extends StatelessWidget {
+  const _DiscoveryChatBubble({
+    required this.text,
+    required this.isUser,
+    this.isPending = false,
+  });
+
+  final String text;
+  final bool isUser;
+  final bool isPending;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 360),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: isUser
+              ? AppColors.clay.withValues(alpha: 0.94)
+              : Colors.white.withValues(alpha: 0.92),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          text,
+          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+            color: isUser ? Colors.white : AppColors.ink,
+            height: 1.35,
+            fontStyle: isPending ? FontStyle.italic : FontStyle.normal,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DiscoveryComposer extends StatelessWidget {
+  const _DiscoveryComposer({
+    required this.controller,
+    required this.isReplying,
+    required this.onSendMessage,
+  });
+
+  final TextEditingController controller;
+  final bool isReplying;
+  final VoidCallback onSendMessage;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: TextField(
+            controller: controller,
+            enabled: !isReplying,
+            minLines: 1,
+            maxLines: 2,
+            textInputAction: TextInputAction.send,
+            onSubmitted: (_) => onSendMessage(),
+            decoration: InputDecoration(
+              hintText: isReplying ? 'Waiting for reply' : 'Send a message',
+              filled: true,
+              fillColor: Colors.white.withValues(alpha: 0.94),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 12,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(20),
+                borderSide: BorderSide.none,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        IconButton.filled(
+          onPressed: isReplying ? null : onSendMessage,
+          icon: const Icon(Icons.arrow_upward_rounded),
+          tooltip: 'Send',
+          style: IconButton.styleFrom(
+            backgroundColor: AppColors.clay,
+            foregroundColor: Colors.white,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DiscoveryHeartButton extends StatelessWidget {
+  const _DiscoveryHeartButton({
+    required this.isFriend,
+    required this.onPressed,
+  });
+
+  final bool isFriend;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white.withValues(alpha: 0.9),
+      borderRadius: BorderRadius.circular(24),
+      child: IconButton(
+        tooltip: isFriend ? 'Added to AI friends' : 'Add to AI friends',
+        onPressed: isFriend ? null : onPressed,
+        icon: Icon(
+          isFriend ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+          color: isFriend ? AppColors.clay : AppColors.ink,
+        ),
+      ),
+    );
+  }
+}
+
+class _DiscoveryCompleteState extends StatelessWidget {
+  const _DiscoveryCompleteState();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(color: AppColors.ink),
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.favorite_rounded,
+                color: AppColors.blush,
+                size: 46,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'You have met everyone',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(color: Colors.white),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Tap Friend above to chat with your saved AI friends.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Colors.white.withValues(alpha: 0.82),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
