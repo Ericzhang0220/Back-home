@@ -43,25 +43,45 @@ class AiChatRepository {
     });
   }
 
-  /// Writes the built-in companions the first time an account opens the AI
-  /// tab. Skipped as soon as any character exists, so deleting or renaming an
-  /// individual preset sticks rather than being restored on the next launch.
+  /// Installs each built-in catalog version once per account.
+  ///
+  /// Custom characters are never changed. After the catalog is installed,
+  /// removing an individual preset also continues to stick on later launches.
   Future<void> seedPresetCharactersIfNeeded() async {
-    final existing = await _charactersRef.limit(1).get();
-    if (existing.docs.isNotEmpty) {
+    final userSnapshot = await _userRef.get();
+    final installedVersion = userSnapshot.data()?['aiPresetCatalogVersion'];
+    if (installedVersion == AiCharacter.presetCatalogVersion) {
       return;
     }
 
+    final existing = await _charactersRef.get();
+    final existingIds = existing.docs.map((doc) => doc.id).toSet();
     final batch = _firestore.batch();
     for (var index = 0; index < AiCharacter.presets.length; index++) {
       final preset = AiCharacter.presets[index];
-      batch.set(_charactersRef.doc(preset.id), {
-        ...preset.toFirestore(),
-        // Preserves the authored order, since serverTimestamp would collapse
-        // to a single batch-commit instant for every preset.
-        'createdAt': Timestamp.fromMillisecondsSinceEpoch(index),
-      });
+      if (!existingIds.contains(preset.id)) {
+        batch.set(_charactersRef.doc(preset.id), {
+          ...preset.toFirestore(),
+          // Preserves the authored order, since serverTimestamp would collapse
+          // to a single batch-commit instant for every preset.
+          'createdAt': Timestamp.fromMillisecondsSinceEpoch(index),
+        });
+      }
     }
+
+    // Retire only the old built-ins, leaving all user-authored characters and
+    // their data untouched. Existing conversation documents remain available
+    // in Firestore, rather than being deleted as part of a catalog refresh.
+    for (final legacy in existing.docs) {
+      if (AiCharacter.legacyPresetIds.contains(legacy.id) &&
+          legacy.data()['isCustom'] != true) {
+        batch.delete(legacy.reference);
+      }
+    }
+
+    batch.set(_userRef, {
+      'aiPresetCatalogVersion': AiCharacter.presetCatalogVersion,
+    }, SetOptions(merge: true));
     await batch.commit();
   }
 
@@ -212,7 +232,8 @@ class AiChatRepository {
     // The first real question becomes the session's title, so the history
     // drawer shows something meaningful instead of "New question".
     final snapshot = await sessionRef.get();
-    final isUntitled = _readString(snapshot.data()?['title']).isEmpty ||
+    final isUntitled =
+        _readString(snapshot.data()?['title']).isEmpty ||
         _readString(snapshot.data()?['title']).startsWith('New question');
 
     await sessionRef.set({

@@ -61,6 +61,10 @@ class _ChatScreenState extends State<ChatScreen> {
   /// bubble that does not exist in Firestore.
   bool _isTutorReplying = false;
 
+  /// Prevents repeated builds of the empty tutor state from creating more than
+  /// one initial conversation.
+  bool _isCreatingTutorSession = false;
+
   @override
   void initState() {
     super.initState();
@@ -119,14 +123,7 @@ class _ChatScreenState extends State<ChatScreen> {
               selectedPage: _selectedPage,
               onAddPressed: _handleAddPressed,
             ),
-            _TopTabs(
-              selectedPage: _selectedPage,
-              onChanged: (page) {
-                setState(() {
-                  _selectedPage = page;
-                });
-              },
-            ),
+            _TopTabs(selectedPage: _selectedPage, onChanged: _selectPage),
             Expanded(
               child: AnimatedSwitcher(
                 duration: const Duration(milliseconds: 180),
@@ -167,6 +164,7 @@ class _ChatScreenState extends State<ChatScreen> {
                             selectedSessionId: _selectedTutorSessionId,
                             isReplying: _isTutorReplying,
                             onSessionResolved: _rememberTutorSession,
+                            onSessionNeeded: _ensureTutorSession,
                             onSendMessage: _sendTutorMessage,
                             onOpenHistory: () =>
                                 setState(() => _isTutorSidebarOpen = true),
@@ -215,6 +213,10 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
+  void _selectPage(_ChatPage page) {
+    setState(() => _selectedPage = page);
+  }
+
   void _handleAddPressed() {
     switch (_selectedPage) {
       case _ChatPage.ai:
@@ -222,7 +224,9 @@ class _ChatScreenState extends State<ChatScreen> {
       case _ChatPage.human:
         _showHumanDirectoryHint();
       case _ChatPage.tutor:
-        _addTutorSession();
+        // The Tutor is a single assistant. Its first conversation is created
+        // automatically when the Tutor tab opens.
+        break;
     }
   }
 
@@ -286,12 +290,13 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  Future<void> _addTutorSession() async {
+  Future<void> _ensureTutorSession() async {
     final repository = _repository;
-    if (repository == null) {
+    if (repository == null || _isCreatingTutorSession) {
       return;
     }
 
+    _isCreatingTutorSession = true;
     try {
       final sessionId = await repository.createTutorSession();
       if (!mounted) {
@@ -305,6 +310,8 @@ class _ChatScreenState extends State<ChatScreen> {
       });
     } catch (error) {
       _showError('Could not start a new tutor chat.');
+    } finally {
+      _isCreatingTutorSession = false;
     }
   }
 
@@ -432,9 +439,7 @@ class _ChatHeader extends StatelessWidget {
       _ChatPage.human => 'Human chats',
       _ChatPage.tutor => 'Tutor',
     };
-    final addLabel = selectedPage == _ChatPage.tutor
-        ? 'Start new tutor chat'
-        : 'Add chat';
+    final showsAddButton = selectedPage != _ChatPage.tutor;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
@@ -455,18 +460,21 @@ class _ChatHeader extends StatelessWidget {
               ),
             ),
           ),
-          Tooltip(
-            message: addLabel,
-            child: IconButton.filledTonal(
-              onPressed: onAddPressed,
-              icon: const Icon(Icons.add_rounded),
-              color: AppColors.ink,
-              style: IconButton.styleFrom(
-                backgroundColor: Colors.white.withValues(alpha: 0.76),
-                side: const BorderSide(color: AppColors.stroke),
+          if (showsAddButton)
+            Tooltip(
+              message: 'Add chat',
+              child: IconButton.filledTonal(
+                onPressed: onAddPressed,
+                icon: const Icon(Icons.add_rounded),
+                color: AppColors.ink,
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.white.withValues(alpha: 0.76),
+                  side: const BorderSide(color: AppColors.stroke),
+                ),
               ),
-            ),
-          ),
+            )
+          else
+            const SizedBox(width: 44),
         ],
       ),
     );
@@ -857,6 +865,7 @@ class _TutorChatPage extends StatelessWidget {
     required this.selectedSessionId,
     required this.isReplying,
     required this.onSessionResolved,
+    required this.onSessionNeeded,
     required this.onSendMessage,
     required this.onOpenHistory,
     required this.onCloseHistory,
@@ -867,6 +876,7 @@ class _TutorChatPage extends StatelessWidget {
   final String? selectedSessionId;
   final bool isReplying;
   final ValueChanged<String> onSessionResolved;
+  final VoidCallback onSessionNeeded;
   final VoidCallback onSendMessage;
   final VoidCallback onOpenHistory;
   final VoidCallback onCloseHistory;
@@ -894,7 +904,13 @@ class _TutorChatPage extends StatelessWidget {
 
             final sessions = sessionsSnapshot.data ?? const <TutorSession>[];
             if (sessions.isEmpty) {
-              return _TutorEmptyState(onOpenHistory: onOpenHistory);
+              // The Tutor has one assistant, so a person should land directly
+              // in a ready-to-use chat instead of needing a separate plus
+              // action to create its first conversation.
+              WidgetsBinding.instance.addPostFrameCallback(
+                (_) => onSessionNeeded(),
+              );
+              return const _TutorStartingState();
             }
 
             // Sessions stream newest-first; fall back to that when the
@@ -908,8 +924,7 @@ class _TutorChatPage extends StatelessWidget {
             return StreamBuilder<List<AiMessage>>(
               stream: repository.watchTutorMessages(session.id),
               builder: (context, messagesSnapshot) {
-                final messages =
-                    messagesSnapshot.data ?? const <AiMessage>[];
+                final messages = messagesSnapshot.data ?? const <AiMessage>[];
                 return _TutorConversation(
                   session: session,
                   messages: [
@@ -933,10 +948,8 @@ class _TutorChatPage extends StatelessWidget {
   }
 }
 
-class _TutorEmptyState extends StatelessWidget {
-  const _TutorEmptyState({required this.onOpenHistory});
-
-  final VoidCallback onOpenHistory;
+class _TutorStartingState extends StatelessWidget {
+  const _TutorStartingState();
 
   @override
   Widget build(BuildContext context) {
@@ -955,12 +968,12 @@ class _TutorEmptyState extends StatelessWidget {
               const Icon(Icons.school_rounded, color: AppColors.clay, size: 42),
               const SizedBox(height: 14),
               Text(
-                'No tutor chats yet',
+                'Getting Tutor ready',
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 8),
               Text(
-                'Tap the plus button above to start one.',
+                'Your first conversation will be ready in a moment.',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
@@ -1032,15 +1045,23 @@ class _TutorHistoryDrawer extends StatelessWidget {
               bottom: 0,
               left: isOpen ? 0 : -(drawerWidth + 32),
               width: drawerWidth,
-              child: _TutorSidebar(
-                repository: repository,
-                searchController: searchController,
-                selectedSessionId: selectedSessionId,
-                compact: compact,
-                onSearchChanged: onSearchChanged,
-                onSessionSelected: onSessionSelected,
-                onDeleteSession: onDeleteSession,
-                onCollapse: onClose,
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onHorizontalDragEnd: (details) {
+                  if ((details.primaryVelocity ?? 0) < -200) {
+                    onClose();
+                  }
+                },
+                child: _TutorSidebar(
+                  repository: repository,
+                  searchController: searchController,
+                  selectedSessionId: selectedSessionId,
+                  compact: compact,
+                  onSearchChanged: onSearchChanged,
+                  onSessionSelected: onSessionSelected,
+                  onDeleteSession: onDeleteSession,
+                  onCollapse: onClose,
+                ),
               ),
             ),
           ],
@@ -1636,7 +1657,9 @@ class _TutorConversation extends StatelessWidget {
                     textInputAction: TextInputAction.send,
                     onSubmitted: (_) => onSendMessage(),
                     decoration: InputDecoration(
-                      hintText: isReplying ? 'Waiting for reply' : 'Ask the tutor',
+                      hintText: isReplying
+                          ? 'Waiting for reply'
+                          : 'Ask the tutor',
                       filled: true,
                       fillColor: AppColors.cream,
                       contentPadding: const EdgeInsets.symmetric(
@@ -2249,9 +2272,9 @@ class _AddCharacterDialog extends StatelessWidget {
               return;
             }
 
-            Navigator.of(context).pop(
-              _CharacterDraft(name: name, personality: personality),
-            );
+            Navigator.of(
+              context,
+            ).pop(_CharacterDraft(name: name, personality: personality));
           },
           child: const Text('Add'),
         ),
@@ -2446,4 +2469,3 @@ class _HumanContact {
     return value.trim();
   }
 }
-
