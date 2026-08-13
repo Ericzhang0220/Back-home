@@ -1540,10 +1540,32 @@ class _HumanDiscoveryPageState extends State<_HumanDiscoveryPage> {
     widget.onContactChanged(choices[_random.nextInt(choices.length)].uid);
   }
 
-  Future<void> _toggleFriend(_HumanContact contact, {required bool isFriend}) {
-    return isFriend
-        ? widget.friendsRepository.removeFriend(contact.uid)
-        : widget.friendsRepository.addFriend(contact.uid);
+  Future<void> _toggleFriend(
+    _HumanContact contact, {
+    required bool isFriend,
+  }) async {
+    try {
+      if (isFriend) {
+        await widget.friendsRepository.removeFriend(contact.uid);
+      } else {
+        await widget.friendsRepository.addFriend(contact.uid);
+      }
+      if (mounted && !isFriend) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              content: Text('Saved. ${contact.name} was sent a request.'),
+            ),
+          );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not update that person.')),
+        );
+      }
+    }
   }
 
   Future<void> _sendMessage(_HumanContact contact) async {

@@ -39,10 +39,22 @@ service cloud.firestore {
         allow read, write: if isOwner(uid);
       }
 
-      // The Human tab's friends list. Private to the owner: liking someone is
-      // one-way and is never visible to the person being liked.
+      // The Human tab's friends list. Private to the owner — who is on it is
+      // never visible to the people on it.
       match /humanFriends/{friendUid} {
         allow read, write: if isOwner(uid);
+      }
+
+      // Incoming friend requests, keyed by requester uid. Anyone may put a
+      // request in someone else's inbox, but only under their own uid, so a
+      // request can never be forged on another person's behalf. Only the
+      // owner reads them; either side can clear one — the owner by
+      // accepting or rejecting, the requester by withdrawing.
+      match /friendRequests/{requesterUid} {
+        allow read: if isOwner(uid);
+        allow create: if signedIn() && request.auth.uid == requesterUid;
+        allow update: if false;
+        allow delete: if isOwner(uid) || request.auth.uid == requesterUid;
       }
 
       // AI companion conversations.

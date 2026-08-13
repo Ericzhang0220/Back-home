@@ -7,12 +7,14 @@ import 'package:image_picker/image_picker.dart';
 import '../audio/background_music_controller.dart';
 import '../auth/app_auth_controller.dart';
 import '../auth/display_name_dialog.dart';
+import '../chat/human_friends_repository.dart';
 import '../mood/mood_repository.dart';
 import '../profile/profile_stats.dart';
 import '../settings/app_settings_controller.dart';
 import '../widgets/app_ui.dart';
 import '../widgets/profile_avatar.dart';
 import '../widgets/settings_gear_icon.dart';
+import 'friend_requests_screen.dart';
 import 'mood_calendar_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -58,7 +60,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           leading: IconButton(
             padding: const EdgeInsets.only(right: 6),
             icon: const Icon(Icons.mail_outline),
-            onPressed: () => Navigator.of(context).pop(),
+            tooltip: 'Friend requests',
+            onPressed: _openFriendRequests,
           ),
           trailing: IconButton(
             icon: const SettingsGearIcon(),
@@ -125,6 +128,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ],
         );
       },
+    );
+  }
+
+  Future<void> _openFriendRequests() async {
+    final uid = widget.authController.currentUser?.uid;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => FriendRequestsScreen(
+          repository: uid == null ? null : HumanFriendsRepository(uid: uid),
+        ),
+      ),
     );
   }
 
