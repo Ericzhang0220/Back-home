@@ -77,6 +77,12 @@ class _ChatScreenState extends State<ChatScreen> {
   final _humanSearchController = TextEditingController();
   final _tutorSearchController = TextEditingController();
   final _messageController = TextEditingController();
+
+  // Owned here, not by the discovery pages, so a half-typed message survives
+  // the tab switch that tears those pages down.
+  final _aiDiscoveryMessageController = TextEditingController();
+  final _humanDiscoveryMessageController = TextEditingController();
+
   final _imagePicker = ImagePicker();
 
   _ChatPage _selectedPage = _ChatPage.ai;
@@ -118,6 +124,8 @@ class _ChatScreenState extends State<ChatScreen> {
     _humanSearchController.dispose();
     _tutorSearchController.dispose();
     _messageController.dispose();
+    _aiDiscoveryMessageController.dispose();
+    _humanDiscoveryMessageController.dispose();
     super.dispose();
   }
 
@@ -180,6 +188,7 @@ class _ChatScreenState extends State<ChatScreen> {
             child: _AiDiscoveryPage(
               repository: repository,
               onToggleFriend: _toggleAiFriend,
+              messageController: _aiDiscoveryMessageController,
               characterId: _discoveryCharacterId,
               onCharacterChanged: (id) {
                 if (_discoveryCharacterId != id) {
@@ -193,6 +202,7 @@ class _ChatScreenState extends State<ChatScreen> {
             child: _HumanDiscoveryPage(
               friendsRepository: humanFriends,
               currentUid: currentUid,
+              messageController: _humanDiscoveryMessageController,
               contactUid: _discoveryContactUid,
               onContactChanged: (uid) {
                 if (_discoveryContactUid != uid) {
@@ -875,6 +885,7 @@ class _AiDiscoveryPage extends StatefulWidget {
   const _AiDiscoveryPage({
     required this.repository,
     required this.onToggleFriend,
+    required this.messageController,
     required this.characterId,
     required this.onCharacterChanged,
   });
@@ -889,6 +900,9 @@ class _AiDiscoveryPage extends StatefulWidget {
   })
   onToggleFriend;
 
+  /// Owned by the chat screen, so an unsent draft outlives this page.
+  final TextEditingController messageController;
+
   /// The profile to show. Owned by the chat screen so it survives the
   /// AI ⇄ Friend toggle, which tears this page down and rebuilds it.
   final String? characterId;
@@ -900,16 +914,10 @@ class _AiDiscoveryPage extends StatefulWidget {
 
 class _AiDiscoveryPageState extends State<_AiDiscoveryPage> {
   final math.Random _random = math.Random();
-  final TextEditingController _messageController = TextEditingController();
   bool _isReplying = false;
 
   String? get _currentCharacterId => widget.characterId;
-
-  @override
-  void dispose() {
-    _messageController.dispose();
-    super.dispose();
-  }
+  TextEditingController get _messageController => widget.messageController;
 
   void _showNext(List<AiCharacter> characters) {
     if (_isReplying) {
@@ -1492,12 +1500,16 @@ class _HumanDiscoveryPage extends StatefulWidget {
   const _HumanDiscoveryPage({
     required this.friendsRepository,
     required this.currentUid,
+    required this.messageController,
     required this.contactUid,
     required this.onContactChanged,
   });
 
   final HumanFriendsRepository friendsRepository;
   final String currentUid;
+
+  /// Owned by the chat screen, so an unsent draft outlives this page.
+  final TextEditingController messageController;
 
   /// Owned by the chat screen so it survives the Human ⇄ Friend toggle.
   final String? contactUid;
@@ -1509,16 +1521,10 @@ class _HumanDiscoveryPage extends StatefulWidget {
 
 class _HumanDiscoveryPageState extends State<_HumanDiscoveryPage> {
   final math.Random _random = math.Random();
-  final TextEditingController _messageController = TextEditingController();
   bool _isSending = false;
 
   String? get _currentContactUid => widget.contactUid;
-
-  @override
-  void dispose() {
-    _messageController.dispose();
-    super.dispose();
-  }
+  TextEditingController get _messageController => widget.messageController;
 
   void _showNext(List<_HumanContact> discoverable) {
     if (_isSending) {

@@ -4,8 +4,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 /// the `isFriend` flag on AI character documents, kept in its own collection so
 /// the two lists stay completely separate.
 ///
-/// Liking is one-way, exactly like the AI side: adding someone here never
-/// touches their list, and never notifies them.
+/// Saving someone is immediate on your own side and also drops a request in
+/// their inbox. Accepting it saves you back, which is what makes a pair
+/// mutual; rejecting simply clears the request and leaves their list alone.
 class HumanFriendsRepository {
   HumanFriendsRepository({required this.uid, FirebaseFirestore? firestore})
     : _firestore = firestore ?? FirebaseFirestore.instance;
@@ -13,8 +14,15 @@ class HumanFriendsRepository {
   final String uid;
   final FirebaseFirestore _firestore;
 
+  CollectionReference<Map<String, dynamic>> _friendsRefFor(String owner) =>
+      _firestore.collection('users').doc(owner).collection('humanFriends');
+
+  /// Pending requests waiting on [owner]'s answer, keyed by requester uid.
+  CollectionReference<Map<String, dynamic>> _requestsRefFor(String owner) =>
+      _firestore.collection('users').doc(owner).collection('friendRequests');
+
   CollectionReference<Map<String, dynamic>> get _friendsRef =>
-      _firestore.collection('users').doc(uid).collection('humanFriends');
+      _friendsRefFor(uid);
 
   /// The uids of everyone in the list. Errors surface as an empty set so a
   /// rules hiccup degrades to "no friends yet" rather than a broken tab.
@@ -30,15 +38,51 @@ class HumanFriendsRepository {
     return _friendsRef.doc(peerUid).snapshots().map((doc) => doc.exists);
   }
 
+  /// Saves someone and asks them back, in one atomic write so a list entry
+  /// never exists without its matching request.
   Future<void> addFriend(String peerUid) {
-    return _friendsRef.doc(peerUid).set({
+    final batch = _firestore.batch();
+    batch.set(_friendsRef.doc(peerUid), {
       'createdAt': FieldValue.serverTimestamp(),
     });
+    batch.set(_requestsRefFor(peerUid).doc(uid), {
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+    return batch.commit();
   }
 
-  /// Removes the like. The conversation in `chats/` is left alone, so the
-  /// thread is still there if they are added back.
+  /// Removes the like and withdraws the request if they have not answered yet.
+  /// The conversation in `chats/` is left alone, so the thread is still there
+  /// if they are added back.
   Future<void> removeFriend(String peerUid) {
-    return _friendsRef.doc(peerUid).delete();
+    final batch = _firestore.batch();
+    batch.delete(_friendsRef.doc(peerUid));
+    batch.delete(_requestsRefFor(peerUid).doc(uid));
+    return batch.commit();
+  }
+
+  /// Uids of the people waiting on an answer from this account.
+  Stream<List<String>> watchIncomingRequestUids() {
+    return _requestsRefFor(uid)
+        .snapshots()
+        .map((snapshot) => snapshot.docs.map((doc) => doc.id).toList())
+        .handleError((Object _) {});
+  }
+
+  /// Saves the requester back — the step that makes the pair mutual — and
+  /// clears the request.
+  Future<void> acceptRequest(String requesterUid) {
+    final batch = _firestore.batch();
+    batch.set(_friendsRef.doc(requesterUid), {
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+    batch.delete(_requestsRefFor(uid).doc(requesterUid));
+    return batch.commit();
+  }
+
+  /// Clears the request without saving them. Their own list is untouched — it
+  /// is theirs, and this account was never on it.
+  Future<void> rejectRequest(String requesterUid) {
+    return _requestsRefFor(uid).doc(requesterUid).delete();
   }
 }
