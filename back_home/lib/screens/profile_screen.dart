@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../audio/background_music_controller.dart';
 import '../auth/app_auth_controller.dart';
+import '../auth/display_name_dialog.dart';
 import '../mood/mood_repository.dart';
 import '../profile/profile_stats.dart';
 import '../settings/app_settings_controller.dart';
@@ -204,6 +205,10 @@ class _ProfileSettingsScreen extends StatelessWidget {
             settingsController.cameraRotateSensitivity;
         final currentTrackTitle = musicController.currentTrackTitle;
         final currentTrackSubtitle = musicController.currentTrackSubtitle;
+        final trimmedName = authController.currentUser?.displayName?.trim();
+        final displayName = (trimmedName?.isNotEmpty ?? false)
+            ? trimmedName
+            : null;
 
         return Scaffold(
           backgroundColor: AppColors.cream,
@@ -238,6 +243,21 @@ class _ProfileSettingsScreen extends StatelessWidget {
                   subtitle: '',
                   padding: const EdgeInsets.fromLTRB(20, 16, 20, 36),
                   children: [
+                    const SectionHeader(
+                      title: 'Your profile',
+                      subtitle: 'How you appear to other people.',
+                    ),
+                    const SizedBox(height: 14),
+                    _SettingsAction(
+                      icon: Icons.badge_outlined,
+                      title: 'Display name',
+                      detail: displayName ?? 'Not set yet. Tap to add one.',
+                      onTap: () => showDisplayNamePrompt(
+                        context,
+                        authController: authController,
+                      ),
+                    ),
+                    const SizedBox(height: 28),
                     const SectionHeader(
                       title: 'Public profile visibility',
                       subtitle: 'Choose what other people can see.',

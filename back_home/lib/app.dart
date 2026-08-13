@@ -7,6 +7,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
 import 'auth/app_auth_controller.dart';
+import 'auth/display_name_dialog.dart';
 import 'audio/background_music_controller.dart';
 import 'rooms/room_state.dart';
 import 'screens/achievements_screen.dart';
@@ -218,10 +219,36 @@ class _AppShellState extends State<AppShell> {
   bool _navVisible = true;
   double _navRevealDrag = 0;
 
+  /// Guards the welcome prompt so a skipped name is not asked for again until
+  /// the next launch.
+  bool _hasAskedForDisplayName = false;
+
   @override
   void initState() {
     super.initState();
     _scheduleNavHide();
+    // Reaching the shell means the account is verified and complete, so this is
+    // the first moment a new person can be asked what to call them.
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _promptForDisplayNameIfUnset(),
+    );
+  }
+
+  Future<void> _promptForDisplayNameIfUnset() async {
+    if (_hasAskedForDisplayName || !mounted) {
+      return;
+    }
+    final user = widget.authController.currentUser;
+    if (user == null || (user.displayName?.trim().isNotEmpty ?? false)) {
+      return;
+    }
+
+    _hasAskedForDisplayName = true;
+    await showDisplayNamePrompt(
+      context,
+      authController: widget.authController,
+      isWelcome: true,
+    );
   }
 
   @override

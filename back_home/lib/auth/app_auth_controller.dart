@@ -450,6 +450,47 @@ class AppAuthController extends ChangeNotifier {
     }
   }
 
+  /// Longest name accepted, so a display name stays readable everywhere it is
+  /// shown — chat rows, the hall, and profile headers.
+  static const int maxDisplayNameLength = 40;
+
+  /// Sets the name other people see. Writes both the Firebase Auth profile and
+  /// the `users` document the rest of the app reads from.
+  Future<void> updateDisplayName(String displayName) async {
+    final trimmed = displayName.trim();
+    if (trimmed.isEmpty) {
+      throw const AuthFlowException('Please enter a display name.');
+    }
+    if (trimmed.length > maxDisplayNameLength) {
+      throw const AuthFlowException(
+        'Please use a shorter name, up to $maxDisplayNameLength characters.',
+      );
+    }
+
+    final user = _auth?.currentUser;
+    final firestore = _firestore;
+    if (user == null || firestore == null) {
+      return;
+    }
+
+    _setBusy(true);
+    try {
+      await user.updateDisplayName(trimmed);
+      // Refresh the cached user so `currentUser.displayName` is current for
+      // everything rebuilt by the notification below.
+      await user.reload();
+      await firestore.collection('users').doc(user.uid).set({
+        'displayName': trimmed,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      notifyListeners();
+    } catch (error) {
+      throw _mapError(error);
+    } finally {
+      _setBusy(false);
+    }
+  }
+
   Future<void> updatePublicProfileVisibility({
     required bool showHappinessIndex,
     required bool showLikesStat,
