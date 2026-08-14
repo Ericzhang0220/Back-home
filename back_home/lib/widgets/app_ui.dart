@@ -12,6 +12,11 @@ class AppColors {
   static const Color muted = Color(0xFF806A60);
   static const Color stroke = Color(0xFFE8D8C8);
 
+  /// Ends of the app-wide background wash: white at the top of the screen,
+  /// beige at the bottom. Painted by [AmbientBackground] everywhere.
+  static const Color backgroundTop = Color(0xFFFFFFFF);
+  static const Color backgroundBottom = Color(0xFFEDE2D1);
+
   const AppColors._();
 }
 
@@ -32,11 +37,7 @@ class AmbientBackground extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [
-            Color(0xFFFFFBF6),
-            Color.fromARGB(255, 255, 237, 224),
-            Color.fromARGB(255, 255, 221, 198),
-          ],
+          colors: [AppColors.backgroundTop, AppColors.backgroundBottom],
         ),
       ),
       child: Stack(
@@ -49,9 +50,11 @@ class AmbientBackground extends StatelessWidget {
           //     offset: Offset(60, -40),
           //   ),
           if (showSideGlow)
+            // Tinted from the same beige as the wash so it reads as a soft
+            // lift in the gradient rather than a second colour.
             const _GlowOrb(
               alignment: Alignment.centerLeft,
-              color: Color(0x40F4D7C5),
+              color: Color(0x33E7DAC7),
               size: 220,
               offset: Offset(-90, -20),
             ),

@@ -2891,18 +2891,25 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
         ),
         actions: [_buildAppBarAction()],
       ),
-      body: SafeArea(
-        top: false,
-        child: Column(
-          children: [
-            Expanded(child: _buildMessages()),
-            _MessageComposer(
-              controller: _controller,
-              onSend: _sendMessage,
-              isBusy: _isReplying,
+      // The conversation sits on the same white-to-beige wash as the rest of
+      // the app rather than a flat fill.
+      body: Stack(
+        children: [
+          const AmbientBackground(showSideGlow: false),
+          SafeArea(
+            top: false,
+            child: Column(
+              children: [
+                Expanded(child: _buildMessages()),
+                _MessageComposer(
+                  controller: _controller,
+                  onSend: _sendMessage,
+                  isBusy: _isReplying,
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
