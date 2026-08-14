@@ -77,7 +77,16 @@ class _BackHomeAppState extends State<BackHomeApp> {
               data: mediaQuery.copyWith(
                 textScaler: TextScaler.linear(_settingsController.textScale),
               ),
-              child: child ?? const SizedBox.shrink(),
+              // Wraps every route and overlay, so tapping away from a text
+              // field puts the keyboard down anywhere in the app. Translucent
+              // so it never takes a tap from the widget under the finger:
+              // buttons, fields and scrolls all still win the gesture arena,
+              // and this only picks up the taps nothing else claimed.
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+                child: child ?? const SizedBox.shrink(),
+              ),
             );
           },
           home: _AuthGate(
