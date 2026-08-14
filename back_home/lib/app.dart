@@ -85,6 +85,8 @@ class _BackHomeAppState extends State<BackHomeApp> {
               child: GestureDetector(
                 behavior: HitTestBehavior.translucent,
                 onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+                onHorizontalDragDown: (dragDetails) =>
+                    FocusManager.instance.primaryFocus?.unfocus(),
                 child: child ?? const SizedBox.shrink(),
               ),
             );
