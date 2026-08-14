@@ -531,6 +531,9 @@ class _AppShellState extends State<AppShell> {
                     ignoring: navShown,
                     child: GestureDetector(
                       behavior: HitTestBehavior.translucent,
+                      // A double tap down here is a second way in, for when a
+                      // swipe is awkward to land.
+                      onDoubleTap: _revealNav,
                       onVerticalDragStart: (_) => _navRevealDrag = 0,
                       onVerticalDragUpdate: (details) {
                         _navRevealDrag += details.delta.dy;

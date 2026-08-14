@@ -21,6 +21,13 @@ class HumanFriendsRepository {
   CollectionReference<Map<String, dynamic>> _requestsRefFor(String owner) =>
       _firestore.collection('users').doc(owner).collection('friendRequests');
 
+  /// A permanent record of everyone who has ever earned this account a like,
+  /// one document per person. Keyed by uid, so re-adding somebody cannot earn
+  /// a second one, and never deleted, so unfriending cannot take one back —
+  /// likes are only ever spent in the room shop.
+  CollectionReference<Map<String, dynamic>> get _likeAwardsRef =>
+      _firestore.collection('users').doc(uid).collection('friendLikeAwards');
+
   CollectionReference<Map<String, dynamic>> get _friendsRef =>
       _friendsRefFor(uid);
 
@@ -46,6 +53,9 @@ class HumanFriendsRepository {
       'createdAt': FieldValue.serverTimestamp(),
     });
     batch.set(_requestsRefFor(peerUid).doc(uid), {
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+    batch.set(_likeAwardsRef.doc(peerUid), {
       'createdAt': FieldValue.serverTimestamp(),
     });
     return batch.commit();
@@ -74,6 +84,9 @@ class HumanFriendsRepository {
   Future<void> acceptRequest(String requesterUid) {
     final batch = _firestore.batch();
     batch.set(_friendsRef.doc(requesterUid), {
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+    batch.set(_likeAwardsRef.doc(requesterUid), {
       'createdAt': FieldValue.serverTimestamp(),
     });
     batch.delete(_requestsRefFor(uid).doc(requesterUid));

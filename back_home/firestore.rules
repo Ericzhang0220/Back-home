@@ -45,6 +45,12 @@ service cloud.firestore {
         allow read, write: if isOwner(uid);
       }
 
+      // One document per person ever added, feeding the profile's likes
+      // counter. Never deleted by the app: unfriending must not refund a like.
+      match /friendLikeAwards/{friendUid} {
+        allow read, write: if isOwner(uid);
+      }
+
       // Incoming friend requests, keyed by requester uid. Anyone may put a
       // request in someone else's inbox, but only under their own uid, so a
       // request can never be forged on another person's behalf. Only the
@@ -55,6 +61,20 @@ service cloud.firestore {
         allow create: if signedIn() && request.auth.uid == requesterUid;
         allow update: if false;
         allow delete: if isOwner(uid) || request.auth.uid == requesterUid;
+      }
+
+      // The notification inbox. Only the owner reads or clears it.
+      //
+      // Likes and comments are posted by whoever caused them, so a client may
+      // write into someone else's inbox — but only stamped with its own uid,
+      // and only for those two types. Warnings and system updates are
+      // therefore unforgeable from a client: they can only be written by the
+      // Admin SDK, which bypasses these rules entirely.
+      match /notifications/{notificationId} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if signedIn()
+                              && request.resource.data.actorUid == request.auth.uid
+                              && request.resource.data.type in ['like', 'comment'];
       }
 
       // AI companion conversations.
@@ -115,13 +135,40 @@ service cloud.firestore {
     // Direct human-to-human chats. Split per-operation because `resource` is
     // absent on create and `request.resource` is absent on read/delete.
     match /chats/{chatId} {
+
+      function chatData() {
+        return get(/databases/$(database)/documents/chats/$(chatId)).data;
+      }
+
+      // Everyone who has written in this chat. The new list must keep every
+      // uid the old one had and may add only the caller's own, so nobody can
+      // fake a reply from the other side to unlock themselves, and nobody can
+      // drop the other side to lock them out.
+      function senderUidsUnforged() {
+        return request.resource.data.get('senderUids', [])
+                 .hasOnly(resource.data.get('senderUids', [])
+                            .concat([request.auth.uid]))
+               && resource.data.get('senderUids', [])
+                    .hasOnly(request.resource.data.get('senderUids', []));
+      }
+
+      // True once the other participant has written at least once.
+      function peerHasReplied() {
+        return chatData().get('senderUids', [])
+                 .hasAny(chatData().participantUids
+                           .removeAll([request.auth.uid]));
+      }
+
       allow read: if signedIn()
                   && request.auth.uid in resource.data.participantUids;
       allow create: if signedIn()
-                    && request.auth.uid in request.resource.data.participantUids;
+                    && request.auth.uid in request.resource.data.participantUids
+                    && request.resource.data.get('senderUids', [])
+                         .hasOnly([request.auth.uid]);
       allow update: if signedIn()
                     && request.auth.uid in resource.data.participantUids
-                    && request.auth.uid in request.resource.data.participantUids;
+                    && request.auth.uid in request.resource.data.participantUids
+                    && senderUidsUnforged();
       allow delete: if signedIn()
                     && request.auth.uid in resource.data.participantUids;
 
@@ -130,8 +177,18 @@ service cloud.firestore {
                     && request.auth.uid in
                        get(/databases/$(database)/documents/chats/$(chatId))
                          .data.participantUids;
+
+        // Until the other person writes back, an opening message must use the
+        // fixed id `intro_<senderUid>`. Because messages can never be updated
+        // or deleted, that id can only be claimed once — so an unanswered
+        // sender is capped at exactly one message. Once the peer has replied,
+        // ordinary auto-ids are accepted and the chat is unrestricted.
         allow create: if signedIn()
-                      && request.resource.data.senderUid == request.auth.uid;
+                      && request.resource.data.senderUid == request.auth.uid
+                      && (
+                           peerHasReplied()
+                           || messageId == 'intro_' + request.auth.uid
+                         );
         allow update, delete: if false;
       }
     }

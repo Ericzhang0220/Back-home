@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import '../notifications/notifications_repository.dart';
 import '../widgets/app_ui.dart';
 import '../widgets/profile_avatar.dart';
 import 'hall_post.dart';
@@ -210,6 +211,38 @@ class _HallPostThreadScreenState extends State<HallPostThreadScreen> {
           : FieldValue.arrayRemove([uid]);
     }
     ref.update(update).ignore();
+    _notifyLike(recipientUid: _post.authorUid, willLike: willLike);
+  }
+
+  /// Posts a like into the recipient's inbox, or takes it back when the like is
+  /// undone. Fire and forget: the like itself has already been written, so a
+  /// failure here should not surface as an error.
+  void _notifyLike({
+    required String? recipientUid,
+    required bool willLike,
+    String? commentId,
+  }) {
+    final postId = _post.id;
+    final uid = widget.authorUid;
+    if (postId == null || recipientUid == null || uid == null) {
+      return;
+    }
+
+    final notifications = NotificationsRepository(uid: uid);
+    final future = willLike
+        ? notifications.notifyLiked(
+            recipientUid: recipientUid,
+            postId: postId,
+            commentId: commentId,
+            topic: _post.topic,
+            actorName: widget.authorName,
+          )
+        : notifications.clearLike(
+            recipientUid: recipientUid,
+            postId: postId,
+            commentId: commentId,
+          );
+    future.ignore();
   }
 
   void _focusComposer() {
@@ -246,6 +279,20 @@ class _HallPostThreadScreenState extends State<HallPostThreadScreen> {
     });
 
     _updateThreadInFirestore(_post.thread);
+
+    final postId = _post.id;
+    final recipientUid = _post.authorUid;
+    final uid = widget.authorUid;
+    if (postId != null && recipientUid != null && uid != null) {
+      NotificationsRepository(uid: uid)
+          .notifyCommented(
+            recipientUid: recipientUid,
+            postId: postId,
+            topic: _post.topic,
+            actorName: widget.authorName,
+          )
+          .ignore();
+    }
 
     _commentFocusNode.unfocus();
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
@@ -287,6 +334,11 @@ class _HallPostThreadScreenState extends State<HallPostThreadScreen> {
     });
 
     _updateThreadInFirestore(updatedThread);
+    _notifyLike(
+      recipientUid: comment.authorUid,
+      willLike: willLike,
+      commentId: comment.id,
+    );
   }
 
   void _updateThreadInFirestore(List<HallComment> thread) {

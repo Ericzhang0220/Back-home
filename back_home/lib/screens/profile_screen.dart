@@ -9,13 +9,14 @@ import '../auth/app_auth_controller.dart';
 import '../auth/display_name_dialog.dart';
 import '../chat/human_friends_repository.dart';
 import '../mood/mood_repository.dart';
+import '../notifications/notifications_repository.dart';
 import '../profile/profile_stats.dart';
 import '../settings/app_settings_controller.dart';
 import '../widgets/app_ui.dart';
 import '../widgets/profile_avatar.dart';
 import '../widgets/settings_gear_icon.dart';
-import 'friend_requests_screen.dart';
 import 'mood_calendar_screen.dart';
+import 'notifications_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({
@@ -60,8 +61,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           leading: IconButton(
             padding: const EdgeInsets.only(right: 6),
             icon: const Icon(Icons.mail_outline),
-            tooltip: 'Friend requests',
-            onPressed: _openFriendRequests,
+            tooltip: 'Notifications',
+            onPressed: _openNotifications,
           ),
           trailing: IconButton(
             icon: const SettingsGearIcon(),
@@ -131,12 +132,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Future<void> _openFriendRequests() async {
+  Future<void> _openNotifications() async {
     final uid = widget.authController.currentUser?.uid;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => FriendRequestsScreen(
-          repository: uid == null ? null : HumanFriendsRepository(uid: uid),
+        builder: (_) => NotificationsScreen(
+          friendsRepository: uid == null
+              ? null
+              : HumanFriendsRepository(uid: uid),
+          notificationsRepository: uid == null
+              ? null
+              : NotificationsRepository(uid: uid),
         ),
       ),
     );

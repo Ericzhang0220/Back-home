@@ -28,7 +28,40 @@ String _chatIdFor(String a, String b) {
   return '${ids[0]}_${ids[1]}';
 }
 
+/// Raised when someone tries to send a second message to a person who has not
+/// written back yet.
+class _DirectMessageLimitException implements Exception {
+  const _DirectMessageLimitException(this.message);
+
+  final String message;
+}
+
+/// Everyone who has written in a chat, from its document.
+Set<String> _sendersIn(Map<String, dynamic>? chat) {
+  return (chat?['senderUids'] as List<dynamic>?)?.whereType<String>().toSet() ??
+      const <String>{};
+}
+
+/// Whether [currentUid] has used up their one unanswered message to the peer.
+bool _isAwaitingReply({
+  required Map<String, dynamic>? chat,
+  required String currentUid,
+  required String peerUid,
+}) {
+  final senders = _sendersIn(chat);
+  return !senders.contains(peerUid) && senders.contains(currentUid);
+}
+
+/// The fixed id an opening message is written under. Message documents cannot
+/// be updated or deleted, so this id can only ever be claimed once — which is
+/// what caps an unanswered conversation at a single message.
+String _introMessageId(String senderUid) => 'intro_$senderUid';
+
 /// Appends a human-to-human message, creating the chat document on first send.
+///
+/// Until the other person writes back, only one message can be sent: the
+/// opening one takes a fixed document id, and a second attempt is refused here
+/// and by the security rules.
 Future<void> _sendDirectMessage({
   required String currentUid,
   required String peerUid,
@@ -37,16 +70,59 @@ Future<void> _sendDirectMessage({
   final chatRef = FirebaseFirestore.instance
       .collection('chats')
       .doc(_chatIdFor(currentUid, peerUid));
+
+  final snapshot = await chatRef.get();
+  final chat = snapshot.data();
+  if (_isAwaitingReply(
+    chat: chat,
+    currentUid: currentUid,
+    peerUid: peerUid,
+  )) {
+    throw const _DirectMessageLimitException(
+      'You can send one message until they write back.',
+    );
+  }
+
+  final senders = _sendersIn(chat);
+  final hasReplied = senders.contains(peerUid);
   await chatRef.set({
     'participantUids': [currentUid, peerUid]..sort(),
+    // Written out in full rather than with arrayUnion: the security rules
+    // compare the old and new lists element by element, which is only
+    // dependable when the value being written is a plain list.
+    'senderUids': <String>{...senders, currentUid}.toList()..sort(),
     'updatedAt': FieldValue.serverTimestamp(),
     'lastMessage': text,
   }, SetOptions(merge: true));
-  await chatRef.collection('messages').add({
+
+  final messages = chatRef.collection('messages');
+  final messageRef = hasReplied
+      ? messages.doc()
+      : messages.doc(_introMessageId(currentUid));
+  await messageRef.set({
     'senderUid': currentUid,
     'text': text,
     'createdAt': FieldValue.serverTimestamp(),
   });
+}
+
+/// Index of the neighbouring card when a discovery deck is paged.
+///
+/// [currentIndex] is -1 when the card on screen has just left the deck — saving
+/// someone drops them out of it — in which case the deck has already slid one
+/// place under it, so [rememberedIndex] already points at the next card and
+/// only the backward step needs adjusting. Paging wraps, so neither direction
+/// ever dead-ends on the first or last card.
+int _neighbourIndex({
+  required int currentIndex,
+  required int rememberedIndex,
+  required int delta,
+  required int length,
+}) {
+  final target = currentIndex >= 0
+      ? currentIndex + delta
+      : (delta > 0 ? rememberedIndex : rememberedIndex - 1);
+  return ((target % length) + length) % length;
 }
 
 Color _tintForUid(String uid) {
@@ -919,23 +995,36 @@ class _AiDiscoveryPageState extends State<_AiDiscoveryPage> {
   String? get _currentCharacterId => widget.characterId;
   TextEditingController get _messageController => widget.messageController;
 
-  void _showNext(List<AiCharacter> characters) {
+  /// Where the current card sits in the deck, kept so paging still works from
+  /// a card that has just been saved and left the deck.
+  int _deckIndex = 0;
+
+  /// Which way the last page went, so a card slides in from the side it came
+  /// from.
+  bool _isPagingForward = true;
+
+  void _page(List<AiCharacter> deck, int delta) {
     if (_isReplying) {
       return;
     }
-    final choices = characters
-        .where(
-          (character) =>
-              !character.isCustom &&
-              !character.isFriend &&
-              character.id != _currentCharacterId,
-        )
-        .toList();
-    if (choices.isEmpty) {
+    if (deck.isEmpty) {
       widget.onCharacterChanged(null);
       return;
     }
-    widget.onCharacterChanged(choices[_random.nextInt(choices.length)].id);
+
+    final index = _neighbourIndex(
+      currentIndex: deck.indexWhere(
+        (character) => character.id == _currentCharacterId,
+      ),
+      rememberedIndex: _deckIndex,
+      delta: delta,
+      length: deck.length,
+    );
+    setState(() {
+      _deckIndex = index;
+      _isPagingForward = delta > 0;
+    });
+    widget.onCharacterChanged(deck[index].id);
   }
 
   Future<void> _sendMessage(
@@ -1071,8 +1160,11 @@ class _AiDiscoveryPageState extends State<_AiDiscoveryPage> {
           // the keyboard away.
           onTap: () => FocusScope.of(context).unfocus(),
           onHorizontalDragEnd: (details) {
-            if ((details.primaryVelocity ?? 0) < -250) {
-              _showNext(characters);
+            final velocity = details.primaryVelocity ?? 0;
+            if (velocity < -250) {
+              _page(discoverable, 1);
+            } else if (velocity > 250) {
+              _page(discoverable, -1);
             }
           },
           child: ClipRect(
@@ -1083,15 +1175,13 @@ class _AiDiscoveryPageState extends State<_AiDiscoveryPage> {
               transitionBuilder: (child, animation) {
                 final isIncoming =
                     child.key == ValueKey(_currentCharacterId);
-                final offset = isIncoming
-                    ? Tween<Offset>(
-                        begin: const Offset(1, 0),
-                        end: Offset.zero,
-                      ).animate(animation)
-                    : Tween<Offset>(
-                        begin: const Offset(-1, 0),
-                        end: Offset.zero,
-                      ).animate(animation);
+                // Paging back reverses both halves, so the deck reads as one
+                // strip sliding under the screen either way.
+                final fromRight = _isPagingForward == isIncoming;
+                final offset = Tween<Offset>(
+                  begin: Offset(fromRight ? 1 : -1, 0),
+                  end: Offset.zero,
+                ).animate(animation);
                 return SlideTransition(position: offset, child: child);
               },
               child: _DiscoveryPortrait(
@@ -1526,18 +1616,36 @@ class _HumanDiscoveryPageState extends State<_HumanDiscoveryPage> {
   String? get _currentContactUid => widget.contactUid;
   TextEditingController get _messageController => widget.messageController;
 
-  void _showNext(List<_HumanContact> discoverable) {
+  /// Where the current card sits in the deck, kept so paging still works from
+  /// a card that has just been saved and left the deck.
+  int _deckIndex = 0;
+
+  /// Which way the last page went, so a card slides in from the side it came
+  /// from.
+  bool _isPagingForward = true;
+
+  void _page(List<_HumanContact> deck, int delta) {
     if (_isSending) {
       return;
     }
-    final choices = discoverable
-        .where((contact) => contact.uid != _currentContactUid)
-        .toList();
-    if (choices.isEmpty) {
+    if (deck.isEmpty) {
       widget.onContactChanged(null);
       return;
     }
-    widget.onContactChanged(choices[_random.nextInt(choices.length)].uid);
+
+    final index = _neighbourIndex(
+      currentIndex: deck.indexWhere(
+        (contact) => contact.uid == _currentContactUid,
+      ),
+      rememberedIndex: _deckIndex,
+      delta: delta,
+      length: deck.length,
+    );
+    setState(() {
+      _deckIndex = index;
+      _isPagingForward = delta > 0;
+    });
+    widget.onContactChanged(deck[index].uid);
   }
 
   Future<void> _toggleFriend(
@@ -1584,6 +1692,12 @@ class _HumanDiscoveryPageState extends State<_HumanDiscoveryPage> {
         peerUid: contact.uid,
         text: text,
       );
+    } on _DirectMessageLimitException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
+      }
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1667,8 +1781,11 @@ class _HumanDiscoveryPageState extends State<_HumanDiscoveryPage> {
                   behavior: HitTestBehavior.opaque,
                   onTap: () => FocusScope.of(context).unfocus(),
                   onHorizontalDragEnd: (details) {
-                    if ((details.primaryVelocity ?? 0) < -250) {
-                      _showNext(discoverable);
+                    final velocity = details.primaryVelocity ?? 0;
+                    if (velocity < -250) {
+                      _page(discoverable, 1);
+                    } else if (velocity > 250) {
+                      _page(discoverable, -1);
                     }
                   },
                   child: ClipRect(
@@ -1679,15 +1796,11 @@ class _HumanDiscoveryPageState extends State<_HumanDiscoveryPage> {
                       transitionBuilder: (child, animation) {
                         final isIncoming =
                             child.key == ValueKey(_currentContactUid);
-                        final offset = isIncoming
-                            ? Tween<Offset>(
-                                begin: const Offset(1, 0),
-                                end: Offset.zero,
-                              ).animate(animation)
-                            : Tween<Offset>(
-                                begin: const Offset(-1, 0),
-                                end: Offset.zero,
-                              ).animate(animation);
+                        final fromRight = _isPagingForward == isIncoming;
+                        final offset = Tween<Offset>(
+                          begin: Offset(fromRight ? 1 : -1, 0),
+                          end: Offset.zero,
+                        ).animate(animation);
                         return SlideTransition(position: offset, child: child);
                       },
                       child: _DiscoveryPortrait(
@@ -2901,11 +3014,7 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
             child: Column(
               children: [
                 Expanded(child: _buildMessages()),
-                _MessageComposer(
-                  controller: _controller,
-                  onSend: _sendMessage,
-                  isBusy: _isReplying,
-                ),
+                _buildComposer(),
               ],
             ),
           ),
@@ -3035,6 +3144,41 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
         setState(() => _isUpdatingFriend = false);
       }
     }
+  }
+
+  /// Human conversations swap the composer for a notice once the one opening
+  /// message has been sent and is still unanswered.
+  Widget _buildComposer() {
+    final currentUid = widget.currentUid;
+    if (widget.peer.isAi || currentUid == null) {
+      return _MessageComposer(
+        controller: _controller,
+        onSend: _sendMessage,
+        isBusy: _isReplying,
+      );
+    }
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('chats')
+          .doc(_chatIdFor(currentUid, widget.peer.id))
+          .snapshots(),
+      builder: (context, snapshot) {
+        final isAwaitingReply = _isAwaitingReply(
+          chat: snapshot.data?.data(),
+          currentUid: currentUid,
+          peerUid: widget.peer.id,
+        );
+        if (isAwaitingReply) {
+          return _AwaitingReplyNotice(name: widget.peer.displayName);
+        }
+        return _MessageComposer(
+          controller: _controller,
+          onSend: _sendMessage,
+          isBusy: _isReplying,
+        );
+      },
+    );
   }
 
   Widget _buildMessages() {
@@ -3173,11 +3317,17 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
       return;
     }
 
-    await _sendDirectMessage(
-      currentUid: currentUid,
-      peerUid: widget.peer.id,
-      text: text,
-    );
+    try {
+      await _sendDirectMessage(
+        currentUid: currentUid,
+        peerUid: widget.peer.id,
+        text: text,
+      );
+    } on _DirectMessageLimitException catch (error) {
+      _showError(error.message);
+    } catch (_) {
+      _showError('Could not send that message.');
+    }
   }
 
   void _showError(String message) {
@@ -3241,6 +3391,37 @@ class _MessageList extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+/// Stands in for the composer while an opening message goes unanswered.
+class _AwaitingReplyNotice extends StatelessWidget {
+  const _AwaitingReplyNotice({required this.name});
+
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
+      decoration: const BoxDecoration(
+        color: AppColors.card,
+        border: Border(top: BorderSide(color: AppColors.stroke)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.hourglass_bottom_rounded, color: AppColors.muted),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Your message was sent. You can write again once $name '
+              'replies.',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

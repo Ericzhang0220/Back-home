@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../auth/app_auth_controller.dart';
+import '../notifications/notifications_repository.dart';
 import '../widgets/app_ui.dart';
 import '../widgets/hall_post_card.dart';
 import 'create_post_screen.dart';
@@ -334,8 +335,40 @@ class _HallScreenState extends State<HallScreen> {
 
     try {
       await _postsRef.doc(postId).update(update);
+      await _notifyPostLike(post, willLike: willLike);
     } catch (_) {
       _showError('Could not update that like. Please try again.');
+    }
+  }
+
+  /// Tells the post's author who liked it, and takes the notification back if
+  /// the like is undone. Best effort: a failure here must not read as a failed
+  /// like, which already landed.
+  Future<void> _notifyPostLike(HallPost post, {required bool willLike}) async {
+    final postId = post.id;
+    final recipientUid = post.authorUid;
+    final uid = widget.authController.currentUser?.uid;
+    if (postId == null || recipientUid == null || uid == null) {
+      return;
+    }
+
+    final notifications = NotificationsRepository(uid: uid);
+    try {
+      if (willLike) {
+        await notifications.notifyLiked(
+          recipientUid: recipientUid,
+          postId: postId,
+          topic: post.topic,
+          actorName: _currentUserName(),
+        );
+      } else {
+        await notifications.clearLike(
+          recipientUid: recipientUid,
+          postId: postId,
+        );
+      }
+    } catch (_) {
+      // Ignored on purpose — see above.
     }
   }
 
