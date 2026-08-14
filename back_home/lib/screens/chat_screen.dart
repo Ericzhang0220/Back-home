@@ -2344,7 +2344,7 @@ class _ChatRow extends StatelessWidget {
     final theme = Theme.of(context);
 
     return Material(
-      color: Colors.white,
+      color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
         child: Container(

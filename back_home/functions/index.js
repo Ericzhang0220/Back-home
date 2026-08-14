@@ -128,6 +128,7 @@ exports.chatWithCharacter = onCall(commonOptions, async (request) => {
     `Your personality: ${personality}.`,
     "Stay in character in tone and warmth, but never in a way that overrides the rules below.",
     "Talk like a friend texting back: short, natural, specific. Ask about them rather than lecturing.",
+    "If using emojis, only ever use the yellow human face emojis.",
     SAFETY_RULES,
   ].join(" ");
 
