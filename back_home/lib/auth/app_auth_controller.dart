@@ -453,6 +453,7 @@ class AppAuthController extends ChangeNotifier {
   /// Longest name accepted, so a display name stays readable everywhere it is
   /// shown — chat rows, the hall, and profile headers.
   static const int maxDisplayNameLength = 40;
+  static const int maxProfileBioLength = 180;
 
   /// Sets the name other people see. Writes both the Firebase Auth profile and
   /// the `users` document the rest of the app reads from.
@@ -481,6 +482,35 @@ class AppAuthController extends ChangeNotifier {
       await user.reload();
       await firestore.collection('users').doc(user.uid).set({
         'displayName': trimmed,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      notifyListeners();
+    } catch (error) {
+      throw _mapError(error);
+    } finally {
+      _setBusy(false);
+    }
+  }
+
+  /// Sets the short introduction shown on this person's Human discovery card.
+  Future<void> updateProfileBio(String bio) async {
+    final trimmed = bio.trim();
+    if (trimmed.length > maxProfileBioLength) {
+      throw const AuthFlowException(
+        'Please keep your bio to $maxProfileBioLength characters.',
+      );
+    }
+
+    final user = _auth?.currentUser;
+    final firestore = _firestore;
+    if (user == null || firestore == null) {
+      return;
+    }
+
+    _setBusy(true);
+    try {
+      await firestore.collection('users').doc(user.uid).set({
+        'bio': trimmed,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
       notifyListeners();

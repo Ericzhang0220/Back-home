@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -71,37 +72,37 @@ class _ProfileScreenState extends State<ProfileScreen> {
             onPressed: _openSettings,
           ),
           children: [
-            Center(
-              child: ProfileAvatar(
+            if (currentUser == null)
+              _ProfileIdentityHeader(
                 displayName: profileName,
-                photoUrl: currentUser?.photoURL,
+                accountHint: accountHint,
+                photoUrl: null,
                 localPhotoPath: widget.authController.localProfilePhotoPath,
-                radius: 46,
-                showEditBadge: true,
-                onTap: widget.authController.isBusy ? null : _pickProfilePhoto,
-                heroTag: 'profile-avatar-${currentUser?.uid ?? 'me'}',
+                initialBio: '',
+                isAvatarBusy: widget.authController.isBusy,
+                onPickPhoto: null,
+              )
+            else
+              StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                stream: FirebaseFirestore.instance
+                    .collection('users')
+                    .doc(currentUser.uid)
+                    .snapshots(),
+                builder: (context, snapshot) {
+                  final rawBio = snapshot.data?.data()?['bio'];
+                  final bio = rawBio is String ? rawBio.trim() : '';
+                  return _ProfileIdentityHeader(
+                    displayName: profileName,
+                    accountHint: accountHint,
+                    photoUrl: currentUser.photoURL,
+                    localPhotoPath: widget.authController.localProfilePhotoPath,
+                    initialBio: bio,
+                    isAvatarBusy: widget.authController.isBusy,
+                    onPickPhoto: _pickProfilePhoto,
+                    onSaveBio: widget.authController.updateProfileBio,
+                  );
+                },
               ),
-            ),
-            const SizedBox(height: 12),
-            Center(
-              child: Column(
-                children: [
-                  Text(
-                    profileName,
-                    style: Theme.of(
-                      context,
-                    ).textTheme.headlineMedium?.copyWith(fontSize: 24),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    accountHint,
-                    style: Theme.of(context).textTheme.bodyMedium,
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-            ),
             const SizedBox(height: 20),
             _ProfileStatsRow(
               uid: currentUser?.uid,
@@ -197,6 +198,184 @@ class _ProfileScreenState extends State<ProfileScreen> {
         context,
       ).showSnackBar(SnackBar(content: Text(error.message)));
     }
+  }
+}
+
+class _ProfileIdentityHeader extends StatefulWidget {
+  const _ProfileIdentityHeader({
+    required this.displayName,
+    required this.accountHint,
+    required this.photoUrl,
+    required this.localPhotoPath,
+    required this.initialBio,
+    required this.isAvatarBusy,
+    required this.onPickPhoto,
+    this.onSaveBio,
+  });
+
+  final String displayName;
+  final String accountHint;
+  final String? photoUrl;
+  final String? localPhotoPath;
+  final String initialBio;
+  final bool isAvatarBusy;
+  final VoidCallback? onPickPhoto;
+  final Future<void> Function(String bio)? onSaveBio;
+
+  @override
+  State<_ProfileIdentityHeader> createState() => _ProfileIdentityHeaderState();
+}
+
+class _ProfileIdentityHeaderState extends State<_ProfileIdentityHeader> {
+  late final TextEditingController _bioController;
+  late final FocusNode _bioFocusNode;
+  late String _savedBio;
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _savedBio = widget.initialBio;
+    _bioController = TextEditingController(text: widget.initialBio);
+    _bioFocusNode = FocusNode()..addListener(_handleBioFocusChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant _ProfileIdentityHeader oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialBio != oldWidget.initialBio && !_bioFocusNode.hasFocus) {
+      _savedBio = widget.initialBio;
+      _bioController.value = TextEditingValue(
+        text: widget.initialBio,
+        selection: TextSelection.collapsed(offset: widget.initialBio.length),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _bioFocusNode
+      ..removeListener(_handleBioFocusChanged)
+      ..dispose();
+    _bioController.dispose();
+    super.dispose();
+  }
+
+  void _handleBioFocusChanged() {
+    if (!_bioFocusNode.hasFocus) {
+      unawaited(_saveBio());
+    }
+  }
+
+  Future<void> _saveBio() async {
+    final onSave = widget.onSaveBio;
+    final bio = _bioController.text.trim();
+    if (onSave == null || _isSaving || bio == _savedBio) {
+      return;
+    }
+
+    setState(() => _isSaving = true);
+    try {
+      await onSave(bio);
+      if (!mounted) {
+        return;
+      }
+      _savedBio = bio;
+      if (_bioController.text != bio) {
+        _bioController.value = TextEditingValue(
+          text: bio,
+          selection: TextSelection.collapsed(offset: bio.length),
+        );
+      }
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(content: Text('Bio saved.')));
+    } on AuthFlowException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not save your bio.')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ProfileAvatar(
+          displayName: widget.displayName,
+          photoUrl: widget.photoUrl,
+          localPhotoPath: widget.localPhotoPath,
+          radius: 46,
+          showEditBadge: widget.onPickPhoto != null,
+          onTap: widget.isAvatarBusy ? null : widget.onPickPhoto,
+          heroTag: 'profile-avatar-me',
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                widget.displayName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(
+                  context,
+                ).textTheme.headlineMedium?.copyWith(fontSize: 24),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                widget.accountHint,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _bioController,
+                focusNode: _bioFocusNode,
+                enabled: widget.onSaveBio != null,
+                readOnly: _isSaving,
+                minLines: 2,
+                maxLines: 3,
+                maxLength: AppAuthController.maxProfileBioLength,
+                decoration: InputDecoration(
+                  labelText: 'Bio',
+                  hintText: 'Tell people a little about yourself',
+                  alignLabelWithHint: true,
+                  suffixIcon: _isSaving
+                      ? const Padding(
+                          padding: EdgeInsets.all(14),
+                          child: SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      : IconButton(
+                          tooltip: 'Save bio',
+                          onPressed: widget.onSaveBio == null ? null : _saveBio,
+                          icon: const Icon(Icons.check_rounded),
+                        ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 }
 

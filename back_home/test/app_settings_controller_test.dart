@@ -1,3 +1,4 @@
+import 'package:back_home/auth/app_auth_controller.dart';
 import 'package:back_home/rooms/room_state.dart';
 import 'package:back_home/settings/app_settings_controller.dart';
 import 'package:back_home/widgets/weather_settings_controls.dart';
@@ -5,6 +6,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('profile bios enforce the card-length limit', () async {
+    final controller = AppAuthController.offline();
+
+    await expectLater(
+      controller.updateProfileBio(
+        List.filled(AppAuthController.maxProfileBioLength + 1, 'a').join(),
+      ),
+      throwsA(isA<AuthFlowException>()),
+    );
+  });
+
   test('weather Auto restores current weather and current time together', () {
     final controller = AppSettingsController();
 

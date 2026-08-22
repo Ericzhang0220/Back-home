@@ -73,11 +73,7 @@ Future<void> _sendDirectMessage({
 
   final snapshot = await chatRef.get();
   final chat = snapshot.data();
-  if (_isAwaitingReply(
-    chat: chat,
-    currentUid: currentUid,
-    peerUid: peerUid,
-  )) {
+  if (_isAwaitingReply(chat: chat, currentUid: currentUid, peerUid: peerUid)) {
     throw const _DirectMessageLimitException(
       'You can send one message until they write back.',
     );
@@ -214,9 +210,7 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     final repository = uid == null ? null : AiChatRepository(uid: uid);
-    final humanFriends = uid == null
-        ? null
-        : HumanFriendsRepository(uid: uid);
+    final humanFriends = uid == null ? null : HumanFriendsRepository(uid: uid);
     if (mounted) {
       setState(() {
         _repository = repository;
@@ -999,10 +993,6 @@ class _AiDiscoveryPageState extends State<_AiDiscoveryPage> {
   /// a card that has just been saved and left the deck.
   int _deckIndex = 0;
 
-  /// Which way the last page went, so a card slides in from the side it came
-  /// from.
-  bool _isPagingForward = true;
-
   void _page(List<AiCharacter> deck, int delta) {
     if (_isReplying) {
       return;
@@ -1020,10 +1010,7 @@ class _AiDiscoveryPageState extends State<_AiDiscoveryPage> {
       delta: delta,
       length: deck.length,
     );
-    setState(() {
-      _deckIndex = index;
-      _isPagingForward = delta > 0;
-    });
+    setState(() => _deckIndex = index);
     widget.onCharacterChanged(deck[index].id);
   }
 
@@ -1110,9 +1097,7 @@ class _AiDiscoveryPageState extends State<_AiDiscoveryPage> {
         .toList();
     final characters = [...owned, ...shared];
     final discoverable = [
-      ...owned.where(
-        (character) => !character.isCustom && !character.isFriend,
-      ),
+      ...owned.where((character) => !character.isCustom && !character.isFriend),
       ...shared,
     ];
     final current = characters.where(
@@ -1146,73 +1131,72 @@ class _AiDiscoveryPageState extends State<_AiDiscoveryPage> {
       );
     }
 
-    final isSharedTemplate = shared.any(
-      (template) => template.id == selected.id,
-    );
+    AiCharacter? neighbour(int delta) {
+      if (discoverable.isEmpty) {
+        return null;
+      }
+      final index = _neighbourIndex(
+        currentIndex: discoverable.indexWhere(
+          (character) => character.id == selected.id,
+        ),
+        rememberedIndex: _deckIndex,
+        delta: delta,
+        length: discoverable.length,
+      );
+      final character = discoverable[index];
+      return character.id == selected.id ? null : character;
+    }
+
+    final previous = neighbour(-1);
+    final next = neighbour(1);
 
     return StreamBuilder<List<AiMessage>>(
       stream: widget.repository.watchCharacterMessages(selected.id),
       builder: (context, messagesSnapshot) {
         final messages = messagesSnapshot.data ?? const <AiMessage>[];
-        return GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          // Anywhere on the card that is not the message field itself puts
-          // the keyboard away.
-          onTap: () => FocusScope.of(context).unfocus(),
-          onHorizontalDragEnd: (details) {
-            final velocity = details.primaryVelocity ?? 0;
-            if (velocity < -250) {
-              _page(discoverable, 1);
-            } else if (velocity > 250) {
-              _page(discoverable, -1);
-            }
-          },
-          child: ClipRect(
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 360),
-              switchInCurve: Curves.easeOutCubic,
-              switchOutCurve: Curves.easeInCubic,
-              transitionBuilder: (child, animation) {
-                final isIncoming =
-                    child.key == ValueKey(_currentCharacterId);
-                // Paging back reverses both halves, so the deck reads as one
-                // strip sliding under the screen either way.
-                final fromRight = _isPagingForward == isIncoming;
-                final offset = Tween<Offset>(
-                  begin: Offset(fromRight ? 1 : -1, 0),
-                  end: Offset.zero,
-                ).animate(animation);
-                return SlideTransition(position: offset, child: child);
-              },
-              child: _DiscoveryPortrait(
-                key: ValueKey(selected.id),
-                title: selected.name,
-                photoUrl: selected.avatarUrl,
-                tint: selected.tint,
-                icon: selected.icon,
-                isFriend: selected.isFriend,
-                friendsLabel: 'AI friends',
-                bubbles: [
-                  _DiscoveryBubble(text: selected.introduction),
-                  for (final message
-                      in messages.reversed.take(2).toList().reversed)
-                    _DiscoveryBubble(
-                      text: message.text,
-                      isUser: message.isUser,
-                      isPending: message.isPending,
-                    ),
-                ],
-                messageController: _messageController,
-                isBusy: _isReplying,
-                onToggleFriend: () => widget.onToggleFriend(
-                  selected,
-                  isSharedTemplate: isSharedTemplate,
+        Widget portraitFor(
+          AiCharacter character, {
+          List<AiMessage> recentMessages = const <AiMessage>[],
+        }) {
+          final isSharedTemplate = shared.any(
+            (template) => template.id == character.id,
+          );
+          return _DiscoveryPortrait(
+            key: ValueKey(character.id),
+            title: character.name,
+            photoUrl: character.avatarUrl,
+            tint: character.tint,
+            icon: character.icon,
+            isFriend: character.isFriend,
+            friendsLabel: 'AI friends',
+            bubbles: [
+              _DiscoveryBubble(text: character.introduction),
+              for (final message
+                  in recentMessages.reversed.take(2).toList().reversed)
+                _DiscoveryBubble(
+                  text: message.text,
+                  isUser: message.isUser,
+                  isPending: message.isPending,
                 ),
-                onSendMessage: () =>
-                    _sendMessage(selected, isSharedTemplate: isSharedTemplate),
-              ),
+            ],
+            messageController: _messageController,
+            isBusy: _isReplying,
+            onToggleFriend: () => widget.onToggleFriend(
+              character,
+              isSharedTemplate: isSharedTemplate,
             ),
-          ),
+            onSendMessage: () =>
+                _sendMessage(character, isSharedTemplate: isSharedTemplate),
+          );
+        }
+
+        return SwipeableDiscoveryDeck(
+          cardKey: selected.id,
+          frontCard: portraitFor(selected, recentMessages: messages),
+          previousCard: previous == null ? null : portraitFor(previous),
+          nextCard: next == null ? null : portraitFor(next),
+          enabled: !_isReplying,
+          onSwiped: (direction) => _page(discoverable, direction),
         );
       },
     );
@@ -1232,6 +1216,204 @@ class _DiscoveryBubble {
   final bool isPending;
 }
 
+/// A two-card discovery stack. The front card tracks the user's finger while
+/// the neighbouring card stays underneath, so swiping reveals the next person
+/// instead of sliding two full-screen pages past each other.
+class SwipeableDiscoveryDeck extends StatefulWidget {
+  const SwipeableDiscoveryDeck({
+    super.key,
+    required this.cardKey,
+    required this.frontCard,
+    required this.previousCard,
+    required this.nextCard,
+    required this.onSwiped,
+    required this.enabled,
+  });
+
+  final Object cardKey;
+  final Widget frontCard;
+  final Widget? previousCard;
+  final Widget? nextCard;
+  final ValueChanged<int> onSwiped;
+  final bool enabled;
+
+  @override
+  State<SwipeableDiscoveryDeck> createState() => _SwipeableDiscoveryDeckState();
+}
+
+class _SwipeableDiscoveryDeckState extends State<SwipeableDiscoveryDeck>
+    with SingleTickerProviderStateMixin {
+  static const Duration _commitDuration = Duration(milliseconds: 230);
+  static const Duration _restoreDuration = Duration(milliseconds: 190);
+  static const double _velocityThreshold = 650;
+  static const double _distanceThreshold = 0.22;
+
+  late final AnimationController _animationController;
+  Animation<Offset>? _offsetAnimation;
+  Offset _dragOffset = Offset.zero;
+  double _deckWidth = 1;
+  int _revealedDirection = 1;
+  int? _committedDirection;
+
+  bool get _isAnimating => _animationController.isAnimating;
+
+  @override
+  void initState() {
+    super.initState();
+    _animationController = AnimationController(vsync: this)
+      ..addListener(() {
+        final animation = _offsetAnimation;
+        if (animation != null && mounted) {
+          setState(() => _dragOffset = animation.value);
+        }
+      })
+      ..addStatusListener((status) {
+        if (status != AnimationStatus.completed || !mounted) {
+          return;
+        }
+        final direction = _committedDirection;
+        setState(() {
+          _dragOffset = Offset.zero;
+          _offsetAnimation = null;
+          _committedDirection = null;
+        });
+        if (direction != null) {
+          widget.onSwiped(direction);
+        }
+      });
+  }
+
+  @override
+  void didUpdateWidget(covariant SwipeableDiscoveryDeck oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.cardKey != oldWidget.cardKey && !_isAnimating) {
+      _dragOffset = Offset.zero;
+      _revealedDirection = 1;
+    }
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
+  }
+
+  void _handleDragStart(DragStartDetails details) {
+    if (!widget.enabled || _isAnimating) {
+      return;
+    }
+    FocusScope.of(context).unfocus();
+    _offsetAnimation = null;
+    _committedDirection = null;
+  }
+
+  void _handleDragUpdate(DragUpdateDetails details) {
+    if (!widget.enabled || _isAnimating) {
+      return;
+    }
+    final nextDx = _dragOffset.dx + details.delta.dx;
+    setState(() {
+      _dragOffset = Offset(nextDx, 0);
+      if (nextDx != 0) {
+        _revealedDirection = nextDx < 0 ? 1 : -1;
+      }
+    });
+  }
+
+  void _handleDragEnd(DragEndDetails details) {
+    if (!widget.enabled || _isAnimating) {
+      return;
+    }
+    final velocity = details.primaryVelocity ?? 0;
+    final predictedDx = _dragOffset.dx + velocity * 0.12;
+    final direction = predictedDx < 0 ? 1 : -1;
+    final hasCard = direction > 0
+        ? widget.nextCard != null
+        : widget.previousCard != null;
+    final shouldCommit =
+        hasCard &&
+        (_dragOffset.dx.abs() >= _deckWidth * _distanceThreshold ||
+            velocity.abs() >= _velocityThreshold);
+
+    if (!shouldCommit) {
+      _animateOffset(Offset.zero, duration: _restoreDuration);
+      return;
+    }
+
+    _revealedDirection = direction;
+    _committedDirection = direction;
+    final sign = direction > 0 ? -1.0 : 1.0;
+    _animateOffset(
+      Offset(sign * (_deckWidth + 120), 0),
+      duration: _commitDuration,
+    );
+  }
+
+  void _animateOffset(Offset target, {required Duration duration}) {
+    _animationController
+      ..duration = duration
+      ..reset();
+    _offsetAnimation = Tween<Offset>(begin: _dragOffset, end: target).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeOutCubic),
+    );
+    _animationController.forward();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        _deckWidth = math.max(1, constraints.maxWidth).toDouble();
+        final progress = (_dragOffset.dx.abs() / (_deckWidth * 0.6))
+            .clamp(0.0, 1.0)
+            .toDouble();
+        final cardUnder = _revealedDirection > 0
+            ? widget.nextCard
+            : widget.previousCard;
+        final angle = (_dragOffset.dx / _deckWidth).clamp(-1.0, 1.0) * 0.09;
+
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => FocusScope.of(context).unfocus(),
+          onHorizontalDragStart: _handleDragStart,
+          onHorizontalDragUpdate: _handleDragUpdate,
+          onHorizontalDragEnd: _handleDragEnd,
+          onHorizontalDragCancel: () {
+            if (!_isAnimating) {
+              _animateOffset(Offset.zero, duration: _restoreDuration);
+            }
+          },
+          child: ClipRect(
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (cardUnder != null)
+                  IgnorePointer(
+                    child: Transform.scale(
+                      scale: 0.96 + progress * 0.04,
+                      child: Opacity(
+                        opacity: 0.82 + progress * 0.18,
+                        child: cardUnder,
+                      ),
+                    ),
+                  ),
+                Transform.translate(
+                  offset: _dragOffset,
+                  child: Transform.rotate(
+                    angle: angle,
+                    alignment: Alignment.topCenter,
+                    child: widget.frontCard,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
 /// The full-bleed "meet someone" card. Shared by the AI and Human decks, which
 /// differ only in where their portrait, bubbles and friend state come from.
 class _DiscoveryPortrait extends StatelessWidget {
@@ -1249,10 +1431,12 @@ class _DiscoveryPortrait extends StatelessWidget {
     required this.onToggleFriend,
     required this.onSendMessage,
     this.subtitle,
+    this.bio,
   });
 
   final String title;
   final String? subtitle;
+  final String? bio;
   final String? photoUrl;
   final Color tint;
   final IconData icon;
@@ -1351,6 +1535,22 @@ class _DiscoveryPortrait extends StatelessWidget {
                         ],
                       ),
                     ),
+                  if (bio != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      bio!,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.94),
+                        fontWeight: FontWeight.w600,
+                        height: 1.35,
+                        shadows: const [
+                          Shadow(color: Colors.black54, blurRadius: 8),
+                        ],
+                      ),
+                    ),
+                  ],
                   for (final bubble in bubbles) ...[
                     const SizedBox(height: 8),
                     _DiscoveryChatBubble(
@@ -1620,10 +1820,6 @@ class _HumanDiscoveryPageState extends State<_HumanDiscoveryPage> {
   /// a card that has just been saved and left the deck.
   int _deckIndex = 0;
 
-  /// Which way the last page went, so a card slides in from the side it came
-  /// from.
-  bool _isPagingForward = true;
-
   void _page(List<_HumanContact> deck, int delta) {
     if (_isSending) {
       return;
@@ -1641,10 +1837,7 @@ class _HumanDiscoveryPageState extends State<_HumanDiscoveryPage> {
       delta: delta,
       length: deck.length,
     );
-    setState(() {
-      _deckIndex = index;
-      _isPagingForward = delta > 0;
-    });
+    setState(() => _deckIndex = index);
     widget.onContactChanged(deck[index].uid);
   }
 
@@ -1760,7 +1953,24 @@ class _HumanDiscoveryPageState extends State<_HumanDiscoveryPage> {
               );
             }
 
-            final isFriend = friendUids.contains(selected.uid);
+            _HumanContact? neighbour(int delta) {
+              if (discoverable.isEmpty) {
+                return null;
+              }
+              final index = _neighbourIndex(
+                currentIndex: discoverable.indexWhere(
+                  (contact) => contact.uid == selected.uid,
+                ),
+                rememberedIndex: _deckIndex,
+                delta: delta,
+                length: discoverable.length,
+              );
+              final contact = discoverable[index];
+              return contact.uid == selected.uid ? null : contact;
+            }
+
+            final previous = neighbour(-1);
+            final next = neighbour(1);
             return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: FirebaseFirestore.instance
                   .collection('chats')
@@ -1775,60 +1985,49 @@ class _HumanDiscoveryPageState extends State<_HumanDiscoveryPage> {
                 final docs = messagesSnapshot.hasError
                     ? const <QueryDocumentSnapshot<Map<String, dynamic>>>[]
                     : (messagesSnapshot.data?.docs ??
-                          const <QueryDocumentSnapshot<Map<String, dynamic>>>[]);
+                          const <
+                            QueryDocumentSnapshot<Map<String, dynamic>>
+                          >[]);
 
-                return GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () => FocusScope.of(context).unfocus(),
-                  onHorizontalDragEnd: (details) {
-                    final velocity = details.primaryVelocity ?? 0;
-                    if (velocity < -250) {
-                      _page(discoverable, 1);
-                    } else if (velocity > 250) {
-                      _page(discoverable, -1);
-                    }
-                  },
-                  child: ClipRect(
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 360),
-                      switchInCurve: Curves.easeOutCubic,
-                      switchOutCurve: Curves.easeInCubic,
-                      transitionBuilder: (child, animation) {
-                        final isIncoming =
-                            child.key == ValueKey(_currentContactUid);
-                        final fromRight = _isPagingForward == isIncoming;
-                        final offset = Tween<Offset>(
-                          begin: Offset(fromRight ? 1 : -1, 0),
-                          end: Offset.zero,
-                        ).animate(animation);
-                        return SlideTransition(position: offset, child: child);
-                      },
-                      child: _DiscoveryPortrait(
-                        key: ValueKey(selected.uid),
-                        title: selected.name,
-                        subtitle: selected.handle,
-                        photoUrl: selected.photoUrl,
-                        tint: selected.tint,
-                        icon: Icons.person_rounded,
-                        isFriend: isFriend,
-                        friendsLabel: 'your people',
-                        bubbles: [
-                          for (final doc in docs.reversed)
-                            _DiscoveryBubble(
-                              text: (doc.data()['text'] as String?)?.trim() ??
-                                  '',
-                              isUser:
-                                  doc.data()['senderUid'] == widget.currentUid,
-                            ),
-                        ],
-                        messageController: _messageController,
-                        isBusy: _isSending,
-                        onToggleFriend: () =>
-                            _toggleFriend(selected, isFriend: isFriend),
-                        onSendMessage: () => _sendMessage(selected),
-                      ),
-                    ),
-                  ),
+                Widget portraitFor(
+                  _HumanContact contact, {
+                  List<QueryDocumentSnapshot<Map<String, dynamic>>>
+                      recentMessages =
+                      const <QueryDocumentSnapshot<Map<String, dynamic>>>[],
+                }) {
+                  final contactIsFriend = friendUids.contains(contact.uid);
+                  return _DiscoveryPortrait(
+                    key: ValueKey(contact.uid),
+                    title: contact.name,
+                    subtitle: contact.handle,
+                    bio: contact.bio,
+                    photoUrl: contact.photoUrl,
+                    tint: contact.tint,
+                    icon: Icons.person_rounded,
+                    isFriend: contactIsFriend,
+                    friendsLabel: 'your people',
+                    bubbles: [
+                      for (final doc in recentMessages.reversed)
+                        _DiscoveryBubble(
+                          text: (doc.data()['text'] as String?)?.trim() ?? '',
+                          isUser: doc.data()['senderUid'] == widget.currentUid,
+                        ),
+                    ],
+                    messageController: _messageController,
+                    isBusy: _isSending,
+                    onToggleFriend: () =>
+                        _toggleFriend(contact, isFriend: contactIsFriend),
+                    onSendMessage: () => _sendMessage(contact),
+                  );
+                }
+
+                return SwipeableDiscoveryDeck(
+                  cardKey: selected.uid,
+                  frontCard: portraitFor(selected, recentMessages: docs),
+                  previousCard: previous == null ? null : portraitFor(previous),
+                  nextCard: next == null ? null : portraitFor(next),
+                  enabled: !_isSending,
+                  onSwiped: (direction) => _page(discoverable, direction),
                 );
               },
             );
@@ -3788,6 +3987,7 @@ class _HumanContact {
     required this.name,
     required this.handle,
     required this.preview,
+    required this.bio,
     required this.tint,
     this.photoUrl,
     this.lastActivity,
@@ -3799,6 +3999,7 @@ class _HumanContact {
   final String name;
   final String handle;
   final String preview;
+  final String? bio;
   final Color tint;
   final String? photoUrl;
   final DateTime? lastActivity;
@@ -3815,6 +4016,7 @@ class _HumanContact {
       name: name,
       handle: handle,
       preview: preview ?? this.preview,
+      bio: bio,
       tint: tint,
       photoUrl: photoUrl,
       lastActivity: lastActivity ?? this.lastActivity,
@@ -3830,6 +4032,7 @@ class _HumanContact {
     final email = _readString(data['email']);
     final phone = _readString(data['phoneNumber']);
     final photoUrl = _readString(data['photoUrl']);
+    final bio = _readString(data['bio']);
     final name = displayName ?? email ?? phone ?? 'Back Home user';
     final handle = email ?? phone ?? '@${doc.id.substring(0, 6)}';
 
@@ -3839,6 +4042,7 @@ class _HumanContact {
       name: name,
       handle: handle,
       preview: 'Tap to start a conversation',
+      bio: bio,
       tint: _tintForUid(doc.id),
       photoUrl: photoUrl,
     );

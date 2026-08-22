@@ -5,6 +5,7 @@ import 'package:back_home/app.dart';
 import 'package:back_home/rooms/furniture_preview.dart';
 import 'package:back_home/rooms/isometric_room_view.dart';
 import 'package:back_home/rooms/room_state.dart';
+import 'package:back_home/screens/chat_screen.dart';
 import 'package:back_home/screens/shop_screen.dart';
 import 'package:back_home/theme/app_theme.dart';
 import 'package:back_home/widgets/app_ui.dart';
@@ -14,6 +15,56 @@ void main() {
   // channels never answer under the test binding.
   setUp(() => FurniturePreviewStage.rendererEnabled = false);
   tearDown(() => FurniturePreviewStage.rendererEnabled = true);
+
+  testWidgets('discovery card follows the swipe and reveals the card below', (
+    WidgetTester tester,
+  ) async {
+    int? swipeDirection;
+    await tester.binding.setSurfaceSize(const Size(400, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SwipeableDiscoveryDeck(
+            cardKey: 'front',
+            frontCard: const ColoredBox(
+              key: ValueKey('front-card'),
+              color: Colors.red,
+            ),
+            previousCard: const ColoredBox(
+              key: ValueKey('previous-card'),
+              color: Colors.green,
+            ),
+            nextCard: const ColoredBox(
+              key: ValueKey('next-card'),
+              color: Colors.blue,
+            ),
+            enabled: true,
+            onSwiped: (direction) => swipeDirection = direction,
+          ),
+        ),
+      ),
+    );
+
+    final front = find.byKey(const ValueKey('front-card'));
+    final next = find.byKey(const ValueKey('next-card'));
+    final initialFrontX = tester.getTopLeft(front).dx;
+    final nextX = tester.getTopLeft(next).dx;
+
+    final gesture = await tester.startGesture(tester.getCenter(front));
+    await gesture.moveBy(const Offset(-30, 0));
+    await gesture.moveBy(const Offset(-120, 0));
+    await tester.pump();
+
+    expect(tester.getTopLeft(front).dx, lessThan(initialFrontX));
+    expect(tester.getTopLeft(next).dx, lessThan(nextX));
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(swipeDirection, 1);
+  });
 
   testWidgets('renders the Back Home shell and switches tabs', (
     WidgetTester tester,
