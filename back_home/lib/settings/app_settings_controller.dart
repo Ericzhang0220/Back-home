@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../rooms/room_state.dart';
+
 enum ReadingComfort {
   small(label: 'Small', textScale: 0.85),
   medium(label: 'Medium', textScale: 1.0),
@@ -31,6 +33,9 @@ class AppSettingsController extends ChangeNotifier {
   static const String _showFriendsStatKey = 'show_friends_stat';
   static const String _showActiveStatKey = 'show_active_stat';
   static const String _cameraRotateSensitivityKey = 'camera_rotate_sensitivity';
+  static const String _weatherAutoKey = 'weather_auto';
+  static const String _skyWeatherKey = 'sky_weather';
+  static const String _skyTimeOfDayKey = 'sky_time_of_day';
   static const double _defaultMusicVolume = 0.35;
   static const double _defaultCameraRotateSensitivity = 1.0;
 
@@ -47,10 +52,14 @@ class AppSettingsController extends ChangeNotifier {
   bool _showFriendsStat = true;
   bool _showActiveStat = true;
   double _cameraRotateSensitivity = _defaultCameraRotateSensitivity;
+  bool _weatherAuto = true;
+  SkyWeather _skyWeather = SkyWeather.clear;
+  double _skyTimeOfDay = 0.5;
   bool _readingComfortDirty = false;
   bool _musicVolumeDirty = false;
   bool _profileVisibilityDirty = false;
   bool _cameraRotateSensitivityDirty = false;
+  bool _weatherSettingsDirty = false;
 
   ReadingComfort get readingComfort => _readingComfort;
   double get musicVolume => _musicVolume;
@@ -60,6 +69,9 @@ class AppSettingsController extends ChangeNotifier {
   bool get showFriendsStat => _showFriendsStat;
   bool get showActiveStat => _showActiveStat;
   double get cameraRotateSensitivity => _cameraRotateSensitivity;
+  bool get weatherAuto => _weatherAuto;
+  SkyWeather get skyWeather => _skyWeather;
+  double? get skyTimeOfDay => _weatherAuto ? null : _skyTimeOfDay;
 
   Future<void> load() async {
     try {
@@ -136,6 +148,32 @@ class AppSettingsController extends ChangeNotifier {
             _cameraRotateSensitivity = normalized;
             changed = true;
           }
+        }
+      }
+
+      if (!_weatherSettingsDirty) {
+        final savedWeatherAuto = preferences.getBool(_weatherAutoKey);
+        final savedSkyWeather = preferences.getString(_skyWeatherKey);
+        final savedSkyTimeOfDay = preferences.getDouble(_skyTimeOfDayKey);
+        final resolvedWeather = SkyWeather.values.firstWhere(
+          (weather) => weather.name == savedSkyWeather,
+          orElse: () => _skyWeather,
+        );
+        final resolvedTime = savedSkyTimeOfDay == null
+            ? _skyTimeOfDay
+            : _normalizeSkyTimeOfDay(savedSkyTimeOfDay);
+
+        if (savedWeatherAuto != null && savedWeatherAuto != _weatherAuto) {
+          _weatherAuto = savedWeatherAuto;
+          changed = true;
+        }
+        if (resolvedWeather != _skyWeather) {
+          _skyWeather = resolvedWeather;
+          changed = true;
+        }
+        if (resolvedTime != _skyTimeOfDay) {
+          _skyTimeOfDay = resolvedTime;
+          changed = true;
         }
       }
 
@@ -231,6 +269,45 @@ class AppSettingsController extends ChangeNotifier {
     unawaited(_preferences?.setDouble(_cameraRotateSensitivityKey, normalized));
   }
 
+  /// Restores the room sky to the current local weather and device time.
+  void setWeatherAuto() {
+    if (_weatherAuto) {
+      return;
+    }
+
+    _weatherAuto = true;
+    _weatherSettingsDirty = true;
+    notifyListeners();
+    unawaited(_preferences?.setBool(_weatherAutoKey, true));
+  }
+
+  void setSkyWeather(SkyWeather value) {
+    if (!_weatherAuto && _skyWeather == value) {
+      return;
+    }
+
+    _weatherAuto = false;
+    _skyWeather = value;
+    _weatherSettingsDirty = true;
+    notifyListeners();
+    unawaited(_preferences?.setBool(_weatherAutoKey, false));
+    unawaited(_preferences?.setString(_skyWeatherKey, value.name));
+  }
+
+  void setSkyTimeOfDay(double value) {
+    final normalized = _normalizeSkyTimeOfDay(value);
+    if (!_weatherAuto && _skyTimeOfDay == normalized) {
+      return;
+    }
+
+    _weatherAuto = false;
+    _skyTimeOfDay = normalized;
+    _weatherSettingsDirty = true;
+    notifyListeners();
+    unawaited(_preferences?.setBool(_weatherAutoKey, false));
+    unawaited(_preferences?.setDouble(_skyTimeOfDayKey, normalized));
+  }
+
   double _normalizeVolume(double value) {
     return value.clamp(0.0, 1.0).toDouble();
   }
@@ -239,6 +316,10 @@ class AppSettingsController extends ChangeNotifier {
     return value
         .clamp(minCameraRotateSensitivity, maxCameraRotateSensitivity)
         .toDouble();
+  }
+
+  double _normalizeSkyTimeOfDay(double value) {
+    return value.clamp(0.0, 0.999999).toDouble();
   }
 
   bool _loadVisibilityPreference(

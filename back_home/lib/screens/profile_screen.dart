@@ -15,6 +15,7 @@ import '../settings/app_settings_controller.dart';
 import '../widgets/app_ui.dart';
 import '../widgets/profile_avatar.dart';
 import '../widgets/settings_gear_icon.dart';
+import '../widgets/weather_settings_controls.dart';
 import 'mood_calendar_screen.dart';
 import 'notifications_screen.dart';
 
@@ -337,6 +338,23 @@ class _ProfileSettingsScreen extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 28),
+                    const SectionHeader(
+                      title: 'Weather',
+                      subtitle:
+                          'Weather and time of day shown through the room window.',
+                    ),
+                    const SizedBox(height: 12),
+                    SoftCard(
+                      child: WeatherSettingsControls(
+                        skyWeather: settingsController.skyWeather,
+                        weatherAuto: settingsController.weatherAuto,
+                        skyTimeOfDay: settingsController.skyTimeOfDay,
+                        onSkyWeather: settingsController.setSkyWeather,
+                        onWeatherAuto: settingsController.setWeatherAuto,
+                        onSkyTimeOfDay: settingsController.setSkyTimeOfDay,
+                      ),
+                    ),
+                    const SizedBox(height: 28),
                     const SectionHeader(title: 'Reading comfort'),
                     const SizedBox(height: 12),
                     SoftCard(
@@ -420,7 +438,8 @@ class _ProfileSettingsScreen extends StatelessWidget {
                     const SizedBox(height: 28),
                     const SectionHeader(
                       title: 'Camera',
-                      subtitle: 'How fast the room turns when you drag to look around.',
+                      subtitle:
+                          'How fast the room turns when you drag to look around.',
                     ),
                     const SizedBox(height: 12),
                     SoftCard(
@@ -452,7 +471,8 @@ class _ProfileSettingsScreen extends StatelessWidget {
                             max: AppSettingsController
                                 .maxCameraRotateSensitivity,
                             divisions: 14,
-                            label: '${cameraRotateSensitivity.toStringAsFixed(1)}x',
+                            label:
+                                '${cameraRotateSensitivity.toStringAsFixed(1)}x',
                             onChanged:
                                 settingsController.setCameraRotateSensitivity,
                           ),

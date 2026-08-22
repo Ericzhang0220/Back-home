@@ -13,6 +13,7 @@ import '../rooms/room_visuals.dart';
 import '../services/weather_service.dart';
 import '../settings/app_settings_controller.dart';
 import '../widgets/app_ui.dart';
+import '../widgets/weather_settings_controls.dart';
 
 class RoomScreen extends StatefulWidget {
   const RoomScreen({
@@ -69,10 +70,7 @@ class _RoomScreenState extends State<RoomScreen> {
   bool _nightMode = false;
   bool _nightHintVisible = false;
   bool _nightGlowDimmed = false;
-  SkyWeather _skyWeather = SkyWeather.clear; // manual override selection
-  bool _weatherAuto = true; // follow real-world weather when true
   SkyWeather? _autoWeather; // latest reading from WeatherService
-  double? _skyTimeOfDay; // null = live (real clock)
   double _cameraZoom = 1.0;
   bool _showFurnitureColliders = false;
 
@@ -81,8 +79,9 @@ class _RoomScreenState extends State<RoomScreen> {
   /// Weather actually shown through the window: the live reading when Auto is
   /// on (falling back to the manual value until the first fetch lands),
   /// otherwise the manually chosen weather.
-  SkyWeather get _effectiveWeather =>
-      _weatherAuto ? (_autoWeather ?? _skyWeather) : _skyWeather;
+  SkyWeather get _effectiveWeather => widget.settingsController.weatherAuto
+      ? (_autoWeather ?? widget.settingsController.skyWeather)
+      : widget.settingsController.skyWeather;
 
   @override
   void initState() {
@@ -304,7 +303,7 @@ class _RoomScreenState extends State<RoomScreen> {
                       onTapRadio: _openRadioSheet,
                       onDoubleTapRoom: _handleDoubleTap,
                       skyWeather: _effectiveWeather,
-                      skyTimeOfDay: _skyTimeOfDay,
+                      skyTimeOfDay: widget.settingsController.skyTimeOfDay,
                       cameraZoom: _cameraZoom,
                       cameraRotateSensitivity:
                           widget.settingsController.cameraRotateSensitivity,
@@ -431,7 +430,6 @@ class _RoomScreenState extends State<RoomScreen> {
                           selectedItem: selectedItem,
                           selectedDefinition: selectedDefinition,
                           onClose: _closePanel,
-                          onOpenShop: widget.onOpenShop,
                           onAddOwnedItem: (definitionId) => _showResult(
                             widget.controller.addOwnedItem(definitionId),
                           ),
@@ -449,22 +447,19 @@ class _RoomScreenState extends State<RoomScreen> {
                                     selectedItem.instanceId,
                                   ),
                                 ),
-                          skyWeather: _skyWeather,
-                          weatherAuto: _weatherAuto,
-                          skyTimeOfDay: _skyTimeOfDay,
+                          skyWeather: widget.settingsController.skyWeather,
+                          weatherAuto: widget.settingsController.weatherAuto,
+                          skyTimeOfDay: widget.settingsController.skyTimeOfDay,
                           cameraZoom: _cameraZoom,
                           cameraRotateSensitivity:
                               widget.settingsController.cameraRotateSensitivity,
-                          onSkyWeather: (w) => setState(() {
-                            _weatherAuto = false;
-                            _skyWeather = w;
-                          }),
+                          onSkyWeather: widget.settingsController.setSkyWeather,
                           onWeatherAuto: () {
-                            setState(() => _weatherAuto = true);
+                            widget.settingsController.setWeatherAuto();
                             _refreshWeather();
                           },
-                          onSkyTimeOfDay: (t) =>
-                              setState(() => _skyTimeOfDay = t),
+                          onSkyTimeOfDay:
+                              widget.settingsController.setSkyTimeOfDay,
                           onCameraZoom: (value) =>
                               setState(() => _cameraZoom = value),
                           onCameraRotateSensitivity: widget
@@ -592,7 +587,6 @@ class _SettingsPanel extends StatelessWidget {
     required this.selectedItem,
     required this.selectedDefinition,
     required this.onClose,
-    required this.onOpenShop,
     required this.onAddOwnedItem,
     required this.onRotateSelected,
     required this.onStoreSelected,
@@ -613,7 +607,6 @@ class _SettingsPanel extends StatelessWidget {
   final PlacedRoomItem? selectedItem;
   final RoomItemDefinition? selectedDefinition;
   final VoidCallback onClose;
-  final VoidCallback onOpenShop;
   final ValueChanged<String> onAddOwnedItem;
   final VoidCallback? onRotateSelected;
   final VoidCallback? onStoreSelected;
@@ -624,24 +617,9 @@ class _SettingsPanel extends StatelessWidget {
   final double cameraRotateSensitivity;
   final ValueChanged<SkyWeather> onSkyWeather;
   final VoidCallback onWeatherAuto;
-  final ValueChanged<double?> onSkyTimeOfDay;
+  final ValueChanged<double> onSkyTimeOfDay;
   final ValueChanged<double> onCameraZoom;
   final ValueChanged<double> onCameraRotateSensitivity;
-
-  static const List<({String label, double? value})> _skyTimes = [
-    (label: 'Live', value: null),
-    (label: 'Dawn', value: 0.26),
-    (label: 'Day', value: 0.5),
-    (label: 'Dusk', value: 0.73),
-    (label: 'Night', value: 0.95),
-  ];
-
-  String _weatherLabel(SkyWeather w) => switch (w) {
-    SkyWeather.clear => 'Clear',
-    SkyWeather.cloudy => 'Cloudy',
-    SkyWeather.overcast => 'Overcast',
-    SkyWeather.rain => 'Rain',
-  };
 
   @override
   Widget build(BuildContext context) {
@@ -682,62 +660,18 @@ class _SettingsPanel extends StatelessWidget {
                 Row(
                   children: [
                     const Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Room settings',
-                            style: TextStyle(
-                              fontSize: 21,
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.ink,
-                            ),
-                          ),
-                          SizedBox(height: 4),
-                          Text(
-                            'Inventory, placement controls, and quick actions.',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: AppColors.muted,
-                            ),
-                          ),
-                        ],
+                      child: Text(
+                        'Weather',
+                        style: TextStyle(
+                          fontSize: 21,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.ink,
+                        ),
                       ),
                     ),
                     IconButton.filledTonal(
-                      onPressed: onOpenShop,
-                      icon: const Icon(Icons.shopping_bag_rounded),
-                    ),
-                    const SizedBox(width: 8),
-                    IconButton.filledTonal(
                       onPressed: onClose,
                       icon: const Icon(Icons.keyboard_arrow_down_rounded),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    InfoPill(
-                      icon: Icons.favorite_rounded,
-                      label: 'Likes',
-                      value: '${controller.likesBalance}',
-                      tint: const Color(0xFFF6E2CF),
-                    ),
-                    InfoPill(
-                      icon: Icons.aspect_ratio_rounded,
-                      label: 'Room size',
-                      value:
-                          '${RoomEditorController.roomWidth} x ${RoomEditorController.roomDepth}',
-                      tint: const Color(0xFFF1E9DC),
-                    ),
-                    InfoPill(
-                      icon: Icons.chair_alt_rounded,
-                      label: 'Placed',
-                      value: '${controller.placedItems.length}',
-                      tint: const Color(0xFFE7E1D6),
                     ),
                   ],
                 ),
@@ -756,36 +690,13 @@ class _SettingsPanel extends StatelessWidget {
                   style: TextStyle(fontSize: 13, color: AppColors.muted),
                 ),
                 const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 4,
-                  children: [
-                    ChoiceChip(
-                      avatar: const Icon(Icons.my_location_rounded, size: 18),
-                      label: const Text('Auto'),
-                      selected: weatherAuto,
-                      onSelected: (_) => onWeatherAuto(),
-                    ),
-                    for (final w in SkyWeather.values)
-                      ChoiceChip(
-                        label: Text(_weatherLabel(w)),
-                        selected: !weatherAuto && skyWeather == w,
-                        onSelected: (_) => onSkyWeather(w),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 4,
-                  children: [
-                    for (final t in _skyTimes)
-                      ChoiceChip(
-                        label: Text(t.label),
-                        selected: skyTimeOfDay == t.value,
-                        onSelected: (_) => onSkyTimeOfDay(t.value),
-                      ),
-                  ],
+                WeatherSettingsControls(
+                  skyWeather: skyWeather,
+                  weatherAuto: weatherAuto,
+                  skyTimeOfDay: skyTimeOfDay,
+                  onSkyWeather: onSkyWeather,
+                  onWeatherAuto: onWeatherAuto,
+                  onSkyTimeOfDay: onSkyTimeOfDay,
                 ),
                 const SizedBox(height: 18),
                 const Text(
