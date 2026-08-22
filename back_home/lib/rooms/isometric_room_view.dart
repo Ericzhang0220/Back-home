@@ -334,11 +334,8 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   void _restoreCameraViewState(_CameraViewState state) {
     _cameraPanOffset.setFrom(state.panOffset);
     _cameraYaw = state.yaw;
-    _currentCameraYaw = state.yaw;
     _cameraPitch = state.pitch;
-    _currentCameraPitch = state.pitch;
     _zoom = state.zoom;
-    _currentZoom = state.zoom;
   }
 
   void _resetFocusedCameraState() {
@@ -608,41 +605,31 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _applyCameraFov();
 
     final mainFreeLook = !widget.deskFocused && !widget.nightMode;
+    final deskLook = widget.deskFocused && !widget.nightMode;
     // The night camera moves the eye but never changes the user's heading.
-    final preserveLookDirection = mainFreeLook || widget.nightMode;
+    // Main and desk views interpolate orientation as angles instead of blending
+    // world-space look-at points. The latter can pass through the moving eye
+    // during a transition and briefly invert the camera.
     var rotationSettled = true;
-    if (mainFreeLook) {
+    if (mainFreeLook || deskLook) {
+      final targetYaw = deskLook ? _deskBaseYaw + _deskYaw : _cameraYaw;
+      final targetPitch = deskLook ? _deskBasePitch + _deskPitch : _cameraPitch;
       final rotationT = (1 - math.exp(-dt * _rotationLerpSpeed))
           .clamp(0.0, 1.0)
           .toDouble();
-      final yawDelta = _shortestAngleDelta(_currentCameraYaw, _cameraYaw);
-      final pitchDelta = _cameraPitch - _currentCameraPitch;
+      final yawDelta = _shortestAngleDelta(_currentCameraYaw, targetYaw);
+      final pitchDelta = targetPitch - _currentCameraPitch;
       rotationSettled = yawDelta.abs() < 0.0001 && pitchDelta.abs() < 0.0001;
       _currentCameraYaw = rotationSettled
-          ? _cameraYaw
+          ? _normalizeRadians(targetYaw)
           : _normalizeRadians(_currentCameraYaw + yawDelta * rotationT);
       _currentCameraPitch = rotationSettled
-          ? _cameraPitch
-          : _lerpDouble(_currentCameraPitch, _cameraPitch, rotationT);
-    }
-
-    // Seated at the desk, the eye is fixed but the gaze pans with the drag —
-    // re-aim the look target each frame so it eases toward the current angle.
-    final deskLook = widget.deskFocused && !widget.nightMode;
-    if (deskLook) {
-      final yaw = _deskBaseYaw + _deskYaw;
-      final pitch = _deskBasePitch + _deskPitch;
-      _cameraTargetLook.setValues(
-        _camera.position.x + math.sin(yaw),
-        _camera.position.y + pitch,
-        _camera.position.z - math.cos(yaw),
-      );
+          ? targetPitch
+          : _lerpDouble(_currentCameraPitch, targetPitch, rotationT);
     }
 
     // Nothing to do once the camera has settled on its target.
     if (_camera.position.distanceToSquared(_cameraTargetPos) < 1e-8 &&
-        (preserveLookDirection ||
-            _cameraCurrentLook.distanceToSquared(_cameraTargetLook) < 1e-8) &&
         rotationSettled &&
         zoomSettled) {
       return;
@@ -653,15 +640,11 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     final t = (1 - math.exp(-dt * cameraLerpSpeed)).clamp(0.0, 1.0).toDouble();
     _camera.position.lerp(_cameraTargetPos, t);
     _updateCameraColliderMesh();
-    if (preserveLookDirection) {
-      _cameraCurrentLook.setValues(
-        _camera.position.x + math.sin(_currentCameraYaw),
-        _camera.position.y + _currentCameraPitch,
-        _camera.position.z - math.cos(_currentCameraYaw),
-      );
-    } else {
-      _cameraCurrentLook.lerp(_cameraTargetLook, t);
-    }
+    _cameraCurrentLook.setValues(
+      _camera.position.x + math.sin(_currentCameraYaw),
+      _camera.position.y + _currentCameraPitch,
+      _camera.position.z - math.cos(_currentCameraYaw),
+    );
     _camera.lookAt(_cameraCurrentLook);
     _updateDebugCenterRay();
     _publishSelectedScreenPosition();

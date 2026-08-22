@@ -9,7 +9,6 @@ import '../audio/background_music_controller.dart';
 import '../rooms/isometric_room_view.dart';
 import '../rooms/room_gl_gate.dart';
 import '../rooms/room_state.dart';
-import '../rooms/room_visuals.dart';
 import '../services/weather_service.dart';
 import '../settings/app_settings_controller.dart';
 import '../widgets/app_ui.dart';
@@ -222,12 +221,6 @@ class _RoomScreenState extends State<RoomScreen> {
     });
   }
 
-  void _showResult(RoomActionResult result) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(result.message)));
-  }
-
   void _openRadioSheet() {
     final music = widget.musicController;
     showModalBottomSheet<void>(
@@ -264,15 +257,6 @@ class _RoomScreenState extends State<RoomScreen> {
         widget.settingsController,
       ]),
       builder: (context, _) {
-        final selectedItem = widget.controller.selectedItemId == null
-            ? null
-            : widget.controller.placedItemById(
-                widget.controller.selectedItemId!,
-              );
-        final selectedDefinition = selectedItem == null
-            ? null
-            : widget.controller.definitionFor(selectedItem.definitionId);
-
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
           onDoubleTap: _handleDoubleTap,
@@ -426,27 +410,6 @@ class _RoomScreenState extends State<RoomScreen> {
                         padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
                         child: _SettingsPanel(
                           height: panelHeight,
-                          controller: widget.controller,
-                          selectedItem: selectedItem,
-                          selectedDefinition: selectedDefinition,
-                          onClose: _closePanel,
-                          onAddOwnedItem: (definitionId) => _showResult(
-                            widget.controller.addOwnedItem(definitionId),
-                          ),
-                          onRotateSelected: selectedItem == null
-                              ? null
-                              : () => _showResult(
-                                  widget.controller.rotatePlacedItem(
-                                    selectedItem.instanceId,
-                                  ),
-                                ),
-                          onStoreSelected: selectedItem == null
-                              ? null
-                              : () => _showResult(
-                                  widget.controller.storePlacedItem(
-                                    selectedItem.instanceId,
-                                  ),
-                                ),
                           skyWeather: widget.settingsController.skyWeather,
                           weatherAuto: widget.settingsController.weatherAuto,
                           skyTimeOfDay: widget.settingsController.skyTimeOfDay,
@@ -583,13 +546,6 @@ class _GoodNightOverlay extends StatelessWidget {
 class _SettingsPanel extends StatelessWidget {
   const _SettingsPanel({
     required this.height,
-    required this.controller,
-    required this.selectedItem,
-    required this.selectedDefinition,
-    required this.onClose,
-    required this.onAddOwnedItem,
-    required this.onRotateSelected,
-    required this.onStoreSelected,
     required this.skyWeather,
     required this.weatherAuto,
     required this.skyTimeOfDay,
@@ -603,13 +559,6 @@ class _SettingsPanel extends StatelessWidget {
   });
 
   final double height;
-  final RoomEditorController controller;
-  final PlacedRoomItem? selectedItem;
-  final RoomItemDefinition? selectedDefinition;
-  final VoidCallback onClose;
-  final ValueChanged<String> onAddOwnedItem;
-  final VoidCallback? onRotateSelected;
-  final VoidCallback? onStoreSelected;
   final SkyWeather skyWeather;
   final bool weatherAuto;
   final double? skyTimeOfDay;
@@ -628,7 +577,7 @@ class _SettingsPanel extends StatelessWidget {
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 26, sigmaY: 26),
         child: Container(
-          height: height,
+          constraints: BoxConstraints(maxHeight: height),
           padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
           decoration: BoxDecoration(
             color: const Color(0xFFF8EFE4).withValues(alpha: 0.92),
@@ -712,73 +661,6 @@ class _SettingsPanel extends StatelessWidget {
                   max: 2.0,
                   divisions: 14,
                   onChanged: onCameraRotateSensitivity,
-                ),
-                const SizedBox(height: 18),
-                Text(
-                  selectedDefinition == null
-                      ? 'Selection'
-                      : selectedDefinition!.title,
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 8),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SoftCard(
-                      color: const Color(0xFFFFF7EF),
-                      padding: const EdgeInsets.all(16),
-                      child: selectedItem == null
-                          ? const _EmptySelection()
-                          : _SelectionPanel(
-                              item: selectedItem!,
-                              definition: selectedDefinition!,
-                              onRotate: onRotateSelected!,
-                              onStore: onStoreSelected!,
-                            ),
-                    ),
-                    const SizedBox(height: 20),
-                    const Text(
-                      'Owned pieces',
-                      style: TextStyle(
-                        fontSize: 19,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.ink,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    const Text(
-                      'Add owned items directly into the room from here.',
-                      style: TextStyle(fontSize: 13, color: AppColors.muted),
-                    ),
-                    const SizedBox(height: 14),
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: [
-                          for (final definition in controller.ownedCatalog) ...[
-                            SizedBox(
-                              width: 168,
-                              child: _InventoryCard(
-                                definition: definition,
-                                availableCount: controller.availableToPlace(
-                                  definition.id,
-                                ),
-                                ownedCount: controller.ownedCount(
-                                  definition.id,
-                                ),
-                                onAdd:
-                                    controller.availableToPlace(definition.id) >
-                                        0
-                                    ? () => onAddOwnedItem(definition.id)
-                                    : null,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ],
                 ),
               ],
             ),
@@ -870,165 +752,6 @@ class _CameraSlider extends StatelessWidget {
               fontWeight: FontWeight.w700,
               color: AppColors.muted,
             ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _InventoryCard extends StatelessWidget {
-  const _InventoryCard({
-    required this.definition,
-    required this.availableCount,
-    required this.ownedCount,
-    this.onAdd,
-  });
-
-  final RoomItemDefinition definition;
-  final int availableCount;
-  final int ownedCount;
-  final VoidCallback? onAdd;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return SoftCard(
-      padding: const EdgeInsets.all(14),
-      color: Colors.white.withValues(alpha: 0.9),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            height: 72,
-            width: double.infinity,
-            decoration: BoxDecoration(
-              color: definition.tint.withValues(alpha: 0.92),
-              borderRadius: BorderRadius.circular(18),
-            ),
-            child: Center(
-              child: RoomSpriteThumbnail(definition: definition, size: 68),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(definition.title, style: theme.textTheme.titleSmall),
-          const SizedBox(height: 4),
-          Text(
-            '$ownedCount owned • $availableCount ready',
-            style: theme.textTheme.bodySmall,
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.tonal(
-              onPressed: onAdd,
-              child: Text(availableCount > 0 ? 'Add' : 'All placed'),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SelectionPanel extends StatelessWidget {
-  const _SelectionPanel({
-    required this.item,
-    required this.definition,
-    required this.onRotate,
-    required this.onStore,
-  });
-
-  final PlacedRoomItem item;
-  final RoomItemDefinition definition;
-  final VoidCallback onRotate;
-  final VoidCallback onStore;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              height: 88,
-              width: 88,
-              decoration: BoxDecoration(
-                color: definition.tint.withValues(alpha: 0.88),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Center(
-                child: RoomSpriteThumbnail(
-                  definition: definition,
-                  quarterTurns: item.rotationQuarterTurns,
-                  size: 80,
-                ),
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  TopicChip(
-                    label:
-                        'Position ${item.origin.x.toStringAsFixed(1)}, ${item.origin.z.toStringAsFixed(1)}',
-                    icon: Icons.place_rounded,
-                    highlight: true,
-                  ),
-                  TopicChip(
-                    label:
-                        'Rotation ${item.rotationDegrees.toStringAsFixed(0)}°',
-                    icon: Icons.rotate_90_degrees_ccw_rounded,
-                  ),
-                  TopicChip(label: definition.typeLabel, icon: definition.icon),
-                ],
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: onRotate,
-                icon: const Icon(Icons.rotate_90_degrees_ccw_rounded),
-                label: const Text('Rotate'),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: FilledButton.icon(
-                onPressed: onStore,
-                icon: const Icon(Icons.inventory_2_rounded),
-                label: const Text('Store'),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class _EmptySelection extends StatelessWidget {
-  const _EmptySelection();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Row(
-      children: [
-        Icon(Icons.touch_app_rounded, color: AppColors.clay),
-        SizedBox(width: 12),
-        Expanded(
-          child: Text(
-            'Select a furniture piece in the room to rotate it or return it to inventory.',
-            style: TextStyle(fontSize: 14, height: 1.5, color: AppColors.muted),
           ),
         ),
       ],
