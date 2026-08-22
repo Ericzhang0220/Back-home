@@ -897,13 +897,7 @@ class _AiContactsPage extends StatelessWidget {
                       hintText: 'Search AI friends or ID',
                       onChanged: onSearchChanged,
                     ),
-                    const SizedBox(height: 12),
-                    _DeviceStatusBanner(
-                      icon: Icons.memory_rounded,
-                      text: charactersSnapshot.hasError
-                          ? 'Could not load your AI friends.'
-                          : 'Your saved AI friends and custom personalities',
-                    ),
+
                     const SizedBox(height: 8),
                     if (charactersSnapshot.connectionState ==
                         ConnectionState.waiting)
@@ -2121,14 +2115,8 @@ class _HumanContactsPage extends StatelessWidget {
                           : 'Search your people or ID',
                       onChanged: onSearchChanged,
                     ),
-                    const SizedBox(height: 12),
-                    _DeviceStatusBanner(
-                      icon: Icons.phone_iphone_rounded,
-                      text: usersSnapshot.hasError
-                          ? 'Could not load Firebase users.'
-                          : 'Your saved people and open conversations',
-                    ),
                     const SizedBox(height: 8),
+
                     if (usersSnapshot.connectionState ==
                         ConnectionState.waiting)
                       const Padding(
