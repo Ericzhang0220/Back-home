@@ -249,7 +249,13 @@ class _RoomScreenState extends State<RoomScreen> {
   @override
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
-    final panelHeight = math.min(media.size.height * 0.62, 520.0);
+    final isLandscape = media.orientation == Orientation.landscape;
+    final panelHeight = isLandscape
+        ? math.min(media.size.height - media.padding.vertical - 24, 420.0)
+        : math.min(media.size.height * 0.62, 520.0);
+    final panelWidth = isLandscape
+        ? math.min(media.size.width - media.padding.horizontal - 24, 560.0)
+        : double.infinity;
 
     return AnimatedBuilder(
       animation: Listenable.merge([
@@ -316,8 +322,8 @@ class _RoomScreenState extends State<RoomScreen> {
               ),
               Positioned(
                 top: media.padding.top + 16,
-                left: 20,
-                right: 20,
+                left: media.padding.left + 20,
+                right: media.padding.right + 20,
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -408,26 +414,32 @@ class _RoomScreenState extends State<RoomScreen> {
                       offset: _panelOpen ? Offset.zero : const Offset(0, 1.08),
                       child: Padding(
                         padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                        child: _SettingsPanel(
-                          height: panelHeight,
-                          skyWeather: widget.settingsController.skyWeather,
-                          weatherAuto: widget.settingsController.weatherAuto,
-                          skyTimeOfDay: widget.settingsController.skyTimeOfDay,
-                          cameraZoom: _cameraZoom,
-                          cameraRotateSensitivity:
-                              widget.settingsController.cameraRotateSensitivity,
-                          onSkyWeather: widget.settingsController.setSkyWeather,
-                          onWeatherAuto: () {
-                            widget.settingsController.setWeatherAuto();
-                            _refreshWeather();
-                          },
-                          onSkyTimeOfDay:
-                              widget.settingsController.setSkyTimeOfDay,
-                          onCameraZoom: (value) =>
-                              setState(() => _cameraZoom = value),
-                          onCameraRotateSensitivity: widget
-                              .settingsController
-                              .setCameraRotateSensitivity,
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(maxWidth: panelWidth),
+                          child: _SettingsPanel(
+                            height: panelHeight,
+                            skyWeather: widget.settingsController.skyWeather,
+                            weatherAuto: widget.settingsController.weatherAuto,
+                            skyTimeOfDay:
+                                widget.settingsController.skyTimeOfDay,
+                            cameraZoom: _cameraZoom,
+                            cameraRotateSensitivity: widget
+                                .settingsController
+                                .cameraRotateSensitivity,
+                            onSkyWeather:
+                                widget.settingsController.setSkyWeather,
+                            onWeatherAuto: () {
+                              widget.settingsController.setWeatherAuto();
+                              _refreshWeather();
+                            },
+                            onSkyTimeOfDay:
+                                widget.settingsController.setSkyTimeOfDay,
+                            onCameraZoom: (value) =>
+                                setState(() => _cameraZoom = value),
+                            onCameraRotateSensitivity: widget
+                                .settingsController
+                                .setCameraRotateSensitivity,
+                          ),
                         ),
                       ),
                     ),
@@ -610,7 +622,7 @@ class _SettingsPanel extends StatelessWidget {
                   children: [
                     const Expanded(
                       child: Text(
-                        'Weather Settings',
+                        'Weather',
                         style: TextStyle(
                           fontSize: 21,
                           fontWeight: FontWeight.w800,

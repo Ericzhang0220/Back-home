@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:back_home/app.dart';
+import 'package:back_home/auth/app_auth_controller.dart';
 import 'package:back_home/rooms/furniture_preview.dart';
 import 'package:back_home/rooms/isometric_room_view.dart';
 import 'package:back_home/rooms/room_state.dart';
@@ -11,10 +12,16 @@ import 'package:back_home/theme/app_theme.dart';
 import 'package:back_home/widgets/app_ui.dart';
 
 void main() {
-  // The shop's turntable would otherwise open a real GL context, whose platform
-  // channels never answer under the test binding.
-  setUp(() => FurniturePreviewStage.rendererEnabled = false);
-  tearDown(() => FurniturePreviewStage.rendererEnabled = true);
+  // The 3D views would otherwise open real GL contexts, whose platform channels
+  // never answer under the test binding.
+  setUp(() {
+    FurniturePreviewStage.rendererEnabled = false;
+    IsometricRoomView.rendererEnabled = false;
+  });
+  tearDown(() {
+    FurniturePreviewStage.rendererEnabled = true;
+    IsometricRoomView.rendererEnabled = true;
+  });
 
   testWidgets('discovery card follows the swipe and reveals the card below', (
     WidgetTester tester,
@@ -93,6 +100,34 @@ void main() {
     expect(find.text('Sign in to use the AI chats and tutor.'), findsOneWidget);
   });
 
+  testWidgets('room and Weather sheet lay out cleanly in landscape', (
+    WidgetTester tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(844, 390));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(const BackHomeApp());
+    await tester.ensureVisible(find.text('Low'));
+    await tester.tap(find.text('Low'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('Open room'));
+    await tester.pump();
+
+    expect(find.byType(IsometricRoomView), findsOneWidget);
+
+    await tester.longPress(find.byType(IsometricRoomView));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.text('Weather'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    // Dispose the renderer before the next test changes the surface metrics;
+    // ThreeJS observes those changes with a short debounce timer.
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
+
   testWidgets('opens the monthly mood calendar from the profile chart', (
     WidgetTester tester,
   ) async {
@@ -111,6 +146,11 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
 
     expect(find.byType(MoodBarChart), findsOneWidget);
+    expect(find.byTooltip('Save bio'), findsNothing);
+    expect(
+      find.text('0/${AppAuthController.maxProfileBioLength}'),
+      findsNothing,
+    );
 
     await tester.tap(find.text('Tap to open monthly mood calendar'));
     await tester.pump();

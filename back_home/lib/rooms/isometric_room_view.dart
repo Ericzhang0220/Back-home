@@ -16,6 +16,28 @@ typedef _CameraViewState = ({
   double zoom,
 });
 
+/// Converts the room camera's portrait-friendly vertical FOV for a viewport,
+/// capping the resulting horizontal FOV so wide screens do not become a
+/// distorted ultra-wide lens.
+double roomVerticalFovForAspect(
+  double baseVerticalFov,
+  double aspect, {
+  double maxHorizontalFov = 82,
+}) {
+  final safeAspect = aspect.clamp(0.1, 10.0).toDouble();
+  final verticalRadians = baseVerticalFov * math.pi / 180;
+  final horizontalRadians =
+      2 * math.atan(math.tan(verticalRadians / 2) * safeAspect);
+  final maxHorizontalRadians = maxHorizontalFov * math.pi / 180;
+  if (horizontalRadians <= maxHorizontalRadians) {
+    return baseVerticalFov;
+  }
+  return 2 *
+      math.atan(math.tan(maxHorizontalRadians / 2) / safeAspect) *
+      180 /
+      math.pi;
+}
+
 class IsometricRoomView extends StatefulWidget {
   const IsometricRoomView({
     super.key,
@@ -37,6 +59,9 @@ class IsometricRoomView extends StatefulWidget {
     this.rotateSelectedWithDrag = false,
     this.onRotateSelectedBy,
   });
+
+  /// Allows widget tests to exercise the room UI without opening a GL context.
+  static bool rendererEnabled = true;
 
   final RoomEditorController controller;
   final bool isActive;
@@ -169,6 +194,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   final three.Vector3 _cameraTargetLook = three.Vector3.zero();
   final three.Vector3 _cameraCurrentLook = three.Vector3.zero();
   bool _cameraPosed = false;
+  Size? _layoutViewportSize;
+  bool _viewportSyncScheduled = false;
+  double _viewportAspect = 1;
   double _zoom = 1.0;
   double _currentZoom = 1.0;
   double _cameraTargetBaseFov = _mainFov;
@@ -279,9 +307,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       // Sit down facing the desk; the seated look starts centred each time.
       _deskYaw = 0;
       _deskPitch = 0;
-      final width = _threeJs!.width <= 0 ? 1.0 : _threeJs!.width;
-      final height = _threeJs!.height <= 0 ? 1.0 : _threeJs!.height;
-      _configureCamera(Size(width, height));
+      _configureCamera(_currentViewportSize());
     }
 
     if (_threeConfigured &&
@@ -359,29 +385,67 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0xFF191513), Color(0xFF0D0B0A)],
-        ),
-      ),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          if (_sceneRequested && _threeJs != null) _threeJs!.build(),
-          IgnorePointer(
-            ignoring: _sceneReady,
-            child: AnimatedOpacity(
-              duration: const Duration(milliseconds: 220),
-              curve: Curves.easeOut,
-              opacity: _sceneReady ? 0 : 1,
-              child: const _RoomScenePlaceholder(),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        _scheduleViewportSync(constraints.biggest);
+        return DecoratedBox(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0xFF191513), Color(0xFF0D0B0A)],
             ),
           ),
-        ],
-      ),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (_sceneRequested && _threeJs != null) _threeJs!.build(),
+              IgnorePointer(
+                ignoring: _sceneReady,
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOut,
+                  opacity: _sceneReady ? 0 : 1,
+                  child: const _RoomScenePlaceholder(),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _scheduleViewportSync(Size size) {
+    if (size.width <= 0 || size.height <= 0 || size == _layoutViewportSize) {
+      return;
+    }
+    _layoutViewportSize = size;
+    if (_viewportSyncScheduled) {
+      return;
+    }
+    _viewportSyncScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _viewportSyncScheduled = false;
+      if (!mounted || !_threeConfigured) {
+        return;
+      }
+      _configureCamera(_currentViewportSize());
+    });
+  }
+
+  Size _currentViewportSize() {
+    final layoutSize = _layoutViewportSize;
+    if (layoutSize != null && layoutSize.width > 0 && layoutSize.height > 0) {
+      return layoutSize;
+    }
+    final threeJs = _threeJs;
+    if (threeJs == null) {
+      return const Size(1, 1);
+    }
+    return Size(
+      threeJs.width <= 0 ? 1 : threeJs.width,
+      threeJs.height <= 0 ? 1 : threeJs.height,
     );
   }
 
@@ -408,7 +472,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       three.Vector3.zero(),
     );
 
-    _configureCamera(Size(initialWidth, initialHeight));
+    _configureCamera(_currentViewportSize());
     _cameraColliderMesh = _createCameraColliderMesh()
       ..visible = widget.showFurnitureColliders;
     _updateCameraColliderMesh();
@@ -446,6 +510,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     if (size.width <= 0 || size.height <= 0) {
       return;
     }
+    _layoutViewportSize = size;
     _configureCamera(size);
   }
 
@@ -453,7 +518,8 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     final safeWidth = size.width <= 0 ? 1.0 : size.width;
     final safeHeight = size.height <= 0 ? 1.0 : size.height;
 
-    _camera.aspect = safeWidth / safeHeight;
+    _viewportAspect = safeWidth / safeHeight;
+    _camera.aspect = _viewportAspect;
     _camera.near = 0.1;
     _camera.far = 80;
 
@@ -656,7 +722,11 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     final effectiveZoom = (_currentZoom * widget.cameraZoom)
         .clamp(_minZoom, _maxZoom)
         .toDouble();
-    _camera.fov = (_cameraTargetBaseFov / effectiveZoom)
+    final aspectAdjustedFov = roomVerticalFovForAspect(
+      _cameraTargetBaseFov,
+      _viewportAspect,
+    );
+    _camera.fov = (aspectAdjustedFov / effectiveZoom)
         .clamp(_minFov, _maxFov)
         .toDouble();
     _camera.updateProjectionMatrix();
@@ -706,7 +776,10 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   }
 
   void _scheduleSceneBootstrap() {
-    if (!widget.isActive || _sceneRequested || _sceneStartTimer != null) {
+    if (!IsometricRoomView.rendererEnabled ||
+        !widget.isActive ||
+        _sceneRequested ||
+        _sceneStartTimer != null) {
       return;
     }
 
@@ -2250,14 +2323,10 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   }
 
   void _refreshCamera() {
-    final threeJs = _threeJs;
-    if (threeJs == null) {
+    if (_threeJs == null) {
       return;
     }
-
-    final width = threeJs.width <= 0 ? 1.0 : threeJs.width;
-    final height = threeJs.height <= 0 ? 1.0 : threeJs.height;
-    _configureCamera(Size(width, height));
+    _configureCamera(_currentViewportSize());
   }
 
   void _syncSceneWithController() {

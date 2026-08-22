@@ -460,6 +460,8 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     final isRoomTab = _currentTab == AppTab.room;
+    final useCompactRoomNav =
+        isRoomTab && MediaQuery.orientationOf(context) == Orientation.landscape;
     // The nav bar auto-hides everywhere, and is additionally forced away in the
     // room's desk/night subviews.
     final navShown = _navVisible && !(isRoomTab && _roomInSubview);
@@ -512,9 +514,18 @@ class _AppShellState extends State<AppShell> {
                               _hideNav();
                             }
                           },
-                          child: _FloatingNavBar(
-                            currentTab: _currentTab,
-                            onSelect: _selectTab,
+                          child: Center(
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(
+                                maxWidth: useCompactRoomNav
+                                    ? 560
+                                    : double.infinity,
+                              ),
+                              child: _FloatingNavBar(
+                                currentTab: _currentTab,
+                                onSelect: _selectTab,
+                              ),
+                            ),
                           ),
                         ),
                       ),

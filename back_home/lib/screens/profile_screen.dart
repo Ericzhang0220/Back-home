@@ -231,12 +231,14 @@ class _ProfileIdentityHeaderState extends State<_ProfileIdentityHeader> {
   late final FocusNode _bioFocusNode;
   late String _savedBio;
   bool _isSaving = false;
+  bool _hasPendingBioEdit = false;
 
   @override
   void initState() {
     super.initState();
     _savedBio = widget.initialBio;
-    _bioController = TextEditingController(text: widget.initialBio);
+    _bioController = TextEditingController(text: widget.initialBio)
+      ..addListener(_handleBioChanged);
     _bioFocusNode = FocusNode()..addListener(_handleBioFocusChanged);
   }
 
@@ -254,11 +256,20 @@ class _ProfileIdentityHeaderState extends State<_ProfileIdentityHeader> {
 
   @override
   void dispose() {
+    _bioController
+      ..removeListener(_handleBioChanged)
+      ..dispose();
     _bioFocusNode
       ..removeListener(_handleBioFocusChanged)
       ..dispose();
-    _bioController.dispose();
     super.dispose();
+  }
+
+  void _handleBioChanged() {
+    final hasPendingEdit = _bioController.text.trim() != _savedBio;
+    if (mounted && hasPendingEdit != _hasPendingBioEdit) {
+      setState(() => _hasPendingBioEdit = hasPendingEdit);
+    }
   }
 
   void _handleBioFocusChanged() {
@@ -281,6 +292,7 @@ class _ProfileIdentityHeaderState extends State<_ProfileIdentityHeader> {
         return;
       }
       _savedBio = bio;
+      _hasPendingBioEdit = false;
       if (_bioController.text != bio) {
         _bioController.value = TextEditingValue(
           text: bio,
@@ -352,6 +364,21 @@ class _ProfileIdentityHeaderState extends State<_ProfileIdentityHeader> {
                 minLines: 2,
                 maxLines: 3,
                 maxLength: AppAuthController.maxProfileBioLength,
+                buildCounter:
+                    (
+                      context, {
+                      required currentLength,
+                      required isFocused,
+                      required maxLength,
+                    }) {
+                      if (!isFocused) {
+                        return null;
+                      }
+                      return Text(
+                        '$currentLength/$maxLength',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      );
+                    },
                 decoration: InputDecoration(
                   labelText: 'Bio',
                   hintText: 'Tell people a little about yourself',
@@ -364,11 +391,13 @@ class _ProfileIdentityHeaderState extends State<_ProfileIdentityHeader> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           ),
                         )
-                      : IconButton(
+                      : _hasPendingBioEdit
+                      ? IconButton(
                           tooltip: 'Save bio',
                           onPressed: widget.onSaveBio == null ? null : _saveBio,
                           icon: const Icon(Icons.check_rounded),
-                        ),
+                        )
+                      : null,
                 ),
               ),
             ],

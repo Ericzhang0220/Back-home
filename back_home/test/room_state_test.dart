@@ -1,7 +1,23 @@
+import 'dart:math' as math;
+
+import 'package:back_home/rooms/isometric_room_view.dart';
 import 'package:back_home/rooms/room_state.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('landscape room FOV avoids an ultra-wide distorted view', () {
+    final verticalFov = roomVerticalFovForAspect(64, 16 / 9);
+    final horizontalFov =
+        2 *
+        math.atan(math.tan(verticalFov * math.pi / 360) * 16 / 9) *
+        180 /
+        math.pi;
+
+    expect(verticalFov, lessThan(64));
+    expect(horizontalFov, closeTo(82, 0.001));
+    expect(roomVerticalFovForAspect(64, 9 / 16), 64);
+  });
+
   test('buyAndAddItem spends likes, adds inventory, and places the item', () {
     final controller = RoomEditorController();
 
