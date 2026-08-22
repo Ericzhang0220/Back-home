@@ -112,7 +112,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
             const SizedBox(height: 28),
             const SectionHeader(
-              title: 'Your happiness index for the past week:',
+              title: 'Your mood record for the past week:',
               titleSize: 20,
               subtitle: '',
             ),
@@ -288,7 +288,7 @@ class _ProfileSettingsScreen extends StatelessWidget {
                       child: Column(
                         children: [
                           _SettingsSwitchRow(
-                            title: 'Happiness index',
+                            title: 'Mood record',
                             detail: 'Show the weekly mood chart publicly.',
                             value: settingsController.showHappinessIndex,
                             onChanged: (value) {
@@ -754,7 +754,7 @@ class _HappinessIndexCard extends StatelessWidget {
               Text(
                 isInteractive
                     ? 'Tap to open monthly mood calendar'
-                    : 'Weekly happiness index',
+                    : 'Weekly Mood record',
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
               const Spacer(),

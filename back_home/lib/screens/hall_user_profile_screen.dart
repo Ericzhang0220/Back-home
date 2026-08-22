@@ -124,7 +124,7 @@ class _HallUserProfileView extends StatelessWidget {
                 _PublicProfileTimeline(displayName: displayName),
                 if (visibility.showHappinessIndex) ...[
                   const SizedBox(height: 28),
-                  const SectionHeader(title: 'Happiness index'),
+                  const SectionHeader(title: 'Mood record'),
                   const SizedBox(height: 12),
                   _PublicHappinessIndexCard(uid: uid),
                 ],
@@ -386,7 +386,7 @@ class _PublicHappinessIndexCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Weekly happiness index',
+            'Weekly Mood record',
             style: Theme.of(context).textTheme.bodyMedium,
           ),
           const SizedBox(height: 14),

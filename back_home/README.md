@@ -23,7 +23,7 @@ Moderation Note: users can only make 100 comments/day
 
 Private vs Public Profile Differences:
 - public profile avatar cannot be editted
-- happiness index card section visibility dependent on owner settings (UI to set visibility of self is needed here)
+- Mood record card section visibility dependent on owner settings (UI to set visibility of self is needed here)
 - reading comfort, audio settings, or anything below private only
 - public variant has social buttons below the three stat pills
 - stat pills visibility for each should also be configurable by the user

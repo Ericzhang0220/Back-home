@@ -661,7 +661,7 @@ class _SettingsPanel extends StatelessWidget {
                   children: [
                     const Expanded(
                       child: Text(
-                        'Weather',
+                        'Weather Settings',
                         style: TextStyle(
                           fontSize: 21,
                           fontWeight: FontWeight.w800,
@@ -669,22 +669,9 @@ class _SettingsPanel extends StatelessWidget {
                         ),
                       ),
                     ),
-                    IconButton.filledTonal(
-                      onPressed: onClose,
-                      icon: const Icon(Icons.keyboard_arrow_down_rounded),
-                    ),
                   ],
                 ),
                 const SizedBox(height: 18),
-                const Text(
-                  'Sky',
-                  style: TextStyle(
-                    fontSize: 19,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.ink,
-                  ),
-                ),
-                const SizedBox(height: 4),
                 const Text(
                   'Weather and time of day shown through the window.',
                   style: TextStyle(fontSize: 13, color: AppColors.muted),

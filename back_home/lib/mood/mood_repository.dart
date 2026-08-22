@@ -137,7 +137,7 @@ class MoodRepository {
   }
 }
 
-/// The trailing-seven-day view backing the happiness index chart. Missing days
+/// The trailing-seven-day view backing the Mood record chart. Missing days
 /// carry a `null` value so the chart can draw them as empty bars.
 class WeeklyMoodSummary {
   WeeklyMoodSummary({
