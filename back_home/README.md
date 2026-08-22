@@ -66,3 +66,8 @@ Target 0: (Runner) stopped.
 The Dart VM Service was not discovered after 60 seconds. This is taking much
 longer than expected...
 Installing and launching...  
+
+
+
+TODOs:
+- Bio card styling
