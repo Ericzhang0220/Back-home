@@ -18,6 +18,36 @@ void main() {
     expect(roomVerticalFovForAspect(64, 9 / 16), 64);
   });
 
+  test('live sky time retains sub-minute clock precision', () {
+    expect(
+      skyTimeOfDayForDateTime(DateTime(2026, 1, 1, 6)),
+      closeTo(0.25, 1e-9),
+    );
+    expect(
+      skyTimeOfDayForDateTime(DateTime(2026, 1, 1, 18)),
+      closeTo(0.75, 1e-9),
+    );
+    expect(
+      skyTimeOfDayForDateTime(DateTime(2026, 1, 1, 12, 0, 30)),
+      greaterThan(0.5),
+    );
+  });
+
+  test('sun and moon follow opposite sunrise-to-sunset arcs', () {
+    final sunrise = skyCelestialArc(0.25);
+    final noon = skyCelestialArc(0.5);
+    final sunset = skyCelestialArc(0.75);
+    final midnightMoon = skyCelestialArc(0, moon: true);
+
+    expect(sunrise.horizontal, closeTo(1, 1e-9));
+    expect(sunrise.altitude, closeTo(0, 1e-9));
+    expect(noon.horizontal, closeTo(0, 1e-9));
+    expect(noon.altitude, closeTo(1, 1e-9));
+    expect(sunset.horizontal, closeTo(-1, 1e-9));
+    expect(sunset.altitude, closeTo(0, 1e-9));
+    expect(midnightMoon.altitude, closeTo(1, 1e-9));
+  });
+
   test('buyAndAddItem spends likes, adds inventory, and places the item', () {
     final controller = RoomEditorController();
 

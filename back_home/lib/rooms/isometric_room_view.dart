@@ -38,6 +38,28 @@ double roomVerticalFovForAspect(
       math.pi;
 }
 
+/// Converts a local clock value into the room sky's normalized 24-hour time.
+/// Seconds and milliseconds are retained so celestial motion stays continuous.
+double skyTimeOfDayForDateTime(DateTime dateTime) {
+  final seconds =
+      dateTime.hour * 3600 +
+      dateTime.minute * 60 +
+      dateTime.second +
+      dateTime.millisecond / 1000;
+  return seconds / Duration.secondsPerDay;
+}
+
+/// Position along the east-to-west celestial arc. Sunrise is at `0.25`, noon
+/// at `0.5`, sunset at `0.75`; the moon follows the same arc twelve hours later.
+({double horizontal, double altitude}) skyCelestialArc(
+  double timeOfDay, {
+  bool moon = false,
+}) {
+  final normalized = (timeOfDay % 1.0 + 1.0) % 1.0;
+  final angle = (normalized - 0.25) * 2 * math.pi + (moon ? math.pi : 0);
+  return (horizontal: math.cos(angle), altitude: math.sin(angle));
+}
+
 class IsometricRoomView extends StatefulWidget {
   const IsometricRoomView({
     super.key,
@@ -139,6 +161,12 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   final three.Vector3 _dragOffset = three.Vector3.zero();
   final List<three.Object3D> _roomTapTargets = [];
   three.Group? _skyGroup;
+  three.Group? _skySun;
+  three.Group? _skyMoon;
+  _SkyLook? _activeSkyLook;
+  final List<three.Group> _skyCloudGroups = [];
+  final List<three.Mesh> _skyRainDrops = [];
+  double _liveSkyUpdateElapsed = 0;
   Timer? _skyClockTimer; // refreshes the sky in "Live" (real-clock) time mode
 
   Timer? _sceneStartTimer;
@@ -656,6 +684,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   }
 
   void _animateCamera(double dt) {
+    _animateSky(dt);
     if (!_cameraPosed) {
       return;
     }
@@ -1346,18 +1375,17 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     }
   }
 
-  // === Sky beyond the window ================================================
-  // A procedural backdrop (gradient + sun/moon + clouds/stars/rain) sitting
-  // behind the back-wall window. It is unlit (MeshBasicMaterial) so it always
-  // reads as true sky colour, and is rebuilt whenever the weather/time change.
+  // === Landscape beyond the window ==========================================
+  // The outdoor view is deliberately layered over a long stretch of Z depth:
+  // sky and celestial bodies, distant clouds, hills, trees, then nearby rain.
+  // This keeps the window from reading like a painted panel on the back wall.
 
   double _resolveTimeOfDay() {
     final t = widget.skyTimeOfDay;
     if (t != null) {
       return (t % 1.0 + 1.0) % 1.0;
     }
-    final now = DateTime.now();
-    return (now.hour * 60 + now.minute) / 1440.0;
+    return skyTimeOfDayForDateTime(DateTime.now());
   }
 
   void _rebuildSky() {
@@ -1370,18 +1398,22 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       threeJs.scene.remove(previous);
       previous.dispose(); // free the old group's geometries/materials
     }
+    _skySun = null;
+    _skyMoon = null;
+    _activeSkyLook = null;
+    _skyCloudGroups.clear();
+    _skyRainDrops.clear();
     final group = _buildSky(_resolveTimeOfDay(), widget.skyWeather);
     _skyGroup = group;
     threeJs.scene.add(group);
   }
 
-  // In "Live" mode (no explicit time set) advance the sky with the real clock by
-  // rebuilding it periodically. The per-minute change is tiny, so it reads as a
-  // gradual drift rather than a pop. Runs only while live and on-screen.
+  // Auto mode rebuilds atmospheric colours periodically while the animation
+  // callback moves the sun and moon smoothly from the live device clock.
   void _syncSkyClock() {
     final live = widget.skyTimeOfDay == null;
     if (live && widget.isActive && _threeConfigured) {
-      _skyClockTimer ??= Timer.periodic(const Duration(seconds: 60), (_) {
+      _skyClockTimer ??= Timer.periodic(const Duration(seconds: 30), (_) {
         if (mounted && _threeJs != null && widget.skyTimeOfDay == null) {
           _rebuildSky();
         }
@@ -1392,17 +1424,59 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     }
   }
 
+  void _animateSky(double dt) {
+    if (_skyGroup == null || !widget.isActive) {
+      return;
+    }
+
+    for (var index = 0; index < _skyCloudGroups.length; index += 1) {
+      final cloud = _skyCloudGroups[index];
+      cloud.position.x += dt * (0.025 + (index % 3) * 0.012);
+      if (cloud.position.x > 34) {
+        cloud.position.x = -24;
+      }
+    }
+
+    for (var index = 0; index < _skyRainDrops.length; index += 1) {
+      final drop = _skyRainDrops[index];
+      final speed = 2.8 + (index % 5) * 0.32;
+      drop.position.y -= dt * speed;
+      drop.position.x -= dt * speed * 0.08;
+      if (drop.position.y < -1.2) {
+        drop.position.y += 9.2;
+        drop.position.x += 0.72;
+      }
+    }
+
+    if (widget.skyTimeOfDay != null) {
+      return;
+    }
+    _liveSkyUpdateElapsed += dt;
+    if (_liveSkyUpdateElapsed < 0.2) {
+      return;
+    }
+    _liveSkyUpdateElapsed = 0;
+    _positionCelestialBodies(_resolveTimeOfDay());
+  }
+
   three.Group _buildSky(double time, SkyWeather weather) {
     final group = three.Group();
     final roomDepth =
         RoomEditorController.roomDepth * RoomEditorController.cellSize;
-    final skyZ = -roomDepth / 2 - 3.2; // a few units behind the window
+    final wallZ = -roomDepth / 2;
+    final backdropZ = wallZ - 46;
+    final celestialZ = wallZ - 44.5;
+    final farHillZ = wallZ - 25;
+    final nearHillZ = wallZ - 16;
+    final treeZ = wallZ - 10;
     final look = _skyLook(time, weather);
+    _activeSkyLook = look;
 
-    const skyW = 34.0;
-    const skyH = 24.0;
-    const bottomY = -3.0;
-    const bands = 12;
+    const skyW = 112.0;
+    const skyH = 72.0;
+    const bottomY = -22.0;
+    const bands = 20;
+    final backdropCenterX = _windowProjectionCenterX(backdropZ, wallZ);
     final bandH = skyH / bands;
     for (var i = 0; i < bands; i += 1) {
       final f = (i + 0.5) / bands; // 0 at the horizon, 1 at the zenith
@@ -1411,119 +1485,317 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
           width: skyW,
           height: bandH + 0.04,
           color: _lerpColor(look.horizon, look.zenith, f),
-          x: 1.0,
+          x: backdropCenterX,
           y: bottomY + (i + 0.5) * bandH,
-          z: skyZ,
+          z: backdropZ,
         ),
       );
     }
 
-    // Celestial body, clouds and weather are framed within the window's view
-    // cone (centred on the window) so they actually read through the opening as
-    // time of day and weather change.
-    const winX = 1.0; // window centre x
-    const winYLo = 1.2; // bottom of the visible band
-    const winYHi = 3.6; // top of the visible band
-    const winHalf = 3.4; // half-width of the framed region
+    // A broad low-altitude glow makes dawn and dusk legible even when the
+    // actual disc is partially hidden by the hills.
+    group.add(
+      _skyPanel(
+        width: 84,
+        height: 6.5,
+        color: look.horizonGlow,
+        x: backdropCenterX,
+        y: 2.1,
+        z: backdropZ + 0.2,
+        opacity: 0.08 + look.twilightStrength * 0.3,
+      ),
+    );
 
-    // Sun arcs across the window by time of day; the moon takes over at night.
-    final sunAngle = (time - 0.25) * 2 * math.pi;
-    final sunAlt = math.sin(sunAngle);
-    if (look.showSun && sunAlt > -0.05) {
-      final sunX = winX + math.cos(sunAngle) * (winHalf - 0.4);
-      final sunY =
-          winYLo + 0.3 + math.max(0.0, sunAlt) * (winYHi - winYLo - 0.3);
-      group.add(
-        _skyDisc(
-          radius: 1.7,
-          color: look.sun,
-          opacity: 0.22,
-          x: sunX,
-          y: sunY,
-          z: skyZ + 0.2,
-        ),
-      );
-      group.add(
-        _skyDisc(
-          radius: 0.85,
-          color: look.sun,
-          x: sunX,
-          y: sunY,
-          z: skyZ + 0.35,
-        ),
-      );
-    } else if (look.isNight) {
-      final moonAngle = sunAngle + math.pi;
-      final moonX = winX + math.cos(moonAngle) * (winHalf - 0.8);
-      final moonY =
-          winYLo +
-          0.5 +
-          math.max(0.0, math.sin(moonAngle)) * (winYHi - winYLo - 0.8);
-      group.add(
-        _skyDisc(
-          radius: 0.7,
-          color: 0xE7ECF6,
-          x: moonX,
-          y: moonY,
-          z: skyZ + 0.35,
-        ),
-      );
-      for (var s = 0; s < 24; s += 1) {
-        final sx =
-            winX + (((s * 53) % 100) / 100.0 - 0.5) * (winHalf * 2 + 1.5);
-        final sy =
-            winYLo + (((s * 31) % 100) / 100.0) * (winYHi - winYLo + 0.8);
+    if (look.isNight) {
+      for (var star = 0; star < 42; star += 1) {
+        final sx = backdropCenterX + (((star * 53) % 101) / 101.0 - 0.5) * 48;
+        final sy = 2.5 + (((star * 31) % 97) / 97.0) * 16;
         group.add(
           _skyDisc(
-            radius: 0.06 + ((s * 17) % 3) * 0.02,
+            radius: 0.07 + ((star * 17) % 4) * 0.025,
             color: 0xF2F4FA,
             x: sx,
             y: sy,
-            z: skyZ + 0.28,
+            z: backdropZ + 0.45,
+            opacity: 0.5 + ((star * 13) % 5) * 0.09,
           ),
         );
       }
     }
 
-    for (var c = 0; c < look.clouds; c += 1) {
-      final cx = winX + (((c * 37) % 100) / 100.0 - 0.5) * (winHalf * 2);
-      final cy =
-          winYLo + 1.2 + (((c * 61) % 100) / 100.0) * (winYHi - winYLo - 0.6);
-      _addCloud(group, cx, cy, skyZ + 0.45, look.cloudColor);
+    _skySun = _buildCelestialBody(
+      coreColor: look.sun,
+      haloColor: look.sun,
+      coreRadius: 1.25,
+      haloRadius: 3.8,
+      opacity: look.celestialOpacity,
+    )..position.z = celestialZ;
+    _skyMoon = _buildCelestialBody(
+      coreColor: look.moon,
+      haloColor: 0xBFCFF2,
+      coreRadius: 1.05,
+      haloRadius: 2.8,
+      opacity: look.celestialOpacity * 0.9,
+    )..position.z = celestialZ + 0.1;
+    group
+      ..add(_skySun!)
+      ..add(_skyMoon!);
+    _positionCelestialBodies(time);
+
+    for (var cloudIndex = 0; cloudIndex < look.clouds; cloudIndex += 1) {
+      final farLayer = cloudIndex.isEven;
+      final cloudZ = wallZ - (farLayer ? 33.0 : 28.0);
+      final cloudCenterX = _windowProjectionCenterX(cloudZ, wallZ);
+      final spread = farLayer ? 42.0 : 34.0;
+      final cloud =
+          _buildCloud(
+              scale: (farLayer ? 2.1 : 1.7) + (cloudIndex % 3) * 0.2,
+              color: look.cloudColor,
+              shadowColor: look.cloudShadow,
+              opacity: look.cloudOpacity,
+            )
+            ..position.setValues(
+              cloudCenterX + (((cloudIndex * 37) % 101) / 101.0 - 0.5) * spread,
+              5.5 + (((cloudIndex * 61) % 97) / 97.0) * 8.5,
+              cloudZ,
+            );
+      group.add(cloud);
+      _skyCloudGroups.add(cloud);
     }
 
+    _addLandscape(group, wallZ, farHillZ, nearHillZ, treeZ, look);
+
     if (look.rain) {
-      for (var r = 0; r < 28; r += 1) {
-        final rx = winX + (((r * 29) % 100) / 100.0 - 0.5) * (winHalf * 2);
-        final ry =
-            winYLo - 0.2 + (((r * 71) % 100) / 100.0) * (winYHi - winYLo + 1.0);
-        group.add(
-          _skyPanel(
-            width: 0.035,
-            height: 0.45,
-            depth: 0.04,
-            color: 0xAEB8C4,
-            x: rx,
-            y: ry,
-            z: skyZ + 0.5,
-            opacity: 0.5,
-          ),
-        );
+      final rainZ = wallZ - 2.2;
+      final rainCenterX = _windowProjectionCenterX(rainZ, wallZ);
+      for (var rainIndex = 0; rainIndex < 58; rainIndex += 1) {
+        final drop = _skyPanel(
+          width: 0.035,
+          height: 0.55 + (rainIndex % 4) * 0.12,
+          depth: 0.025,
+          color: 0xC5D1DD,
+          x: rainCenterX + (((rainIndex * 29) % 103) / 103.0 - 0.5) * 9.5,
+          y: -0.8 + (((rainIndex * 71) % 107) / 107.0) * 8.8,
+          z: rainZ - (rainIndex % 4) * 0.35,
+          opacity: 0.35 + (rainIndex % 3) * 0.1,
+        )..rotation.z = -0.14;
+        group.add(drop);
+        _skyRainDrops.add(drop);
       }
     }
 
     return group;
   }
 
-  void _addCloud(three.Group group, double x, double y, double z, int color) {
-    for (final p in const [
-      (dx: 0.0, dy: 0.0, r: 1.1),
-      (dx: 1.0, dy: -0.15, r: 0.85),
-      (dx: -1.0, dy: -0.1, r: 0.8),
-      (dx: 0.45, dy: 0.35, r: 0.7),
+  double _windowProjectionCenterX(double z, double wallZ) {
+    const windowCenterX = 1.0;
+    return windowCenterX * (z / wallZ);
+  }
+
+  three.Group _buildCelestialBody({
+    required int coreColor,
+    required int haloColor,
+    required double coreRadius,
+    required double haloRadius,
+    required double opacity,
+  }) {
+    final body = three.Group();
+    body.add(
+      _skyDisc(radius: haloRadius, color: haloColor, opacity: opacity * 0.14),
+    );
+    body.add(
+      _skyDisc(
+        radius: haloRadius * 0.58,
+        color: haloColor,
+        z: 0.08,
+        opacity: opacity * 0.24,
+      ),
+    );
+    body.add(
+      _skyDisc(radius: coreRadius, color: coreColor, z: 0.16, opacity: opacity),
+    );
+    return body;
+  }
+
+  void _positionCelestialBodies(double time) {
+    final look = _activeSkyLook;
+    final sun = _skySun;
+    final moon = _skyMoon;
+    if (look == null || sun == null || moon == null) {
+      return;
+    }
+
+    final roomDepth =
+        RoomEditorController.roomDepth * RoomEditorController.cellSize;
+    final wallZ = -roomDepth / 2;
+    final celestialZ = wallZ - 44.5;
+    final centerX = _windowProjectionCenterX(celestialZ, wallZ);
+    const horizonY = _eyeHeight;
+    const horizontalRadius = 15.0;
+    const verticalRadius = 11.5;
+
+    final sunArc = skyCelestialArc(time);
+    sun
+      ..visible = look.celestialOpacity > 0.01 && sunArc.altitude > -0.055
+      ..position.x = centerX + sunArc.horizontal * horizontalRadius
+      ..position.y = horizonY + sunArc.altitude * verticalRadius;
+
+    final moonArc = skyCelestialArc(time, moon: true);
+    moon
+      ..visible = look.celestialOpacity > 0.01 && moonArc.altitude > -0.055
+      ..position.x = centerX + moonArc.horizontal * horizontalRadius
+      ..position.y = horizonY + moonArc.altitude * verticalRadius;
+  }
+
+  three.Group _buildCloud({
+    required double scale,
+    required int color,
+    required int shadowColor,
+    required double opacity,
+  }) {
+    final cloud = three.Group();
+    for (final shadow in const [
+      (dx: -0.9, dy: -0.22, r: 0.78),
+      (dx: 0.0, dy: -0.32, r: 1.08),
+      (dx: 1.0, dy: -0.22, r: 0.76),
+    ]) {
+      cloud.add(
+        _skyDisc(
+          radius: shadow.r * scale,
+          color: shadowColor,
+          x: shadow.dx * scale,
+          y: shadow.dy * scale,
+          opacity: opacity * 0.78,
+        ),
+      );
+    }
+    for (final puff in const [
+      (dx: -1.0, dy: 0.0, r: 0.78),
+      (dx: 0.0, dy: 0.08, r: 1.08),
+      (dx: 1.05, dy: -0.04, r: 0.82),
+      (dx: 0.35, dy: 0.52, r: 0.72),
+      (dx: -0.42, dy: 0.42, r: 0.62),
+    ]) {
+      cloud.add(
+        _skyDisc(
+          radius: puff.r * scale,
+          color: color,
+          x: puff.dx * scale,
+          y: puff.dy * scale,
+          z: 0.18,
+          opacity: opacity,
+        ),
+      );
+    }
+    return cloud;
+  }
+
+  void _addLandscape(
+    three.Group group,
+    double wallZ,
+    double farHillZ,
+    double nearHillZ,
+    double treeZ,
+    _SkyLook look,
+  ) {
+    final farCenterX = _windowProjectionCenterX(farHillZ, wallZ);
+    for (final hill in const [
+      (dx: -20.0, y: -1.8, w: 18.0, h: 8.0),
+      (dx: -9.5, y: -1.2, w: 21.0, h: 9.5),
+      (dx: 2.0, y: -1.6, w: 18.0, h: 8.2),
+      (dx: 13.0, y: -1.0, w: 22.0, h: 9.2),
+      (dx: 25.0, y: -1.7, w: 18.0, h: 7.8),
     ]) {
       group.add(
-        _skyDisc(radius: p.r, color: color, x: x + p.dx, y: y + p.dy, z: z),
+        _skyOval(
+          width: hill.w,
+          height: hill.h,
+          color: look.farHills,
+          x: farCenterX + hill.dx,
+          y: hill.y,
+          z: farHillZ,
+        ),
+      );
+    }
+
+    final nearCenterX = _windowProjectionCenterX(nearHillZ, wallZ);
+    for (final hill in const [
+      (dx: -16.0, y: -2.0, w: 15.0, h: 7.4),
+      (dx: -6.0, y: -1.55, w: 18.0, h: 8.0),
+      (dx: 5.0, y: -2.0, w: 16.0, h: 7.2),
+      (dx: 15.0, y: -1.4, w: 18.0, h: 8.4),
+    ]) {
+      group.add(
+        _skyOval(
+          width: hill.w,
+          height: hill.h,
+          color: look.nearHills,
+          x: nearCenterX + hill.dx,
+          y: hill.y,
+          z: nearHillZ,
+        ),
+      );
+    }
+    group.add(
+      _skyPanel(
+        width: 72,
+        height: 12,
+        color: look.nearHills,
+        x: nearCenterX,
+        y: -7.0,
+        z: nearHillZ + 0.15,
+      ),
+    );
+
+    final treeCenterX = _windowProjectionCenterX(treeZ, wallZ);
+    for (var treeIndex = 0; treeIndex < 18; treeIndex += 1) {
+      final scale = 0.72 + ((treeIndex * 17) % 7) * 0.08;
+      _addTree(
+        group,
+        x: treeCenterX + (((treeIndex * 43) % 101) / 101.0 - 0.5) * 27,
+        baseY: -0.35 + (treeIndex % 3) * 0.12,
+        z: treeZ - (treeIndex % 4) * 0.42,
+        scale: scale,
+        trunkColor: look.treeTrunk,
+        canopyColor: look.trees,
+      );
+    }
+  }
+
+  void _addTree(
+    three.Group group, {
+    required double x,
+    required double baseY,
+    required double z,
+    required double scale,
+    required int trunkColor,
+    required int canopyColor,
+  }) {
+    group.add(
+      _skyPanel(
+        width: 0.34 * scale,
+        height: 2.25 * scale,
+        depth: 0.24,
+        color: trunkColor,
+        x: x,
+        y: baseY + 1.1 * scale,
+        z: z,
+      ),
+    );
+    for (final canopy in const [
+      (dx: -0.65, dy: 2.35, size: 1.45),
+      (dx: 0.58, dy: 2.45, size: 1.35),
+      (dx: 0.0, dy: 3.25, size: 1.65),
+    ]) {
+      group.add(
+        _skyOval(
+          width: canopy.size * 1.55 * scale,
+          height: canopy.size * 1.35 * scale,
+          color: canopyColor,
+          x: x + canopy.dx * scale,
+          y: baseY + canopy.dy * scale,
+          z: z + 0.1,
+        ),
       );
     }
   }
@@ -1532,11 +1804,13 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     // Anchor palettes (RGB) around the day; interpolate between the two nearest.
     const anchors = [
       (t: 0.0, zenith: 0x070B18, horizon: 0x141D33, sun: 0xE6EBF5),
-      (t: 0.24, zenith: 0x34406B, horizon: 0x6E5070, sun: 0xFFC59A),
-      (t: 0.30, zenith: 0x5A6A9C, horizon: 0xE8A06A, sun: 0xFFD49C),
+      (t: 0.20, zenith: 0x17213C, horizon: 0x463B5B, sun: 0xFFB58A),
+      (t: 0.245, zenith: 0x3D4A78, horizon: 0xC56C62, sun: 0xFFB36B),
+      (t: 0.285, zenith: 0x6682B5, horizon: 0xF5B276, sun: 0xFFD49C),
       (t: 0.50, zenith: 0x3F86CF, horizon: 0xA7D2EF, sun: 0xFFF3D4),
-      (t: 0.70, zenith: 0x4A4370, horizon: 0xE0824D, sun: 0xFF9D5C),
-      (t: 0.76, zenith: 0x2A2A4A, horizon: 0x7A4A5A, sun: 0xFF8A5C),
+      (t: 0.68, zenith: 0x5881AE, horizon: 0xF2B16E, sun: 0xFFD28A),
+      (t: 0.735, zenith: 0x51456F, horizon: 0xE06F4E, sun: 0xFF9954),
+      (t: 0.79, zenith: 0x202743, horizon: 0x59405D, sun: 0xFF8A5C),
       (t: 1.0, zenith: 0x070B18, horizon: 0x141D33, sun: 0xE6EBF5),
     ];
     var lo = anchors.first;
@@ -1553,46 +1827,89 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     var zenith = _lerpColor(lo.zenith, hi.zenith, f);
     var horizon = _lerpColor(lo.horizon, hi.horizon, f);
     final sun = _lerpColor(lo.sun, hi.sun, f);
-    // Night exactly when the sun is below the show threshold used in _buildSky,
-    // so the sun/moon hand-off has no blank-sky gap.
-    final isNight = math.sin((time - 0.25) * 2 * math.pi) <= -0.05;
+    final sunArc = skyCelestialArc(time);
+    final isNight = sunArc.altitude <= -0.05;
+    final daylight = ((sunArc.altitude + 0.12) / 1.12)
+        .clamp(0.0, 1.0)
+        .toDouble();
+    double cyclicDistance(double a, double b) {
+      final direct = (a - b).abs();
+      return math.min(direct, 1 - direct);
+    }
 
-    var clouds = 1;
+    final twilightStrength = math.max(
+      (1 - cyclicDistance(time, 0.25) / 0.085).clamp(0.0, 1.0),
+      (1 - cyclicDistance(time, 0.75) / 0.085).clamp(0.0, 1.0),
+    );
+    var horizonGlow = _lerpColor(0x718DAD, sun, twilightStrength);
+    var farHills = _lerpColor(0x17243A, 0x6F8792, daylight);
+    var nearHills = _lerpColor(0x111B2B, 0x3F6157, daylight);
+    var trees = _lerpColor(0x0A1220, 0x29483E, daylight);
+    var treeTrunk = _lerpColor(0x080D17, 0x302E28, daylight);
+
+    var clouds = 2;
     var rain = false;
     var cloudColor = 0xF4F1EC;
-    var showSun = !isNight;
+    var cloudShadow = 0xC5CBD2;
+    var cloudOpacity = 0.72;
+    var celestialOpacity = 1.0;
     switch (weather) {
       case SkyWeather.clear:
-        clouds = 1;
+        clouds = 2;
+        cloudOpacity = 0.58;
       case SkyWeather.cloudy:
-        clouds = 4;
+        clouds = 6;
         cloudColor = 0xF0ECE6;
+        cloudShadow = 0xB0B6BD;
+        cloudOpacity = 0.82;
+        celestialOpacity = 0.82;
         zenith = _lerpColor(zenith, 0x9AA3AD, 0.25);
         horizon = _lerpColor(horizon, 0xB8BEC6, 0.25);
       case SkyWeather.overcast:
-        clouds = 7;
+        clouds = 10;
         cloudColor = 0xAFB4BB;
-        showSun = false;
+        cloudShadow = 0x858B92;
+        cloudOpacity = 0.92;
+        celestialOpacity = 0.12;
         zenith = _lerpColor(zenith, 0x8C9298, 0.6);
         horizon = _lerpColor(horizon, 0xA2A7AD, 0.6);
+        horizonGlow = _lerpColor(horizonGlow, 0xA7ACB2, 0.72);
+        farHills = _lerpColor(farHills, 0x68737B, 0.5);
+        nearHills = _lerpColor(nearHills, 0x47545A, 0.45);
       case SkyWeather.rain:
-        clouds = 6;
+        clouds = 9;
         rain = true;
         cloudColor = 0x7E848C;
-        showSun = false;
+        cloudShadow = 0x555B63;
+        cloudOpacity = 0.96;
+        celestialOpacity = 0;
         zenith = _lerpColor(zenith, 0x5C6066, 0.65);
         horizon = _lerpColor(horizon, 0x6E7378, 0.65);
+        horizonGlow = _lerpColor(horizonGlow, 0x737A82, 0.8);
+        farHills = _lerpColor(farHills, 0x48545B, 0.65);
+        nearHills = _lerpColor(nearHills, 0x313F43, 0.62);
+        trees = _lerpColor(trees, 0x1F2D2F, 0.58);
+        treeTrunk = _lerpColor(treeTrunk, 0x1D2425, 0.58);
     }
 
     return _SkyLook(
       zenith: zenith,
       horizon: horizon,
+      horizonGlow: horizonGlow,
       sun: sun,
+      moon: 0xE8EEFF,
       isNight: isNight,
-      showSun: showSun,
+      twilightStrength: twilightStrength,
+      celestialOpacity: celestialOpacity,
       clouds: clouds,
       cloudColor: cloudColor,
+      cloudShadow: cloudShadow,
+      cloudOpacity: cloudOpacity,
       rain: rain,
+      farHills: farHills,
+      nearHills: nearHills,
+      trees: trees,
+      treeTrunk: treeTrunk,
     );
   }
 
@@ -1643,6 +1960,27 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         if (opacity < 1.0) 'opacity': opacity,
       }),
     )..position.setValues(x, y, z);
+  }
+
+  three.Mesh _skyOval({
+    required double width,
+    required double height,
+    required int color,
+    double x = 0,
+    double y = 0,
+    double z = 0,
+    double opacity = 1.0,
+  }) {
+    return three.Mesh(
+        three.SphereGeometry(1, 24, 16),
+        three.MeshBasicMaterial.fromMap({
+          'color': color & 0x00ffffff,
+          if (opacity < 1.0) 'transparent': true,
+          if (opacity < 1.0) 'opacity': opacity,
+        }),
+      )
+      ..scale.setValues(width / 2, height / 2, 0.35)
+      ..position.setValues(x, y, z);
   }
 
   void _addDeskTapTarget(three.Scene scene, double roomDepth) {
@@ -2903,22 +3241,40 @@ class _SkyLook {
   const _SkyLook({
     required this.zenith,
     required this.horizon,
+    required this.horizonGlow,
     required this.sun,
+    required this.moon,
     required this.isNight,
-    required this.showSun,
+    required this.twilightStrength,
+    required this.celestialOpacity,
     required this.clouds,
     required this.cloudColor,
+    required this.cloudShadow,
+    required this.cloudOpacity,
     required this.rain,
+    required this.farHills,
+    required this.nearHills,
+    required this.trees,
+    required this.treeTrunk,
   });
 
   final int zenith;
   final int horizon;
+  final int horizonGlow;
   final int sun;
+  final int moon;
   final bool isNight;
-  final bool showSun;
+  final double twilightStrength;
+  final double celestialOpacity;
   final int clouds;
   final int cloudColor;
+  final int cloudShadow;
+  final double cloudOpacity;
   final bool rain;
+  final int farHills;
+  final int nearHills;
+  final int trees;
+  final int treeTrunk;
 }
 
 class _SceneFurniture {
