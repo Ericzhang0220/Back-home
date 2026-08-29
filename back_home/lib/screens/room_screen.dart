@@ -67,13 +67,14 @@ class _RoomScreenState extends State<RoomScreen> {
   bool _panelOpen = false;
   bool _deskFocused = false;
   bool _nightMode = false;
+  bool _outsideView = false;
   bool _nightHintVisible = false;
   bool _nightGlowDimmed = false;
   SkyWeather? _autoWeather; // latest reading from WeatherService
   double _cameraZoom = 1.0;
   bool _showFurnitureColliders = false;
 
-  bool get _inSubview => _deskFocused || _nightMode;
+  bool get _inSubview => _deskFocused || _nightMode || _outsideView;
 
   /// Weather actually shown through the window: the live reading when Auto is
   /// on (falling back to the manual value until the first fetch lands),
@@ -131,6 +132,7 @@ class _RoomScreenState extends State<RoomScreen> {
     setState(() {
       _deskFocused = true;
       _nightMode = false;
+      _outsideView = false;
       _nightHintVisible = false;
       _nightGlowDimmed = false;
       _panelOpen = false;
@@ -142,6 +144,7 @@ class _RoomScreenState extends State<RoomScreen> {
     setState(() {
       _deskFocused = false;
       _nightMode = true;
+      _outsideView = false;
       _nightHintVisible = true;
       _nightGlowDimmed = false;
       _panelOpen = false;
@@ -165,7 +168,29 @@ class _RoomScreenState extends State<RoomScreen> {
     widget.onSubviewChanged(_inSubview);
   }
 
+  void _openOutsideView() {
+    _nightHintFadeTimer?.cancel();
+    _nightGlowDimTimer?.cancel();
+    _nightExitTimer?.cancel();
+    setState(() {
+      _deskFocused = false;
+      _nightMode = false;
+      _outsideView = true;
+      _nightHintVisible = false;
+      _nightGlowDimmed = false;
+      _panelOpen = false;
+    });
+    widget.onSubviewChanged(_inSubview);
+  }
+
   void _handleDoubleTap() {
+    if (_outsideView) {
+      setState(() {
+        _outsideView = false;
+      });
+      widget.onSubviewChanged(_inSubview);
+      return;
+    }
     if (_nightMode) {
       _brightenNightOverlayBeforeExit();
       return;
@@ -288,9 +313,11 @@ class _RoomScreenState extends State<RoomScreen> {
                       canMoveFurniture: false,
                       deskFocused: _deskFocused,
                       nightMode: _nightMode,
+                      outsideView: _outsideView,
                       onTapDesk: _focusDesk,
                       onTapBed: _openNightMode,
                       onTapRadio: _openRadioSheet,
+                      onTapWindow: _openOutsideView,
                       onDoubleTapRoom: _handleDoubleTap,
                       skyWeather: _effectiveWeather,
                       skyTimeOfDay: widget.settingsController.skyTimeOfDay,
@@ -310,9 +337,13 @@ class _RoomScreenState extends State<RoomScreen> {
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
                         colors: [
-                          Colors.black.withValues(alpha: 0.48),
+                          Colors.black.withValues(
+                            alpha: _outsideView ? 0.12 : 0.48,
+                          ),
                           Colors.transparent,
-                          Colors.black.withValues(alpha: 0.18),
+                          Colors.black.withValues(
+                            alpha: _outsideView ? 0.04 : 0.18,
+                          ),
                         ],
                         stops: const [0, 0.36, 1],
                       ),

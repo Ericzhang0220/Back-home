@@ -48,6 +48,15 @@ void main() {
     expect(midnightMoon.altitude, closeTo(1, 1e-9));
   });
 
+  test('outdoor look stays within the outward hemisphere', () {
+    const limit = 35 * math.pi / 180;
+
+    expect(clampOutwardCameraYaw(0.4), closeTo(0.4, 1e-9));
+    expect(clampOutwardCameraYaw(math.pi).abs(), closeTo(limit, 1e-9));
+    expect(clampOutwardCameraYaw(-math.pi).abs(), closeTo(limit, 1e-9));
+    expect(clampOutwardCameraYaw(2 * math.pi - 0.3), closeTo(-0.3, 1e-9));
+  });
+
   test('buyAndAddItem spends likes, adds inventory, and places the item', () {
     final controller = RoomEditorController();
 

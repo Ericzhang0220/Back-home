@@ -7,7 +7,7 @@ import 'package:three_js/three_js.dart' as three;
 import 'furniture_models.dart';
 import 'room_state.dart';
 
-enum _RoomTapTarget { desk, bed, radio }
+enum _RoomTapTarget { desk, bed, radio, window }
 
 typedef _CameraViewState = ({
   three.Vector3 panOffset,
@@ -60,6 +60,14 @@ double skyTimeOfDayForDateTime(DateTime dateTime) {
   return (horizontal: math.cos(angle), altitude: math.sin(angle));
 }
 
+/// Keeps an outdoor camera facing away from the room while allowing a broad
+/// view of the landscape. Angles beyond the outward hemisphere are clamped.
+double clampOutwardCameraYaw(double yaw, {double limit = 35 * math.pi / 180}) {
+  final twoPi = 2 * math.pi;
+  final signed = ((yaw + math.pi) % twoPi + twoPi) % twoPi - math.pi;
+  return signed.clamp(-limit, limit).toDouble();
+}
+
 class IsometricRoomView extends StatefulWidget {
   const IsometricRoomView({
     super.key,
@@ -67,9 +75,11 @@ class IsometricRoomView extends StatefulWidget {
     required this.isActive,
     this.deskFocused = false,
     this.nightMode = false,
+    this.outsideView = false,
     this.onTapDesk,
     this.onTapBed,
     this.onTapRadio,
+    this.onTapWindow,
     this.onDoubleTapRoom,
     this.skyWeather = SkyWeather.clear,
     this.skyTimeOfDay,
@@ -89,11 +99,13 @@ class IsometricRoomView extends StatefulWidget {
   final bool isActive;
   final bool deskFocused;
   final bool nightMode;
+  final bool outsideView;
   final VoidCallback? onTapDesk;
   final VoidCallback? onTapBed;
 
   /// Fired when the radio on the desk is tapped — used to open the music picker.
   final VoidCallback? onTapRadio;
+  final VoidCallback? onTapWindow;
   final VoidCallback? onDoubleTapRoom;
 
   /// Weather shown through the window.
@@ -200,6 +212,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   double _currentCameraPitch = _lookPitch;
   _CameraViewState? _preNightCameraState;
   _CameraViewState? _preDeskCameraState;
+  _CameraViewState? _preOutsideCameraState;
   double _yawAtDragStart = 0;
   double _pitchAtDragStart = _lookPitch;
   double _cameraTiltPointerStartX = 0;
@@ -215,6 +228,8 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   static const double _deskYawLimit = math.pi / 2; // front hemisphere only
   static const double _deskPitchMin = -0.5;
   static const double _deskPitchMax = 0.5;
+  static const double _outsidePitchMin = -0.85;
+  static const double _outsidePitchMax = 0.72;
 
   // Smooth camera motion + pinch zoom. The camera eases toward these targets
   // every frame instead of snapping; _zoom drives the field of view.
@@ -309,14 +324,25 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
 
     final focusChanged =
         widget.deskFocused != oldWidget.deskFocused ||
-        widget.nightMode != oldWidget.nightMode;
+        widget.nightMode != oldWidget.nightMode ||
+        widget.outsideView != oldWidget.outsideView;
     if (focusChanged && _threeConfigured && _threeJs != null) {
       _cancelPendingRoomTap();
       final enteringNight = widget.nightMode && !oldWidget.nightMode;
       final leavingNight = !widget.nightMode && oldWidget.nightMode;
       final enteringDesk = widget.deskFocused && !oldWidget.deskFocused;
       final leavingDesk = !widget.deskFocused && oldWidget.deskFocused;
-      if (enteringNight) {
+      final enteringOutside = widget.outsideView && !oldWidget.outsideView;
+      final leavingOutside = !widget.outsideView && oldWidget.outsideView;
+      if (enteringOutside) {
+        _preOutsideCameraState = _captureCameraViewState();
+        _resetFocusedCameraState();
+        _cameraYaw = 0;
+        _cameraPitch = -0.04;
+      } else if (leavingOutside && _preOutsideCameraState != null) {
+        _restoreCameraViewState(_preOutsideCameraState!);
+        _preOutsideCameraState = null;
+      } else if (enteringNight) {
         _preNightCameraState = _captureCameraViewState();
         _resetFocusedCameraState();
       } else if (leavingNight && _preNightCameraState != null) {
@@ -332,9 +358,11 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         _resetFocusedCameraState();
       }
       _lastPanCentroid = null;
-      // Sit down facing the desk; the seated look starts centred each time.
-      _deskYaw = 0;
-      _deskPitch = 0;
+      if (!widget.outsideView) {
+        // Sit down facing the desk; the seated look starts centred each time.
+        _deskYaw = 0;
+        _deskPitch = 0;
+      }
       _configureCamera(_currentViewportSize());
     }
 
@@ -558,7 +586,18 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     three.Vector3 basePos;
     three.Vector3 lookAt;
     final double baseFov;
-    if (widget.deskFocused) {
+    if (widget.outsideView) {
+      // Pass through the centre of the opening and settle just beyond the
+      // exterior wall. The gaze remains aimed into the landscape; outdoor drag
+      // handling clamps yaw before it could turn back toward the room.
+      basePos = three.Vector3(1.0, 2.32, farWallZ - 1.35);
+      lookAt = three.Vector3(
+        basePos.x + math.sin(_cameraYaw),
+        basePos.y + _cameraPitch,
+        basePos.z - math.cos(_cameraYaw),
+      );
+      baseFov = 54;
+    } else if (widget.deskFocused) {
       // Fly to a close-up of the tapped desk, viewed from the room-centre side
       // so the camera stays inside the room wherever the desk sits.
       (basePos, lookAt) = _focusFraming(
@@ -754,6 +793,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     final aspectAdjustedFov = roomVerticalFovForAspect(
       _cameraTargetBaseFov,
       _viewportAspect,
+      maxHorizontalFov: widget.outsideView ? 60 : 82,
     );
     _camera.fov = (aspectAdjustedFov / effectiveZoom)
         .clamp(_minFov, _maxFov)
@@ -1010,6 +1050,16 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       }),
     )..position.setValues(1.0, 2.28, -roomDepth / 2 + 0.22);
     scene.add(rearWindowGlass);
+    _addRoomTapTarget(
+      scene,
+      target: _RoomTapTarget.window,
+      width: 4.45,
+      height: 2.25,
+      depth: 0.08,
+      x: 1.0,
+      y: 2.28,
+      z: -roomDepth / 2 + 0.28,
+    );
 
     final mullion = _box(
       width: 0.12,
@@ -1393,6 +1443,13 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     if (threeJs == null) {
       return;
     }
+    final previousCloudXs = [
+      for (final cloud in _skyCloudGroups) cloud.position.x,
+    ];
+    final previousRainPositions = [
+      for (final drop in _skyRainDrops)
+        (x: drop.position.x, y: drop.position.y),
+    ];
     final previous = _skyGroup;
     if (previous != null) {
       threeJs.scene.remove(previous);
@@ -1404,6 +1461,22 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _skyCloudGroups.clear();
     _skyRainDrops.clear();
     final group = _buildSky(_resolveTimeOfDay(), widget.skyWeather);
+    final reusableClouds = math.min(
+      previousCloudXs.length,
+      _skyCloudGroups.length,
+    );
+    for (var index = 0; index < reusableClouds; index += 1) {
+      _skyCloudGroups[index].position.x = previousCloudXs[index];
+    }
+    final reusableRain = math.min(
+      previousRainPositions.length,
+      _skyRainDrops.length,
+    );
+    for (var index = 0; index < reusableRain; index += 1) {
+      _skyRainDrops[index].position
+        ..x = previousRainPositions[index].x
+        ..y = previousRainPositions[index].y;
+    }
     _skyGroup = group;
     threeJs.scene.add(group);
   }
@@ -1432,8 +1505,8 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     for (var index = 0; index < _skyCloudGroups.length; index += 1) {
       final cloud = _skyCloudGroups[index];
       cloud.position.x += dt * (0.025 + (index % 3) * 0.012);
-      if (cloud.position.x > 34) {
-        cloud.position.x = -24;
+      if (cloud.position.x > 78) {
+        cloud.position.x = -68;
       }
     }
 
@@ -1472,7 +1545,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     final look = _skyLook(time, weather);
     _activeSkyLook = look;
 
-    const skyW = 112.0;
+    const skyW = 220.0;
     const skyH = 72.0;
     const bottomY = -22.0;
     const bands = 20;
@@ -1496,7 +1569,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     // actual disc is partially hidden by the hills.
     group.add(
       _skyPanel(
-        width: 84,
+        width: 180,
         height: 6.5,
         color: look.horizonGlow,
         x: backdropCenterX,
@@ -1507,8 +1580,8 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     );
 
     if (look.isNight) {
-      for (var star = 0; star < 42; star += 1) {
-        final sx = backdropCenterX + (((star * 53) % 101) / 101.0 - 0.5) * 48;
+      for (var star = 0; star < 90; star += 1) {
+        final sx = backdropCenterX + (((star * 53) % 211) / 211.0 - 0.5) * 180;
         final sy = 2.5 + (((star * 31) % 97) / 97.0) * 16;
         group.add(
           _skyDisc(
@@ -1546,7 +1619,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       final farLayer = cloudIndex.isEven;
       final cloudZ = wallZ - (farLayer ? 33.0 : 28.0);
       final cloudCenterX = _windowProjectionCenterX(cloudZ, wallZ);
-      final spread = farLayer ? 42.0 : 34.0;
+      final spread = farLayer ? 112.0 : 92.0;
       final cloud =
           _buildCloud(
               scale: (farLayer ? 2.1 : 1.7) + (cloudIndex % 3) * 0.2,
@@ -1700,11 +1773,15 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   ) {
     final farCenterX = _windowProjectionCenterX(farHillZ, wallZ);
     for (final hill in const [
+      (dx: -54.0, y: -1.5, w: 22.0, h: 8.6),
+      (dx: -39.0, y: -1.1, w: 24.0, h: 9.2),
       (dx: -20.0, y: -1.8, w: 18.0, h: 8.0),
       (dx: -9.5, y: -1.2, w: 21.0, h: 9.5),
       (dx: 2.0, y: -1.6, w: 18.0, h: 8.2),
       (dx: 13.0, y: -1.0, w: 22.0, h: 9.2),
       (dx: 25.0, y: -1.7, w: 18.0, h: 7.8),
+      (dx: 40.0, y: -1.2, w: 23.0, h: 9.0),
+      (dx: 55.0, y: -1.7, w: 21.0, h: 8.1),
     ]) {
       group.add(
         _skyOval(
@@ -1720,10 +1797,14 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
 
     final nearCenterX = _windowProjectionCenterX(nearHillZ, wallZ);
     for (final hill in const [
+      (dx: -43.0, y: -1.7, w: 19.0, h: 7.8),
+      (dx: -29.0, y: -1.3, w: 20.0, h: 8.2),
       (dx: -16.0, y: -2.0, w: 15.0, h: 7.4),
       (dx: -6.0, y: -1.55, w: 18.0, h: 8.0),
       (dx: 5.0, y: -2.0, w: 16.0, h: 7.2),
       (dx: 15.0, y: -1.4, w: 18.0, h: 8.4),
+      (dx: 29.0, y: -1.7, w: 20.0, h: 7.9),
+      (dx: 43.0, y: -1.35, w: 19.0, h: 8.3),
     ]) {
       group.add(
         _skyOval(
@@ -1738,7 +1819,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     }
     group.add(
       _skyPanel(
-        width: 72,
+        width: 120,
         height: 12,
         color: look.nearHills,
         x: nearCenterX,
@@ -1748,11 +1829,11 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     );
 
     final treeCenterX = _windowProjectionCenterX(treeZ, wallZ);
-    for (var treeIndex = 0; treeIndex < 18; treeIndex += 1) {
+    for (var treeIndex = 0; treeIndex < 32; treeIndex += 1) {
       final scale = 0.72 + ((treeIndex * 17) % 7) * 0.08;
       _addTree(
         group,
-        x: treeCenterX + (((treeIndex * 43) % 101) / 101.0 - 0.5) * 27,
+        x: treeCenterX + (((treeIndex * 43) % 101) / 101.0 - 0.5) * 52,
         baseY: -0.35 + (treeIndex % 3) * 0.12,
         z: treeZ - (treeIndex % 4) * 0.42,
         scale: scale,
@@ -2455,7 +2536,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   void _beginCameraTiltCandidate(dynamic event) {
     _cameraTiltCandidate = true;
     _cameraTiltActive = false;
-    _cameraYaw = _currentCameraYaw;
+    _cameraYaw = widget.outsideView
+        ? clampOutwardCameraYaw(_currentCameraYaw)
+        : _currentCameraYaw;
     _cameraPitch = _currentCameraPitch;
     _yawAtDragStart = _cameraYaw;
     _pitchAtDragStart = _cameraPitch;
@@ -2498,21 +2581,25 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       return;
     }
 
-    // Full 360° turn — no clamp; wrap into [0, 2π) so the value stays bounded.
-    _cameraYaw = _normalizeRadians(
-      _yawAtDragStart -
-          deltaX * _yawSensitivity * widget.cameraRotateSensitivity,
-    );
+    final requestedYaw =
+        _yawAtDragStart -
+        deltaX * _yawSensitivity * widget.cameraRotateSensitivity;
+    _cameraYaw = widget.outsideView
+        ? clampOutwardCameraYaw(requestedYaw)
+        : _normalizeRadians(requestedYaw);
     _cameraPitch =
         (_pitchAtDragStart +
                 deltaY * _pitchSensitivity * widget.cameraRotateSensitivity)
-            .clamp(_minLookPitch, _maxLookPitch)
+            .clamp(
+              widget.outsideView ? _outsidePitchMin : _minLookPitch,
+              widget.outsideView ? _outsidePitchMax : _maxLookPitch,
+            )
             .toDouble();
     _refreshCamera();
   }
 
   void _updateCameraPan() {
-    if (widget.deskFocused || widget.nightMode) {
+    if (widget.deskFocused || widget.nightMode || widget.outsideView) {
       _lastPanCentroid = null;
       return;
     }
@@ -2607,7 +2694,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   }
 
   void _updateCameraHeightPan() {
-    if (widget.deskFocused || widget.nightMode) {
+    if (widget.deskFocused || widget.nightMode || widget.outsideView) {
       _lastPanCentroid = null;
       return;
     }
@@ -3061,6 +3148,11 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         return;
       case _RoomTapTarget.radio:
         widget.onTapRadio?.call();
+        return;
+      case _RoomTapTarget.window:
+        if (!widget.deskFocused && !widget.nightMode && !widget.outsideView) {
+          widget.onTapWindow?.call();
+        }
         return;
       case null:
         return;
