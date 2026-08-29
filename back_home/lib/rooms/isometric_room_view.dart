@@ -134,6 +134,7 @@ class IsometricRoomView extends StatefulWidget {
 
 class _IsometricRoomViewState extends State<IsometricRoomView> {
   static const Duration _sceneWarmupDelay = Duration(milliseconds: 350);
+  static const Color _windowFrameColor = Color(0xFF4C392F);
 
   // --- Centered 360° free-look camera (main view) -------------------------
   // The main view stands in the middle of the room and turns a full 360°.
@@ -862,7 +863,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         settings: three.Settings(
           antialias: true,
           alpha: true,
-          clearColor: 0x090807,
+          // Any pixels beyond the outdoor panorama should disappear into the
+          // window surround instead of exposing the renderer's black void.
+          clearColor: _hex(_windowFrameColor),
           clearAlpha: 1,
         ),
         setup: _setupScene,
@@ -1023,7 +1026,6 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       return;
     }
 
-    const frameColor = Color(0xFF4C392F);
     const frameWidth = 4.9;
     const frameHeight = 2.7;
     const frameThickness = 0.16;
@@ -1035,7 +1037,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       (w: frameThickness, h: frameHeight, x: 3.37, y: 2.35),
     ]) {
       scene.add(
-        _box(width: bar.w, height: bar.h, depth: 0.1, color: frameColor)
+        _box(width: bar.w, height: bar.h, depth: 0.1, color: _windowFrameColor)
           ..position.setValues(bar.x, bar.y, frameZ),
       );
     }
