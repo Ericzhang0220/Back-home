@@ -48,6 +48,28 @@ void main() {
     expect(midnightMoon.altitude, closeTo(1, 1e-9));
   });
 
+  test('star placement is random-looking but stable across sky refreshes', () {
+    final first = seededSkyStars(96);
+    final rebuilt = seededSkyStars(96);
+    final alternate = seededSkyStars(96, seed: 42);
+
+    expect(rebuilt, equals(first));
+    expect(alternate, isNot(equals(first)));
+    expect(first.map((star) => (star.x, star.y)).toSet(), hasLength(96));
+    expect(
+      first.every(
+        (star) =>
+            star.x >= 0 &&
+            star.x <= 1 &&
+            star.y >= 0 &&
+            star.y <= 1 &&
+            star.opacity > 0 &&
+            star.opacity <= 1,
+      ),
+      isTrue,
+    );
+  });
+
   test('outdoor look stays within the outward hemisphere', () {
     const limit = 35 * math.pi / 180;
 
