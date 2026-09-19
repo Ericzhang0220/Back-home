@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
@@ -9,8 +11,8 @@ import '../widgets/profile_avatar.dart';
 /// The inbox behind the profile screen's mail button.
 ///
 /// Merges two sources: friend requests, which are answered here, and the
-/// notification feed (likes, comments, conduct warnings, system updates),
-/// which is read and cleared.
+/// notification feed (likes, comments, conduct warnings, system updates, and
+/// Hall moderation results), which is read and cleared.
 class NotificationsScreen extends StatelessWidget {
   const NotificationsScreen({
     super.key,
@@ -60,7 +62,7 @@ class NotificationsScreen extends StatelessWidget {
   }
 }
 
-class _InboxList extends StatelessWidget {
+class _InboxList extends StatefulWidget {
   const _InboxList({
     required this.friendsRepository,
     required this.notificationsRepository,
@@ -70,12 +72,34 @@ class _InboxList extends StatelessWidget {
   final NotificationsRepository notificationsRepository;
 
   @override
+  State<_InboxList> createState() => _InboxListState();
+}
+
+class _InboxListState extends State<_InboxList> {
+  final GlobalKey _viewportKey = GlobalKey();
+  final Map<String, GlobalKey> _itemKeys = {};
+  final Set<String> _markingRead = {};
+  late final Stream<List<IncomingFriendRequest>> _requestsStream;
+  late final Stream<List<AppNotification>> _notificationsStream;
+  List<IncomingFriendRequest> _requests = const [];
+  List<AppNotification> _notifications = const [];
+  bool _visibilityCheckScheduled = false;
+  bool _isBulkActionRunning = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _requestsStream = widget.friendsRepository.watchIncomingRequests();
+    _notificationsStream = widget.notificationsRepository.watchNotifications();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return StreamBuilder<List<String>>(
-      stream: friendsRepository.watchIncomingRequestUids(),
+    return StreamBuilder<List<IncomingFriendRequest>>(
+      stream: _requestsStream,
       builder: (context, requestsSnapshot) {
         return StreamBuilder<List<AppNotification>>(
-          stream: notificationsRepository.watchNotifications(),
+          stream: _notificationsStream,
           builder: (context, notificationsSnapshot) {
             final isLoading =
                 requestsSnapshot.connectionState == ConnectionState.waiting &&
@@ -85,58 +109,290 @@ class _InboxList extends StatelessWidget {
               return const Center(child: CircularProgressIndicator());
             }
 
-            final requesterUids = requestsSnapshot.data ?? const <String>[];
+            final requests =
+                requestsSnapshot.data ?? const <IncomingFriendRequest>[];
             final notifications =
                 notificationsSnapshot.data ?? const <AppNotification>[];
+            _requests = requests;
+            _notifications = notifications;
+            _scheduleVisibilityCheck();
 
-            if (requesterUids.isEmpty && notifications.isEmpty) {
-              return const _InboxMessage(
-                text:
-                    'Nothing new right now.\nFriend requests, likes, replies '
-                    'and updates will show up here.',
+            final hasUnread =
+                requests.any((request) => !request.isRead) ||
+                notifications.any((notification) => !notification.isRead);
+            final hasRead =
+                requests.any((request) => request.isRead) ||
+                notifications.any((notification) => notification.isRead);
+
+            if (requests.isEmpty && notifications.isEmpty) {
+              return Column(
+                children: [
+                  const Expanded(
+                    child: _InboxMessage(
+                      text:
+                          'Nothing new right now.\nNew followers, likes, system '
+                          'updates and Hall reviews will show up here.',
+                    ),
+                  ),
+                  _InboxActions(
+                    isBusy: _isBulkActionRunning,
+                    canMarkAllRead: false,
+                    canDeleteRead: false,
+                    onMarkAllRead: _markAllRead,
+                    onDeleteRead: _deleteRead,
+                  ),
+                ],
               );
             }
 
-            return AppPage(
-              title: '',
-              subtitle: '',
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 140),
+            return Column(
               children: [
-                if (requesterUids.isNotEmpty) ...[
-                  SectionHeader(
-                    title: requesterUids.length == 1
-                        ? '1 friend request'
-                        : '${requesterUids.length} friend requests',
-                    subtitle: 'Accepting saves them to your people too.',
-                  ),
-                  const SizedBox(height: 14),
-                  for (final requesterUid in requesterUids) ...[
-                    _FriendRequestCard(
-                      requesterUid: requesterUid,
-                      repository: friendsRepository,
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-                  const SizedBox(height: 16),
-                ],
-                if (notifications.isNotEmpty) ...[
-                  const SectionHeader(title: 'Recent'),
-                  const SizedBox(height: 14),
-                  for (final notification in notifications) ...[
-                    _NotificationCard(
-                      notification: notification,
-                      onDismiss: () => notificationsRepository.dismiss(
-                        notification.id,
+                Expanded(
+                  child: SizedBox.expand(
+                    key: _viewportKey,
+                    child: NotificationListener<ScrollNotification>(
+                      onNotification: (_) {
+                        _scheduleVisibilityCheck();
+                        return false;
+                      },
+                      child: AppPage(
+                        title: '',
+                        subtitle: '',
+                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
+                        children: [
+                          if (requests.isNotEmpty) ...[
+                            SectionHeader(
+                              title: requests.length == 1
+                                  ? '1 follower'
+                                  : '${requests.length} followers',
+                              subtitle:
+                                  'Follow them back to add them to your people.',
+                            ),
+                            const SizedBox(height: 14),
+                            for (final request in requests) ...[
+                              SizedBox(
+                                key: _itemKey(
+                                  'request:${request.requesterUid}',
+                                ),
+                                child: _FriendRequestCard(
+                                  requesterUid: request.requesterUid,
+                                  isRead: request.isRead,
+                                  repository: widget.friendsRepository,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                            ],
+                            const SizedBox(height: 16),
+                          ],
+                          if (notifications.isNotEmpty) ...[
+                            const SectionHeader(title: 'Recent'),
+                            const SizedBox(height: 14),
+                            for (final notification in notifications) ...[
+                              SizedBox(
+                                key: _itemKey(
+                                  'notification:${notification.id}',
+                                ),
+                                child: _NotificationCard(
+                                  notification: notification,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                            ],
+                          ],
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 12),
-                  ],
-                ],
+                  ),
+                ),
+                _InboxActions(
+                  isBusy: _isBulkActionRunning,
+                  canMarkAllRead: hasUnread,
+                  canDeleteRead: hasRead,
+                  onMarkAllRead: _markAllRead,
+                  onDeleteRead: _deleteRead,
+                ),
               ],
             );
           },
         );
       },
+    );
+  }
+
+  GlobalKey _itemKey(String id) => _itemKeys.putIfAbsent(id, GlobalKey.new);
+
+  void _scheduleVisibilityCheck() {
+    if (_visibilityCheckScheduled) {
+      return;
+    }
+    _visibilityCheckScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _visibilityCheckScheduled = false;
+      if (mounted) {
+        _markFullyVisibleItemsRead();
+      }
+    });
+  }
+
+  void _markFullyVisibleItemsRead() {
+    for (final request in _requests.where((request) => !request.isRead)) {
+      final id = 'request:${request.requesterUid}';
+      final isVisible = _isFullyVisible(_itemKeys[id]);
+      if (isVisible && _markingRead.add(id)) {
+        unawaited(_markRequestRead(request, id));
+      } else if (!isVisible) {
+        _markingRead.remove(id);
+      }
+    }
+    for (final notification in _notifications.where(
+      (notification) => !notification.isRead,
+    )) {
+      final id = 'notification:${notification.id}';
+      final isVisible = _isFullyVisible(_itemKeys[id]);
+      if (isVisible && _markingRead.add(id)) {
+        unawaited(_markNotificationRead(notification, id));
+      } else if (!isVisible) {
+        _markingRead.remove(id);
+      }
+    }
+  }
+
+  bool _isFullyVisible(GlobalKey? itemKey) {
+    final viewport = _viewportKey.currentContext?.findRenderObject();
+    final item = itemKey?.currentContext?.findRenderObject();
+    if (viewport is! RenderBox || item is! RenderBox) {
+      return false;
+    }
+
+    final viewportOrigin = viewport.localToGlobal(Offset.zero);
+    final itemOrigin = item.localToGlobal(Offset.zero);
+    final viewportRect = viewportOrigin & viewport.size;
+    final itemRect = itemOrigin & item.size;
+    const tolerance = 0.5;
+    return itemRect.top >= viewportRect.top - tolerance &&
+        itemRect.bottom <= viewportRect.bottom + tolerance &&
+        itemRect.left >= viewportRect.left - tolerance &&
+        itemRect.right <= viewportRect.right + tolerance;
+  }
+
+  Future<void> _markRequestRead(
+    IncomingFriendRequest request,
+    String trackingId,
+  ) async {
+    try {
+      await widget.friendsRepository.markRequestRead(request.requesterUid);
+    } catch (_) {
+      // A request may disappear while it is being marked (for example, if the
+      // sender withdraws it). The live stream already reflects that outcome.
+    } finally {
+      _markingRead.remove(trackingId);
+    }
+  }
+
+  Future<void> _markNotificationRead(
+    AppNotification notification,
+    String trackingId,
+  ) async {
+    try {
+      await widget.notificationsRepository.markRead(notification.id);
+    } catch (_) {
+      // The notification may have been withdrawn while it was on screen.
+    } finally {
+      _markingRead.remove(trackingId);
+    }
+  }
+
+  Future<void> _markAllRead() async {
+    if (_isBulkActionRunning) {
+      return;
+    }
+    setState(() => _isBulkActionRunning = true);
+    try {
+      await Future.wait([
+        widget.friendsRepository.markAllIncomingRequestsRead(),
+        widget.notificationsRepository.markAllRead(),
+      ]);
+    } catch (_) {
+      if (mounted) {
+        _showError('Could not mark every notification as read.');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isBulkActionRunning = false);
+      }
+    }
+  }
+
+  Future<void> _deleteRead() async {
+    if (_isBulkActionRunning) {
+      return;
+    }
+    setState(() => _isBulkActionRunning = true);
+    try {
+      await Future.wait([
+        widget.friendsRepository.deleteReadIncomingRequests(),
+        widget.notificationsRepository.deleteRead(),
+      ]);
+    } catch (_) {
+      if (mounted) {
+        _showError('Could not delete the read notifications.');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isBulkActionRunning = false);
+      }
+    }
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+}
+
+class _InboxActions extends StatelessWidget {
+  const _InboxActions({
+    required this.isBusy,
+    required this.canMarkAllRead,
+    required this.canDeleteRead,
+    required this.onMarkAllRead,
+    required this.onDeleteRead,
+  });
+
+  final bool isBusy;
+  final bool canMarkAllRead;
+  final bool canDeleteRead;
+  final VoidCallback onMarkAllRead;
+  final VoidCallback onDeleteRead;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 10),
+      decoration: BoxDecoration(
+        color: AppColors.cream.withValues(alpha: 0.98),
+        border: const Border(top: BorderSide(color: AppColors.stroke)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: isBusy || !canMarkAllRead ? null : onMarkAllRead,
+              icon: const Icon(Icons.done_all_rounded),
+              label: const Text('Mark all read'),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: FilledButton.tonalIcon(
+              onPressed: isBusy || !canDeleteRead ? null : onDeleteRead,
+              icon: const Icon(Icons.delete_sweep_outlined),
+              label: const Text('Delete read'),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -164,14 +420,15 @@ class _InboxMessage extends StatelessWidget {
 /// Read-only row for everything that is not a friend request. The icon and
 /// tint carry the type, since a warning should not look like a like.
 class _NotificationCard extends StatelessWidget {
-  const _NotificationCard({required this.notification, required this.onDismiss});
+  const _NotificationCard({required this.notification});
 
   final AppNotification notification;
-  final VoidCallback onDismiss;
 
   @override
   Widget build(BuildContext context) {
-    final isWarning = notification.type == AppNotificationType.warning;
+    final isAlert =
+        notification.type == AppNotificationType.warning ||
+        notification.type == AppNotificationType.postRejected;
     final theme = Theme.of(context);
 
     return SoftCard(
@@ -183,7 +440,7 @@ class _NotificationCard extends StatelessWidget {
             height: 42,
             width: 42,
             decoration: BoxDecoration(
-              color: isWarning
+              color: isAlert
                   ? const Color(0xFFF7DEDA)
                   : AppColors.blush.withValues(alpha: 0.75),
               borderRadius: BorderRadius.circular(14),
@@ -191,7 +448,7 @@ class _NotificationCard extends StatelessWidget {
             child: Icon(
               _icon,
               size: 20,
-              color: isWarning ? const Color(0xFFC34A3F) : AppColors.clay,
+              color: isAlert ? const Color(0xFFC34A3F) : AppColors.clay,
             ),
           ),
           const SizedBox(width: 14),
@@ -202,7 +459,7 @@ class _NotificationCard extends StatelessWidget {
                 Text(
                   _title,
                   style: theme.textTheme.titleMedium?.copyWith(
-                    color: isWarning ? const Color(0xFFC34A3F) : null,
+                    color: isAlert ? const Color(0xFFC34A3F) : null,
                   ),
                 ),
                 if (_body != null) ...[
@@ -221,13 +478,16 @@ class _NotificationCard extends StatelessWidget {
               ],
             ),
           ),
-          IconButton(
-            tooltip: 'Dismiss',
-            visualDensity: VisualDensity.compact,
-            onPressed: onDismiss,
-            icon: const Icon(Icons.close_rounded, size: 18),
-            color: AppColors.muted,
-          ),
+          if (!notification.isRead)
+            Container(
+              width: 9,
+              height: 9,
+              margin: const EdgeInsets.only(top: 6),
+              decoration: const BoxDecoration(
+                color: AppColors.clay,
+                shape: BoxShape.circle,
+              ),
+            ),
         ],
       ),
     );
@@ -243,6 +503,8 @@ class _NotificationCard extends StatelessWidget {
         return Icons.report_gmailerrorred_rounded;
       case AppNotificationType.system:
         return Icons.campaign_rounded;
+      case AppNotificationType.postRejected:
+        return Icons.visibility_off_rounded;
     }
   }
 
@@ -259,6 +521,8 @@ class _NotificationCard extends StatelessWidget {
         return notification.title ?? 'Community guidelines warning';
       case AppNotificationType.system:
         return notification.title ?? 'Back Home update';
+      case AppNotificationType.postRejected:
+        return notification.title ?? 'Your Hall poster was not approved';
     }
   }
 
@@ -276,6 +540,7 @@ class _NotificationCard extends StatelessWidget {
             : 'Most recently from $actor.';
       case AppNotificationType.warning:
       case AppNotificationType.system:
+      case AppNotificationType.postRejected:
         return notification.body;
     }
   }
@@ -308,10 +573,12 @@ class _NotificationCard extends StatelessWidget {
 class _FriendRequestCard extends StatefulWidget {
   const _FriendRequestCard({
     required this.requesterUid,
+    required this.isRead,
     required this.repository,
   });
 
   final String requesterUid;
+  final bool isRead;
   final HumanFriendsRepository repository;
 
   @override
@@ -389,6 +656,12 @@ class _FriendRequestCardState extends State<_FriendRequestCard> {
                         ),
                         const SizedBox(height: 4),
                         Text(
+                          '$name followed you',
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
                           handle,
                           overflow: TextOverflow.ellipsis,
                           style: Theme.of(context).textTheme.bodyMedium,
@@ -396,6 +669,15 @@ class _FriendRequestCardState extends State<_FriendRequestCard> {
                       ],
                     ),
                   ),
+                  if (!widget.isRead)
+                    Container(
+                      width: 9,
+                      height: 9,
+                      decoration: const BoxDecoration(
+                        color: AppColors.clay,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
                 ],
               ),
               const SizedBox(height: 16),
@@ -406,7 +688,7 @@ class _FriendRequestCardState extends State<_FriendRequestCard> {
                       onPressed: _isAnswering
                           ? null
                           : () => _answer(accept: false),
-                      child: const Text('Reject'),
+                      child: const Text('Not now'),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -415,7 +697,7 @@ class _FriendRequestCardState extends State<_FriendRequestCard> {
                       onPressed: _isAnswering
                           ? null
                           : () => _answer(accept: true),
-                      child: const Text('Accept'),
+                      child: const Text('Follow back'),
                     ),
                   ),
                 ],

@@ -1,14 +1,27 @@
 # Back Home Cloud Functions
 
-Two callables power the Chat tab's **AI** and **Tutor** pages. Both use the
-OpenAI Chat Completions API.
+Two callables power the Chat tab's **AI** and **Tutor** pages, and a third
+moderates Hall posters before publication.
 
 | Callable | Used by | Payload |
 | --- | --- | --- |
 | `askTutor` | Tutor page | `{ "sessionId": "..." }` |
 | `chatWithCharacter` | AI companion chats | `{ "characterId": "..." }` |
+| `submitHallPost` | Hall create/edit flow | `{ "topic": "...", "message": "...", "mood": "...", "postId"?: "..." }` |
 
-Both return `{ "text": "...", "model": "gpt-4o-mini" }`.
+The two chat callables return `{ "text": "...", "model": "gpt-4o-mini" }`.
+
+## Hall poster moderation
+
+`submitHallPost` sends the topic, mood, and poster text to OpenAI's
+`omni-moderation-latest` model before any new content is written publicly.
+Approved posters are written to `posts/{postId}` by the Admin SDK. Flagged
+posters are not published; instead, the author receives a `postRejected`
+notification with the flagged safety categories. An edit is handled the same
+way, so the last approved version stays visible when a proposed edit fails.
+
+Firestore rules block direct client creation and content edits. Clients retain
+access only to the existing like and thread interaction fields.
 
 ## How a turn works
 
@@ -61,7 +74,9 @@ firebase deploy --only firestore:rules
 | Setting | Where | Default |
 | --- | --- | --- |
 | Model | `OPENAI_MODEL` env param | `gpt-4o-mini` |
+| Hall moderation model | `MODERATION_MODEL` in `index.js` | `omni-moderation-latest` |
 | Daily messages per user | `DAILY_MESSAGE_LIMIT` in `index.js` | `150` |
+| Daily Hall reviews per user | `DAILY_POST_MODERATION_LIMIT` in `index.js` | `50` |
 | Context window | `HISTORY_LIMIT` in `index.js` | `16` messages |
 | Max reply length | `MAX_OUTPUT_TOKENS` in `index.js` | `420` tokens |
 | Max concurrent instances | `maxInstances` in `index.js` | `10` |

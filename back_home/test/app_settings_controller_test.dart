@@ -1,4 +1,5 @@
 import 'package:back_home/auth/app_auth_controller.dart';
+import 'package:back_home/notifications/notifications_repository.dart';
 import 'package:back_home/rooms/room_state.dart';
 import 'package:back_home/settings/app_settings_controller.dart';
 import 'package:back_home/widgets/weather_settings_controls.dart';
@@ -6,6 +7,28 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('Hall moderation rejections are recognized as inbox notifications', () {
+    expect(
+      AppNotificationType.fromName('postRejected'),
+      AppNotificationType.postRejected,
+    );
+  });
+
+  test('notification read state is derived from readAt', () {
+    const unread = AppNotification(
+      id: 'unread',
+      type: AppNotificationType.system,
+    );
+    final read = AppNotification(
+      id: 'read',
+      type: AppNotificationType.system,
+      readAt: DateTime(2026),
+    );
+
+    expect(unread.isRead, isFalse);
+    expect(read.isRead, isTrue);
+  });
+
   test('profile bios enforce the card-length limit', () async {
     final controller = AppAuthController.offline();
 

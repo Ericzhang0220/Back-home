@@ -60,12 +60,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
         return AppPage(
           title: '',
           subtitle: '',
-          leading: IconButton(
-            padding: const EdgeInsets.only(right: 6),
-            icon: const Icon(Icons.mail_outline),
-            tooltip: 'Notifications',
-            onPressed: _openNotifications,
-          ),
+          leading: currentUser == null
+              ? IconButton(
+                  padding: const EdgeInsets.only(right: 6),
+                  icon: const Icon(Icons.mail_outline),
+                  tooltip: 'Notifications',
+                  onPressed: _openNotifications,
+                )
+              : _MailboxButton(
+                  uid: currentUser.uid,
+                  onPressed: _openNotifications,
+                ),
           trailing: IconButton(
             icon: const SettingsGearIcon(),
             tooltip: 'Profile settings',
@@ -74,6 +79,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           children: [
             if (currentUser == null)
               _ProfileIdentityHeader(
+                key: const ValueKey('profile-identity-signed-out'),
                 displayName: profileName,
                 accountHint: accountHint,
                 photoUrl: null,
@@ -89,14 +95,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     .doc(currentUser.uid)
                     .snapshots(),
                 builder: (context, snapshot) {
-                  final rawBio = snapshot.data?.data()?['bio'];
+                  final profileData = snapshot.data?.data();
+                  final rawBio = profileData?['bio'];
                   final bio = rawBio is String ? rawBio.trim() : '';
+                  // A non-empty legacy bio predates the explicit flag but is
+                  // still proof that the first edit already happened.
+                  final hasEditedBio =
+                      profileData?['hasEditedBio'] == true || bio.isNotEmpty;
                   return _ProfileIdentityHeader(
+                    key: ValueKey('profile-identity-${currentUser.uid}'),
                     displayName: profileName,
                     accountHint: accountHint,
                     photoUrl: currentUser.photoURL,
                     localPhotoPath: widget.authController.localProfilePhotoPath,
                     initialBio: bio,
+                    hasEditedBio: hasEditedBio,
                     isAvatarBusy: widget.authController.isBusy,
                     onPickPhoto: _pickProfilePhoto,
                     onSaveBio: widget.authController.updateProfileBio,
@@ -201,13 +214,104 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 }
 
+class _MailboxButton extends StatefulWidget {
+  const _MailboxButton({required this.uid, required this.onPressed});
+
+  final String uid;
+  final VoidCallback onPressed;
+
+  @override
+  State<_MailboxButton> createState() => _MailboxButtonState();
+}
+
+class _MailboxButtonState extends State<_MailboxButton> {
+  late Stream<int> _notificationsCountStream;
+  late Stream<int> _requestsCountStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _configureStreams();
+  }
+
+  @override
+  void didUpdateWidget(covariant _MailboxButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.uid != oldWidget.uid) {
+      _configureStreams();
+    }
+  }
+
+  void _configureStreams() {
+    _notificationsCountStream = NotificationsRepository(
+      uid: widget.uid,
+    ).watchUnreadCount();
+    _requestsCountStream = HumanFriendsRepository(
+      uid: widget.uid,
+    ).watchUnreadRequestCount();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<int>(
+      stream: _notificationsCountStream,
+      initialData: 0,
+      builder: (context, notificationsSnapshot) {
+        return StreamBuilder<int>(
+          stream: _requestsCountStream,
+          initialData: 0,
+          builder: (context, requestsSnapshot) {
+            final unreadCount =
+                (notificationsSnapshot.data ?? 0) +
+                (requestsSnapshot.data ?? 0);
+            final unreadLabel = unreadCount > 99 ? '99+' : '$unreadCount';
+            return IconButton(
+              padding: const EdgeInsets.only(right: 6),
+              tooltip: unreadCount == 0
+                  ? 'Notifications'
+                  : '$unreadCount unread notifications',
+              onPressed: widget.onPressed,
+              icon: SizedBox.square(
+                dimension: 32,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  alignment: Alignment.center,
+                  children: [
+                    const Icon(Icons.mail_outline),
+                    if (unreadCount > 0)
+                      Positioned(
+                        right: -7,
+                        top: -6,
+                        child: Text(
+                          unreadLabel,
+                          style: const TextStyle(
+                            color: Color(0xFFC34A3F),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            height: 1,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
 class _ProfileIdentityHeader extends StatefulWidget {
   const _ProfileIdentityHeader({
+    super.key,
     required this.displayName,
     required this.accountHint,
     required this.photoUrl,
     required this.localPhotoPath,
     required this.initialBio,
+    this.hasEditedBio = false,
     required this.isAvatarBusy,
     required this.onPickPhoto,
     this.onSaveBio,
@@ -218,6 +322,7 @@ class _ProfileIdentityHeader extends StatefulWidget {
   final String? photoUrl;
   final String? localPhotoPath;
   final String initialBio;
+  final bool hasEditedBio;
   final bool isAvatarBusy;
   final VoidCallback? onPickPhoto;
   final Future<void> Function(String bio)? onSaveBio;
@@ -232,11 +337,13 @@ class _ProfileIdentityHeaderState extends State<_ProfileIdentityHeader> {
   late String _savedBio;
   bool _isSaving = false;
   bool _hasPendingBioEdit = false;
+  late bool _hasEditedBio;
 
   @override
   void initState() {
     super.initState();
     _savedBio = widget.initialBio;
+    _hasEditedBio = widget.hasEditedBio;
     _bioController = TextEditingController(text: widget.initialBio)
       ..addListener(_handleBioChanged);
     _bioFocusNode = FocusNode()..addListener(_handleBioFocusChanged);
@@ -245,6 +352,9 @@ class _ProfileIdentityHeaderState extends State<_ProfileIdentityHeader> {
   @override
   void didUpdateWidget(covariant _ProfileIdentityHeader oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.hasEditedBio != oldWidget.hasEditedBio && widget.hasEditedBio) {
+      _hasEditedBio = true;
+    }
     if (widget.initialBio != oldWidget.initialBio && !_bioFocusNode.hasFocus) {
       _savedBio = widget.initialBio;
       _bioController.value = TextEditingValue(
@@ -293,6 +403,7 @@ class _ProfileIdentityHeaderState extends State<_ProfileIdentityHeader> {
       }
       _savedBio = bio;
       _hasPendingBioEdit = false;
+      _hasEditedBio = true;
       if (_bioController.text != bio) {
         _bioController.value = TextEditingValue(
           text: bio,
@@ -380,9 +491,10 @@ class _ProfileIdentityHeaderState extends State<_ProfileIdentityHeader> {
                       );
                     },
                 decoration: InputDecoration(
-                  labelText: 'Bio',
+                  labelText: _hasEditedBio ? null : 'Bio',
                   hintText: 'Tell people a little about yourself',
                   alignLabelWithHint: true,
+                  border: InputBorder.none,
                   suffixIcon: _isSaving
                       ? const Padding(
                           padding: EdgeInsets.all(14),

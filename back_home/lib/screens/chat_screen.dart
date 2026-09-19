@@ -1850,7 +1850,7 @@ class _HumanDiscoveryPageState extends State<_HumanDiscoveryPage> {
           ..hideCurrentSnackBar()
           ..showSnackBar(
             SnackBar(
-              content: Text('Saved. ${contact.name} was sent a request.'),
+              content: Text('Saved. You are now following ${contact.name}.'),
             ),
           );
       }

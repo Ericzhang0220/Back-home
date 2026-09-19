@@ -511,6 +511,10 @@ class AppAuthController extends ChangeNotifier {
     try {
       await firestore.collection('users').doc(user.uid).set({
         'bio': trimmed,
+        // This is intentionally separate from whether the bio is empty. Once
+        // someone has completed their first edit, the Profile screen keeps
+        // the extra label space collapsed even if they later clear the text.
+        'hasEditedBio': true,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
       notifyListeners();

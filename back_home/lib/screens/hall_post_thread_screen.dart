@@ -31,7 +31,6 @@ class _HallPostThreadScreenState extends State<HallPostThreadScreen> {
   late final TextEditingController _commentController;
   late final FocusNode _commentFocusNode;
   late final ScrollController _threadScrollController;
-  bool _composerExpanded = false;
 
   @override
   void initState() {
@@ -39,14 +38,12 @@ class _HallPostThreadScreenState extends State<HallPostThreadScreen> {
     _post = widget.post;
     _commentController = TextEditingController();
     _commentFocusNode = FocusNode();
-    _commentFocusNode.addListener(_handleComposerFocusChanged);
     _threadScrollController = ScrollController();
   }
 
   @override
   void dispose() {
     _commentController.dispose();
-    _commentFocusNode.removeListener(_handleComposerFocusChanged);
     _commentFocusNode.dispose();
     _threadScrollController.dispose();
     super.dispose();
@@ -56,7 +53,7 @@ class _HallPostThreadScreenState extends State<HallPostThreadScreen> {
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
     final commentsPanelMinHeight = mediaQuery.size.height * 0.54;
-    final composerOverlayHeight = _composerExpanded ? 86.0 : 60.0;
+    const composerOverlayHeight = 86.0;
     final composerBottomInset =
         mediaQuery.padding.bottom + mediaQuery.viewInsets.bottom;
     final commentsBottomSafeSpace =
@@ -130,11 +127,7 @@ class _HallPostThreadScreenState extends State<HallPostThreadScreen> {
                                             controller: _commentController,
                                             onLikeTap: () =>
                                                 _toggleCommentLike(index),
-                                            onTap: () {
-                                              setState(() {
-                                                _composerExpanded = true;
-                                              });
-                                            },
+                                            onTap: _focusComposer,
                                           ),
                                         );
                                       },
@@ -154,24 +147,13 @@ class _HallPostThreadScreenState extends State<HallPostThreadScreen> {
               left: 38,
               right: 38,
               bottom: composerBottomInset,
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 180),
-                switchInCurve: Curves.easeOut,
-                switchOutCurve: Curves.easeIn,
-                child: _composerExpanded
-                    ? _CommentComposer(
-                        key: const ValueKey('expanded-composer'),
-                        controller: _commentController,
-                        focusNode: _commentFocusNode,
-                        onChanged: (_) => setState(() {}),
-                        onSubmitted: (_) => _submitComment(),
-                        onSend: _submitComment,
-                        onTapOutside: (_) => _dismissKeyboard(),
-                      )
-                    : _CommentComposerTrigger(
-                        key: const ValueKey('collapsed-composer'),
-                        onTap: _focusComposer,
-                      ),
+              child: _CommentComposer(
+                controller: _commentController,
+                focusNode: _commentFocusNode,
+                onChanged: (_) => setState(() {}),
+                onSubmitted: (_) => _submitComment(),
+                onSend: _submitComment,
+                onTapOutside: (_) => _dismissKeyboard(),
               ),
             ),
           ],
@@ -246,11 +228,6 @@ class _HallPostThreadScreenState extends State<HallPostThreadScreen> {
   }
 
   void _focusComposer() {
-    if (!_composerExpanded) {
-      setState(() {
-        _composerExpanded = true;
-      });
-    }
     FocusScope.of(context).requestFocus(_commentFocusNode);
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
   }
@@ -294,7 +271,10 @@ class _HallPostThreadScreenState extends State<HallPostThreadScreen> {
           .ignore();
     }
 
-    _commentFocusNode.unfocus();
+    // Keep the composer focused after sending. Closing the keyboard while the
+    // thread is also scrolling changes both the viewport inset and scroll
+    // extent at once, which makes the whole screen visibly jump.
+    _commentFocusNode.requestFocus();
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
   }
 
@@ -362,27 +342,6 @@ class _HallPostThreadScreenState extends State<HallPostThreadScreen> {
     final focusScope = FocusScope.of(context);
     if (!focusScope.hasPrimaryFocus && focusScope.focusedChild != null) {
       focusScope.unfocus();
-    }
-  }
-
-  void _handleComposerFocusChanged() {
-    if (!mounted) {
-      return;
-    }
-
-    if (_commentFocusNode.hasFocus) {
-      if (!_composerExpanded) {
-        setState(() {
-          _composerExpanded = true;
-        });
-      }
-      return;
-    }
-
-    if (_composerExpanded && _commentController.text.trim().isEmpty) {
-      setState(() {
-        _composerExpanded = false;
-      });
     }
   }
 
@@ -755,7 +714,6 @@ class _CommentListItem extends StatelessWidget {
 
 class _CommentComposer extends StatelessWidget {
   const _CommentComposer({
-    super.key,
     required this.controller,
     required this.focusNode,
     required this.onChanged,
@@ -803,6 +761,7 @@ class _CommentComposer extends StatelessWidget {
                   maxLines: 4,
                   textInputAction: TextInputAction.send,
                   onChanged: onChanged,
+                  onEditingComplete: () {},
                   onSubmitted: onSubmitted,
                   onTapOutside: onTapOutside,
                   decoration: const InputDecoration(
@@ -819,59 +778,6 @@ class _CommentComposer extends StatelessWidget {
                 tooltip: 'Send comment',
               ),
             ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _CommentComposerTrigger extends StatelessWidget {
-  const _CommentComposerTrigger({super.key, required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(26),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-        child: Container(
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.58),
-            borderRadius: BorderRadius.circular(26),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.56)),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x12000000),
-                blurRadius: 24,
-                offset: Offset(0, 10),
-              ),
-            ],
-          ),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: onTap,
-              borderRadius: BorderRadius.circular(26),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-                child: Row(
-                  children: [
-                    Text(
-                      'Write a comment...',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: const Color(0xFF8F8983),
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const Spacer(),
-                    const Icon(Icons.edit_outlined, color: AppColors.muted),
-                  ],
-                ),
-              ),
-            ),
           ),
         ),
       ),

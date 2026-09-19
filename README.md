@@ -65,3 +65,11 @@ The platform aims to combine emotional AI with immersive design to create a sens
     - Can write a task to send out into the wild
         - If you solve a problem of another user, you get a reward
     - UI: within the chat screen, there is a bottle icon. If you press it, you will be shown a popup to either receive or send out a "bottle"
+
+
+
+# Environments
+- city
+- Forest
+- Meadow (cottage)
+- Seaside

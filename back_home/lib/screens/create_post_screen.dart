@@ -168,6 +168,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                       height: MediaQuery.of(context).size.height * 0.60,
                       child: TextField(
                         controller: _messageController,
+                        maxLength: 2000,
                         maxLines: 70,
                         scrollPadding: textFieldScrollPadding,
                         textInputAction: TextInputAction.done,

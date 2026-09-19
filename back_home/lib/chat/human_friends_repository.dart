@@ -1,5 +1,14 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+class IncomingFriendRequest {
+  const IncomingFriendRequest({required this.requesterUid, this.readAt});
+
+  final String requesterUid;
+  final DateTime? readAt;
+
+  bool get isRead => readAt != null;
+}
+
 /// The signed-in person's human friends list — the Human tab's counterpart to
 /// the `isFriend` flag on AI character documents, kept in its own collection so
 /// the two lists stay completely separate.
@@ -71,12 +80,73 @@ class HumanFriendsRepository {
     return batch.commit();
   }
 
-  /// Uids of the people waiting on an answer from this account.
-  Stream<List<String>> watchIncomingRequestUids() {
+  /// People waiting on an answer from this account, including mailbox state.
+  Stream<List<IncomingFriendRequest>> watchIncomingRequests() {
     return _requestsRefFor(uid)
         .snapshots()
-        .map((snapshot) => snapshot.docs.map((doc) => doc.id).toList())
+        .map(
+          (snapshot) => snapshot.docs
+              .map(
+                (doc) => IncomingFriendRequest(
+                  requesterUid: doc.id,
+                  readAt: (doc.data()['readAt'] as Timestamp?)?.toDate(),
+                ),
+              )
+              .toList(growable: false),
+        )
         .handleError((Object _) {});
+  }
+
+  Stream<int> watchUnreadRequestCount() {
+    return _requestsRefFor(uid).snapshots().map(
+      (snapshot) =>
+          snapshot.docs.where((doc) => doc.data()['readAt'] == null).length,
+    );
+  }
+
+  Future<void> markRequestRead(String requesterUid) {
+    return _requestsRefFor(
+      uid,
+    ).doc(requesterUid).update({'readAt': FieldValue.serverTimestamp()});
+  }
+
+  Future<void> markAllIncomingRequestsRead() async {
+    final snapshot = await _requestsRefFor(uid).get();
+    final unread = snapshot.docs
+        .where((doc) => doc.data()['readAt'] == null)
+        .toList(growable: false);
+    await _writeInChunks(unread, (batch, doc) {
+      batch.update(doc.reference, {'readAt': FieldValue.serverTimestamp()});
+    });
+  }
+
+  Future<void> deleteReadIncomingRequests() async {
+    final snapshot = await _requestsRefFor(uid).get();
+    final read = snapshot.docs
+        .where((doc) => doc.data()['readAt'] != null)
+        .toList(growable: false);
+    await _writeInChunks(read, (batch, doc) {
+      batch.delete(doc.reference);
+    });
+  }
+
+  Future<void> _writeInChunks(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    void Function(
+      WriteBatch batch,
+      QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    )
+    write,
+  ) async {
+    const chunkSize = 400;
+    for (var start = 0; start < docs.length; start += chunkSize) {
+      final batch = _firestore.batch();
+      final end = (start + chunkSize).clamp(0, docs.length);
+      for (var index = start; index < end; index++) {
+        write(batch, docs[index]);
+      }
+      await batch.commit();
+    }
   }
 
   /// Saves the requester back — the step that makes the pair mutual — and

@@ -14,7 +14,10 @@ enum AppNotificationType {
   warning,
 
   /// A general announcement. Written server-side only.
-  system;
+  system,
+
+  /// A Hall poster that did not pass moderation. Written server-side only.
+  postRejected;
 
   static AppNotificationType? fromName(Object? raw) {
     for (final value in AppNotificationType.values) {
@@ -38,6 +41,7 @@ class AppNotification {
     this.count = 1,
     this.title,
     this.body,
+    this.readAt,
   });
 
   final String id;
@@ -56,9 +60,12 @@ class AppNotification {
   /// How many comments have arrived on the post since this was last cleared.
   final int count;
 
-  /// Server-authored copy, used by warnings and system updates.
+  /// Server-authored copy, used by warnings, system updates, and moderation.
   final String? title;
   final String? body;
+  final DateTime? readAt;
+
+  bool get isRead => readAt != null;
 
   static AppNotification? fromDoc(
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
@@ -83,6 +90,7 @@ class AppNotification {
       count: rawCount is int && rawCount > 0 ? rawCount : 1,
       title: _readString(data['title']),
       body: _readString(data['body']),
+      readAt: (data['readAt'] as Timestamp?)?.toDate(),
     );
   }
 
@@ -97,9 +105,9 @@ class AppNotification {
 /// Reads this account's notification inbox, and posts likes and comments into
 /// other people's.
 ///
-/// Warnings and system updates are deliberately not writable from here: they
-/// are authored server-side, where the Admin SDK bypasses the rules that stop
-/// a client from forging them.
+/// Warnings, system updates, and moderation results are deliberately not
+/// writable from here: they are authored server-side, where the Admin SDK
+/// bypasses the rules that stop a client from forging them.
 class NotificationsRepository {
   NotificationsRepository({required this.uid, FirebaseFirestore? firestore})
     : _firestore = firestore ?? FirebaseFirestore.instance;
@@ -126,8 +134,40 @@ class NotificationsRepository {
         .handleError((Object _) {});
   }
 
-  Future<void> dismiss(String notificationId) {
-    return _refFor(uid).doc(notificationId).delete();
+  Stream<int> watchUnreadCount() {
+    return _refFor(uid).snapshots().map(
+      (snapshot) => snapshot.docs.where((doc) {
+        final data = doc.data();
+        return data['readAt'] == null &&
+            AppNotificationType.fromName(data['type']) != null;
+      }).length,
+    );
+  }
+
+  Future<void> markRead(String notificationId) {
+    return _refFor(
+      uid,
+    ).doc(notificationId).update({'readAt': FieldValue.serverTimestamp()});
+  }
+
+  Future<void> markAllRead() async {
+    final snapshot = await _refFor(uid).get();
+    final unread = snapshot.docs
+        .where((doc) => doc.data()['readAt'] == null)
+        .toList(growable: false);
+    await _writeInChunks(unread, (batch, doc) {
+      batch.update(doc.reference, {'readAt': FieldValue.serverTimestamp()});
+    });
+  }
+
+  Future<void> deleteRead() async {
+    final snapshot = await _refFor(uid).get();
+    final read = snapshot.docs
+        .where((doc) => doc.data()['readAt'] != null)
+        .toList(growable: false);
+    await _writeInChunks(read, (batch, doc) {
+      batch.delete(doc.reference);
+    });
   }
 
   /// Records a like. Keyed by post, optional comment, and liker, so liking
@@ -185,7 +225,28 @@ class NotificationsRepository {
       'topic': ?topic,
       'count': FieldValue.increment(1),
       'createdAt': FieldValue.serverTimestamp(),
+      // A new reply makes an aggregated notification unread again.
+      'readAt': FieldValue.delete(),
     }, SetOptions(merge: true));
+  }
+
+  Future<void> _writeInChunks(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    void Function(
+      WriteBatch batch,
+      QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    )
+    write,
+  ) async {
+    const chunkSize = 400;
+    for (var start = 0; start < docs.length; start += chunkSize) {
+      final batch = _firestore.batch();
+      final end = (start + chunkSize).clamp(0, docs.length);
+      for (var index = start; index < end; index++) {
+        write(batch, docs[index]);
+      }
+      await batch.commit();
+    }
   }
 
   String _likeId(String postId, String? commentId) {

@@ -3,6 +3,7 @@
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 const { HttpsError, onCall } = require("firebase-functions/v2/https");
+const { onDocumentUpdated } = require("firebase-functions/v2/firestore");
 const { defineSecret, defineString } = require("firebase-functions/params");
 const logger = require("firebase-functions/logger");
 const OpenAI = require("openai");
@@ -22,6 +23,18 @@ const MAX_MESSAGE_CHARS = 2000;
 const MAX_OUTPUT_TOKENS = 420;
 /** Per-user model calls allowed per calendar day (UTC). */
 const DAILY_MESSAGE_LIMIT = 150;
+/** Hall posters one account may submit for moderation per UTC day. */
+const DAILY_POST_MODERATION_LIMIT = 50;
+const MAX_HALL_TOPIC_CHARS = 13;
+const MAX_HALL_MESSAGE_CHARS = 2000;
+const MODERATION_MODEL = "omni-moderation-latest";
+const HALL_MOODS = new Set([
+  "Very happy",
+  "Good",
+  "Neutral",
+  "Low",
+  "Overwhelmed",
+]);
 
 const SAFETY_RULES = [
   "You are not a therapist, doctor, crisis counselor, or emergency service, and you never claim to be.",
@@ -46,6 +59,204 @@ const commonOptions = {
   // unbounded bill on the Blaze plan.
   maxInstances: 10,
 };
+
+/**
+ * Turns a moderator's rejected status into an inbox item for the poster's
+ * author. The moderation service only needs to set `moderationStatus` to
+ * `rejected` (and may include `moderationReason`); retries are idempotent
+ * because each post owns one deterministic notification document.
+ */
+exports.notifyHallPostRejected = onDocumentUpdated(
+  { document: "posts/{postId}", region: "us-central1" },
+  async (event) => {
+    const before = event.data?.before.data();
+    const after = event.data?.after.data();
+    if (
+      !after ||
+      before?.moderationStatus === "rejected" ||
+      after.moderationStatus !== "rejected"
+    ) {
+      return;
+    }
+
+    const authorUid = readString(after.authorUid, 200);
+    if (!authorUid) {
+      logger.warn("Rejected Hall poster has no authorUid", {
+        postId: event.params.postId,
+      });
+      return;
+    }
+
+    const reason = readString(after.moderationReason, 500);
+    const topic = readString(after.topic, 120);
+    const notificationRef = db
+      .collection("users")
+      .doc(authorUid)
+      .collection("notifications")
+      .doc(`post_rejected_${event.params.postId}`);
+
+    await notificationRef.set({
+      type: "postRejected",
+      postId: event.params.postId,
+      topic: topic || null,
+      title: "Your Hall poster was not approved",
+      body: reason || "Please review the community guidelines before posting again.",
+      createdAt: FieldValue.serverTimestamp(),
+    });
+  },
+);
+
+/**
+ * Moderates a new or edited Hall poster before it can be written publicly.
+ * The client cannot create posts or update their content directly; only this
+ * callable, running with the Admin SDK, can publish approved text.
+ */
+exports.submitHallPost = onCall(commonOptions, async (request) => {
+  const uid = requireAuth(request);
+  const topic = requireString(
+    request.data?.topic,
+    "topic",
+    MAX_HALL_TOPIC_CHARS,
+  );
+  const message = requireString(
+    request.data?.message,
+    "message",
+    MAX_HALL_MESSAGE_CHARS,
+  );
+  const mood = requireString(request.data?.mood, "mood", 40);
+  if (!HALL_MOODS.has(mood)) {
+    throw new HttpsError("invalid-argument", "Choose a valid mood.");
+  }
+
+  const requestedPostId = readOptionalId(request.data?.postId, "postId");
+  const postRef = requestedPostId
+    ? db.collection("posts").doc(requestedPostId)
+    : db.collection("posts").doc();
+
+  if (requestedPostId) {
+    const existing = await postRef.get();
+    if (!existing.exists) {
+      throw new HttpsError("not-found", "That Hall poster no longer exists.");
+    }
+    if (existing.get("authorUid") !== uid) {
+      throw new HttpsError(
+        "permission-denied",
+        "You can only edit your own Hall posters.",
+      );
+    }
+  }
+
+  await enforceDailyModerationLimit(uid);
+
+  const client = new OpenAI({
+    apiKey: openaiApiKey.value(),
+    maxRetries: 2,
+  });
+
+  let moderation;
+  try {
+    moderation = await client.moderations.create({
+      model: MODERATION_MODEL,
+      input: `Topic: ${topic}\nMood: ${mood}\nPoster:\n${message}`,
+    });
+  } catch (error) {
+    logger.error("OpenAI Hall moderation failed", {
+      uid,
+      postId: postRef.id,
+      status: error?.status,
+      type: error?.type,
+      message: error?.message,
+    });
+    if (error?.status === 429) {
+      throw new HttpsError(
+        "resource-exhausted",
+        "The safety review is busy right now. Please try again shortly.",
+      );
+    }
+    throw new HttpsError(
+      "unavailable",
+      "Your poster could not be reviewed. Please try again.",
+    );
+  }
+
+  const result = moderation.results?.[0];
+  if (!result || typeof result.flagged !== "boolean") {
+    logger.error("OpenAI Hall moderation returned no result", {
+      uid,
+      postId: postRef.id,
+      moderationId: moderation.id,
+    });
+    throw new HttpsError(
+      "internal",
+      "Your poster could not be reviewed. Please try again.",
+    );
+  }
+
+  if (result.flagged) {
+    const categories = flaggedCategoryNames(result.categories);
+    const notificationRef = db
+      .collection("users")
+      .doc(uid)
+      .collection("notifications")
+      .doc(`post_rejected_${postRef.id}`);
+    await notificationRef.set({
+      type: "postRejected",
+      postId: postRef.id,
+      topic,
+      title: requestedPostId
+        ? "Your Hall poster update was not approved"
+        : "Your Hall poster was not approved",
+      body: moderationRejectionMessage(categories),
+      moderationCategories: categories,
+      moderationModel: MODERATION_MODEL,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+
+    return { postId: postRef.id, status: "rejected" };
+  }
+
+  const now = FieldValue.serverTimestamp();
+  if (requestedPostId) {
+    await postRef.update({
+      topic,
+      message,
+      mood,
+      moderationStatus: "approved",
+      moderationModel: MODERATION_MODEL,
+      moderatedAt: now,
+      updatedAt: now,
+    });
+  } else {
+    const profile = await db.collection("users").doc(uid).get();
+    const profileData = profile.data() || {};
+    const token = request.auth?.token || {};
+    const author =
+      readString(profileData.displayName, 80) ||
+      readString(token.name, 80) ||
+      readString(profileData.phoneNumber, 40) ||
+      readString(token.phone_number, 40) ||
+      "Back Home user";
+
+    await postRef.set({
+      author,
+      authorUid: uid,
+      authorPhotoUrl: readString(profileData.photoUrl, 2000) || null,
+      mood,
+      topic,
+      message,
+      likes: 0,
+      likedBy: [],
+      thread: [],
+      moderationStatus: "approved",
+      moderationModel: MODERATION_MODEL,
+      moderatedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  return { postId: postRef.id, status: "approved" };
+});
 
 /**
  * Tutor chat. Reads the conversation from Firestore, asks OpenAI for the next
@@ -241,6 +452,36 @@ async function enforceDailyLimit(uid) {
   });
 }
 
+/** Prevents a single account from exhausting the moderation rate limit. */
+async function enforceDailyModerationLimit(uid) {
+  const usageRef = db
+    .collection("users")
+    .doc(uid)
+    .collection("private")
+    .doc("hallModerationUsage");
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(usageRef);
+    const isSameDay = snapshot.exists && snapshot.get("day") === today;
+    const count = isSameDay ? snapshot.get("count") || 0 : 0;
+
+    if (count >= DAILY_POST_MODERATION_LIMIT) {
+      throw new HttpsError(
+        "resource-exhausted",
+        "You have reached today's Hall poster review limit.",
+      );
+    }
+
+    transaction.set(
+      usageRef,
+      { day: today, count: count + 1, updatedAt: FieldValue.serverTimestamp() },
+      { merge: true },
+    );
+  });
+}
+
 /** Reads the trailing window of a conversation in chronological order. */
 async function readHistory(messagesRef) {
   const snapshot = await messagesRef
@@ -288,7 +529,7 @@ async function writeAssistantReply({
 function requireAuth(request) {
   const uid = request.auth?.uid;
   if (!uid) {
-    throw new HttpsError("unauthenticated", "Sign in to use the AI chats.");
+    throw new HttpsError("unauthenticated", "Sign in to continue.");
   }
   return uid;
 }
@@ -301,6 +542,59 @@ function readId(value, field) {
     throw new HttpsError("invalid-argument", `${field} is required.`);
   }
   return id;
+}
+
+function readOptionalId(value, field) {
+  if (value == null) {
+    return null;
+  }
+  return readId(value, field);
+}
+
+function requireString(value, field, maxLength) {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new HttpsError("invalid-argument", `${field} is required.`);
+  }
+  const trimmed = value.trim();
+  if (trimmed.length > maxLength) {
+    throw new HttpsError(
+      "invalid-argument",
+      `${field} must be ${maxLength} characters or fewer.`,
+    );
+  }
+  return trimmed;
+}
+
+const MODERATION_CATEGORY_LABELS = {
+  harassment: "harassment or bullying",
+  "harassment/threatening": "threatening language",
+  hate: "hateful content",
+  "hate/threatening": "hateful threats",
+  illicit: "instructions for wrongdoing",
+  "illicit/violent": "violent wrongdoing",
+  "self-harm": "self-harm content",
+  "self-harm/intent": "self-harm intent",
+  "self-harm/instructions": "self-harm instructions",
+  sexual: "sexual content",
+  "sexual/minors": "sexual content involving minors",
+  violence: "violent content",
+  "violence/graphic": "graphic violence",
+};
+
+function flaggedCategoryNames(categories) {
+  if (!categories || typeof categories !== "object") {
+    return [];
+  }
+  return Object.entries(categories)
+    .filter(([, flagged]) => flagged === true)
+    .map(([category]) => MODERATION_CATEGORY_LABELS[category] || category);
+}
+
+function moderationRejectionMessage(categories) {
+  if (categories.length === 0) {
+    return "This poster may violate the community safety guidelines. Please edit it and try again.";
+  }
+  return `This poster may include ${categories.join(", ")}. Please edit it and try again.`;
 }
 
 function readString(value, maxLength) {

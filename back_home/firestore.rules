@@ -59,7 +59,10 @@ service cloud.firestore {
       match /friendRequests/{requesterUid} {
         allow read: if isOwner(uid);
         allow create: if signedIn() && request.auth.uid == requesterUid;
-        allow update: if false;
+        allow update: if isOwner(uid)
+                      && request.resource.data.diff(resource.data)
+                           .affectedKeys()
+                           .hasOnly(['readAt']);
         allow delete: if isOwner(uid) || request.auth.uid == requesterUid;
       }
 
@@ -67,14 +70,33 @@ service cloud.firestore {
       //
       // Likes and comments are posted by whoever caused them, so a client may
       // write into someone else's inbox — but only stamped with its own uid,
-      // and only for those two types. Warnings and system updates are
-      // therefore unforgeable from a client: they can only be written by the
-      // Admin SDK, which bypasses these rules entirely.
+      // and only for those two types. Warnings, system updates, and Hall
+      // moderation results are therefore unforgeable from a client: they can
+      // only be written by the Admin SDK, which bypasses these rules entirely.
       match /notifications/{notificationId} {
-        allow read, delete: if isOwner(uid);
-        allow create, update: if signedIn()
-                              && request.resource.data.actorUid == request.auth.uid
-                              && request.resource.data.type in ['like', 'comment'];
+        allow read: if isOwner(uid);
+        // Bulk cleanup may remove only mail that is still read at commit time.
+        // A liker may also withdraw the like notification they created.
+        allow delete: if (
+                        isOwner(uid) && resource.data.readAt != null
+                      ) || (
+                        signedIn()
+                        && resource.data.type == 'like'
+                        && resource.data.actorUid == request.auth.uid
+                      );
+        allow create: if signedIn()
+                      && request.resource.data.actorUid == request.auth.uid
+                      && request.resource.data.type in ['like', 'comment'];
+        allow update: if (
+                        isOwner(uid)
+                        && request.resource.data.diff(resource.data)
+                             .affectedKeys()
+                             .hasOnly(['readAt'])
+                      ) || (
+                        signedIn()
+                        && request.resource.data.actorUid == request.auth.uid
+                        && request.resource.data.type in ['like', 'comment']
+                      );
       }
 
       // AI companion conversations.
@@ -119,15 +141,17 @@ service cloud.firestore {
                             && resource.data.authorUid == request.auth.uid;
     }
 
-    // Hall posts. Any signed-in user can like a post or add to its thread,
-    // which is why update is not restricted to the author.
+    // Hall poster content is created and edited only by the moderation Cloud
+    // Function, whose Admin SDK bypasses these rules. Clients may still update
+    // interaction fields after a poster has been approved, but they cannot
+    // forge approval or swap in unreviewed topic/message text.
     match /posts/{postId} {
       allow read: if signedIn();
-
-      // The sample posts seeded into an empty Hall carry a null authorUid,
-      // so creation is not tied to the caller's uid.
-      allow create: if signedIn();
-      allow update: if signedIn();
+      allow create: if false;
+      allow update: if signedIn()
+                    && request.resource.data.diff(resource.data)
+                         .affectedKeys()
+                         .hasOnly(['likes', 'likedBy', 'thread']);
       allow delete: if signedIn()
                     && resource.data.authorUid == request.auth.uid;
     }
