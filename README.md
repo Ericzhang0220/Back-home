@@ -73,3 +73,5 @@ The platform aims to combine emotional AI with immersive design to create a sens
 - Forest
 - Meadow (cottage)
 - Seaside
+
+Last class change the AI: don't every sentence add the emoji.
