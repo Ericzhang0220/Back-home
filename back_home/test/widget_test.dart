@@ -23,6 +23,44 @@ void main() {
     IsometricRoomView.rendererEnabled = true;
   });
 
+  testWidgets('touching draft text keeps focus and moves the caret', (
+    WidgetTester tester,
+  ) async {
+    final controller = TextEditingController();
+    final focusNode = FocusNode();
+    addTearDown(controller.dispose);
+    addTearDown(focusNode.dispose);
+    await tester.pumpWidget(const BackHomeApp());
+    showDialog<void>(
+      context: tester.element(find.byType(Scaffold).first),
+      builder: (_) => AlertDialog(
+        content: TextField(controller: controller, focusNode: focusNode),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'Hello wonderful world');
+    await tester.pump();
+    final editable = tester.state<EditableTextState>(find.byType(EditableText));
+    final caret = editable.renderEditable.getLocalRectForCaret(
+      const TextPosition(offset: 6),
+    );
+    final gesture = await tester.startGesture(
+      editable.renderEditable.localToGlobal(caret.center),
+    );
+    await tester.pump();
+    // A drag-down callback fires before the text field wins the gesture arena.
+    // It must not dismiss focus simply because the finger touched the text.
+    expect(focusNode.hasFocus, isTrue);
+    await gesture.up();
+    await tester.pump();
+    expect(controller.selection.baseOffset, 6);
+    expect(focusNode.hasFocus, isTrue);
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
+    expect(focusNode.hasFocus, isFalse);
+    await tester.pumpWidget(const SizedBox.shrink());
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
   testWidgets('discovery card follows the swipe and reveals the card below', (
     WidgetTester tester,
   ) async {

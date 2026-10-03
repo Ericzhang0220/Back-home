@@ -92,10 +92,24 @@ Use `.env.back-home-7cf17` instead to scope the value to a single project.
 Leaving the file out keeps the `gpt-4o-mini` default. Never put the API key in
 these files — it belongs in Secret Manager via `functions:secrets:set`.
 
-Note: `index.js` sends `max_tokens` and `temperature`, which the GPT-4o and
-GPT-4.1 families accept. Reasoning models (o-series, GPT-5) reject both and
-want `max_completion_tokens` instead, so switching to one means editing
-`completeChat` as well as the env var.
+`index.js` uses `max_completion_tokens` to cap replies at 420 tokens.
+For `gpt-6-luna`, it explicitly sets `reasoning_effort: "none"` so the short
+reply budget goes toward visible text and `temperature: 0.8` is supported.
+GPT-4o and GPT-4.1 retain their existing sampling behavior. Other reasoning
+models need their own parameter compatibility review before changing the env
+var. See the [GPT-6 API guide](https://developers.openai.com/api/docs/guides/latest-model).
+
+## Troubleshooting chat failures
+
+`Invalid request, unable to process` comes from Firebase's callable protocol
+validation, before the chat handler runs. Check the warning and HTTP request
+in the same trace: opening the function URL in a browser sends a `GET`, which
+is rejected. The app uses `httpsCallable` to send the required JSON `POST`.
+
+For app failures, look for `OpenAI request failed` in the app's `POST` trace.
+Its structured fields include `model`, `status`, `code`, `param`, `requestId`,
+and `providerMessage`. The provider error uses a separate field because
+Firebase's logger overwrites `message` with the log title and stack trace.
 
 ## Cost controls
 

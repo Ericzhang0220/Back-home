@@ -5,6 +5,8 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 
 import 'ai_models.dart';
+import 'ai_character_photo.dart';
+import 'ai_discovery_recommender.dart';
 
 /// Firestore + Cloud Functions data layer behind the AI and Tutor chat tabs.
 ///
@@ -103,46 +105,78 @@ class AiChatRepository {
   Future<AiCharacter> createCharacter({
     required String name,
     required String personality,
+    required AiCharacterPhoto photo,
+    String gender = 'unspecified',
+    List<String> tags = const [],
     bool isPublic = false,
   }) async {
+    if (photo.bytes.isEmpty ||
+        photo.bytes.length > AiCharacterPhoto.maxBytes ||
+        !photo.contentType.startsWith('image/')) {
+      throw ArgumentError('A character photo is required (maximum 10 MB).');
+    }
     final doc = _charactersRef.doc();
-    final character = AiCharacter(
-      id: doc.id,
-      name: name,
-      personality: personality,
-      introduction: 'Hi, I’m $name. I’m here whenever you would like to talk.',
-      preview: 'Custom companion ready to chat.',
-      colorValue: AiCharacter.customColorValue,
-      iconCodePoint: AiCharacter.customIconCodePoint,
-      isCustom: true,
-      isFriend: true,
-      isPublic: isPublic,
-      authorUid: uid,
-    );
+    final avatarRef = _storage.ref('ai_avatars/$uid/${doc.id}');
+    // Upload first: a failed upload must never leave a photo-less character.
+    try {
+      await avatarRef.putData(
+        photo.bytes,
+        SettableMetadata(contentType: photo.contentType),
+      );
+      final avatarUrl = await avatarRef.getDownloadURL();
+      final character = AiCharacter(
+        id: doc.id,
+        name: name,
+        personality: personality,
+        introduction:
+            'Hi, I’m $name. I’m here whenever you would like to talk.',
+        preview: 'Custom companion ready to chat.',
+        colorValue: AiCharacter.customColorValue,
+        iconCodePoint: AiCharacter.customIconCodePoint,
+        isCustom: true,
+        isFriend: true,
+        isPublic: isPublic,
+        authorUid: uid,
+        avatarUrl: avatarUrl,
+        genderValue: gender,
+        preferenceTags: tags,
+      );
 
-    await doc.set({
-      ...character.toFirestore(),
-      'createdAt': FieldValue.serverTimestamp(),
-    });
-
-    // A private character never leaves the author's own subcollection, which
-    // no other account can read.
-    if (isPublic) {
-      await _publicCharactersRef.doc(doc.id).set({
-        ...character.toPublicTemplate(authorUid: uid),
+      final batch = _firestore.batch();
+      batch.set(doc, {
+        ...character.toFirestore(),
         'createdAt': FieldValue.serverTimestamp(),
       });
-    }
 
-    return character;
+      // A private character never leaves the author's own subcollection, which
+      // no other account can read.
+      if (isPublic) {
+        batch.set(_publicCharactersRef.doc(doc.id), {
+          ...character.toPublicTemplate(authorUid: uid),
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      }
+      await batch.commit();
+      return character;
+    } catch (_) {
+      // Only this new, uncommitted upload is cleaned up. Keep the dialog's
+      // selected bytes so the person can retry without opening Photos again.
+      try {
+        await avatarRef.delete();
+      } catch (_) {}
+      rethrow;
+    }
   }
 
   /// Everything other people have shared. The caller filters out its own
   /// entries and anything already copied into its collection.
   Stream<List<AiCharacter>> watchPublicCharacters() {
-    return _publicCharactersRef.snapshots().map((snapshot) {
-      return snapshot.docs.map(AiCharacter.fromDoc).toList();
-    }).handleError((Object _) {});
+    return _publicCharactersRef
+        .snapshots()
+        .map((snapshot) {
+          return snapshot.docs.map(AiCharacter.fromDoc).toList();
+        })
+        .handleError((Object _) {});
   }
 
   /// Copies a shared character into this account, keeping the template's id so
@@ -155,7 +189,8 @@ class AiChatRepository {
     AiCharacter template, {
     bool asFriend = true,
   }) {
-    return _charactersRef.doc(template.id).set({
+    final batch = _firestore.batch();
+    batch.set(_charactersRef.doc(template.id), {
       ...template.toFirestore(),
       // Someone else authored it, so it is not "custom" here — that flag marks
       // the characters this account made and can edit.
@@ -164,6 +199,12 @@ class AiChatRepository {
       'isPublic': true,
       'createdAt': FieldValue.serverTimestamp(),
     });
+    if (asFriend) {
+      batch.set(_userRef.collection('aiChats').doc(template.id), {
+        'isFavorite': true,
+      }, SetOptions(merge: true));
+    }
+    return batch.commit();
   }
 
   Future<void> deleteCharacter(String characterId) async {
@@ -181,25 +222,33 @@ class AiChatRepository {
   Stream<AiCharacter?> watchCharacter(String characterId) {
     return _charactersRef.doc(characterId).snapshots().map((doc) {
       final data = doc.data();
-      return data == null
-          ? null
-          : AiCharacter.fromData(id: doc.id, data: data);
+      return data == null ? null : AiCharacter.fromData(id: doc.id, data: data);
     });
   }
 
   /// Saves a discovered built-in character to the person's AI friends list.
   Future<void> addCharacterAsFriend(String characterId) {
-    return _charactersRef.doc(characterId).set({
+    final batch = _firestore.batch();
+    batch.set(_charactersRef.doc(characterId), {
       'isFriend': true,
     }, SetOptions(merge: true));
+    batch.set(_userRef.collection('aiChats').doc(characterId), {
+      'isFavorite': true,
+    }, SetOptions(merge: true));
+    return batch.commit();
   }
 
   /// Drops a built-in character back out of the friends list. The conversation
   /// itself is left alone, so re-adding them picks the thread back up.
   Future<void> removeCharacterAsFriend(String characterId) {
-    return _charactersRef.doc(characterId).set({
+    final batch = _firestore.batch();
+    batch.set(_charactersRef.doc(characterId), {
       'isFriend': false,
     }, SetOptions(merge: true));
+    batch.set(_userRef.collection('aiChats').doc(characterId), {
+      'isFavorite': false,
+    }, SetOptions(merge: true));
+    return batch.commit();
   }
 
   /// Uploads a picked avatar and stores its download URL on the character.
@@ -212,12 +261,77 @@ class AiChatRepository {
     await ref.putData(bytes, SettableMetadata(contentType: contentType));
     final url = await ref.getDownloadURL();
 
-    await _charactersRef.doc(characterId).set({
-      'avatarUrl': url,
-    }, SetOptions(merge: true));
+    final character = await _charactersRef.doc(characterId).get();
+    final batch = _firestore.batch();
+    batch.set(character.reference, {'avatarUrl': url}, SetOptions(merge: true));
+    if (character.data()?['isPublic'] == true &&
+        character.data()?['authorUid'] == uid) {
+      batch.set(_publicCharactersRef.doc(characterId), {
+        'avatarUrl': url,
+      }, SetOptions(merge: true));
+    }
+    await batch.commit();
   }
 
   // -------------------------------------------------------------- ai character
+
+  final Map<String, Future<int>> _interactionInitializers = {};
+  Stream<Map<String, AiCharacterInteraction>>? _discoveryInteractions;
+
+  /// Private, per-account signals. Old threads are counted once before the
+  /// incremental counter is installed; assistant replies never count.
+  Stream<Map<String, AiCharacterInteraction>> watchDiscoveryInteractions() {
+    return _discoveryInteractions ??= _userRef
+        .collection('aiChats')
+        .snapshots()
+        .asyncMap((snapshot) async {
+          final entries = await Future.wait(
+            snapshot.docs.map((doc) async {
+              final data = doc.data();
+              final count = data['userMessageCount'] is int
+                  ? data['userMessageCount'] as int
+                  : await _ensureInteractionCount(doc.id);
+              return MapEntry(
+                doc.id,
+                AiCharacterInteraction(
+                  userMessageCount: count < 0 ? 0 : count,
+                  isFavorite: data['isFavorite'] == true,
+                  isChatHidden: AiChatPreview.fromData(data).isHidden,
+                ),
+              );
+            }),
+          );
+          return Map.fromEntries(entries);
+        });
+  }
+
+  Future<int> _ensureInteractionCount(String characterId) {
+    return _interactionInitializers.putIfAbsent(characterId, () async {
+      try {
+        final chatRef = _userRef.collection('aiChats').doc(characterId);
+        final existing = await chatRef.get();
+        if (existing.data()?['userMessageCount'] is int) {
+          return existing.data()!['userMessageCount'] as int;
+        }
+        final history = await _characterMessagesRef(
+          characterId,
+        ).where('role', isEqualTo: 'user').count().get();
+        return await _firestore.runTransaction<int>((transaction) async {
+          final current = await transaction.get(chatRef);
+          final count = current.data()?['userMessageCount'];
+          if (count is int) return count;
+          final historicalCount = history.count ?? 0;
+          transaction.set(chatRef, {
+            'userMessageCount': historicalCount,
+          }, SetOptions(merge: true));
+          return historicalCount;
+        });
+      } catch (_) {
+        _interactionInitializers.remove(characterId);
+        rethrow;
+      }
+    });
+  }
 
   CollectionReference<Map<String, dynamic>> _characterMessagesRef(
     String characterId,
@@ -240,11 +354,48 @@ class AiChatRepository {
     return _userRef.collection('aiChats').snapshots().map((snapshot) {
       return {
         for (final doc in snapshot.docs)
-          doc.id: AiChatPreview(
-            lastMessage: _readString(doc.data()['lastMessage']),
-            updatedAt: (doc.data()['updatedAt'] as Timestamp?)?.toDate(),
-          ),
+          doc.id: AiChatPreview.fromData(doc.data()),
       };
+    });
+  }
+
+  /// Clears the conversation without changing the character or its heart.
+  /// Keep the parent so discovery preferences and friendship remain intact.
+  Future<void> deleteCharacterChat(String characterId) async {
+    final messages = await _characterMessagesRef(characterId).get();
+    final timestamps =
+        messages.docs
+            .map((doc) => doc.data()['createdAt'])
+            .whereType<Timestamp>()
+            .toList()
+          ..sort((a, b) => a.compareTo(b));
+    final cutoff = timestamps.isEmpty ? Timestamp.now() : timestamps.last;
+    // Capture only existing messages, so a reply arriving during deletion
+    // isn't accidentally swept into an unbounded deletion loop.
+    for (var offset = 0; offset < messages.docs.length; offset += 400) {
+      final batch = _firestore.batch();
+      for (final doc in messages.docs.skip(offset).take(400)) {
+        batch.delete(doc.reference);
+      }
+      await batch.commit();
+    }
+    final chatRef = _userRef.collection('aiChats').doc(characterId);
+    await _firestore.runTransaction((transaction) async {
+      final current = await transaction.get(chatRef);
+      final data = current.data() ?? {};
+      final activity = data['updatedAt'] as Timestamp?;
+      final readThrough = data['readThrough'] as Timestamp?;
+      final hasNewMessage = activity != null && activity.compareTo(cutoff) > 0;
+      transaction.set(chatRef, {
+        'isHidden': true,
+        'deletedAt': cutoff,
+        'readThrough': readThrough != null && readThrough.compareTo(cutoff) > 0
+            ? readThrough
+            : cutoff,
+        // Preserve a new message that arrived while older history was cleared.
+        if (!hasNewMessage) 'lastMessage': FieldValue.delete(),
+        if (!hasNewMessage) 'updatedAt': FieldValue.delete(),
+      }, SetOptions(merge: true));
     });
   }
 
@@ -255,11 +406,25 @@ class AiChatRepository {
     required String characterId,
     required String text,
   }) async {
-    await _characterMessagesRef(characterId).add({
+    if (text.trim().isEmpty) return;
+    await _ensureInteractionCount(characterId);
+    final batch = _firestore.batch();
+    batch.set(_characterMessagesRef(characterId).doc(), {
       'role': 'user',
       'text': text,
       'createdAt': FieldValue.serverTimestamp(),
     });
+    batch.set(_charactersRef.doc(characterId), {
+      'isFriend': true,
+    }, SetOptions(merge: true));
+    batch.set(_userRef.collection('aiChats').doc(characterId), {
+      'characterId': characterId,
+      'userMessageCount': FieldValue.increment(1),
+      'isHidden': false,
+      'lastMessage': text,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    await batch.commit();
 
     await _callFunction('chatWithCharacter', {'characterId': characterId});
   }

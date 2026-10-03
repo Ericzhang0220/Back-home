@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import 'ai_character_catalog.dart';
+
 /// Icons are stored as stable string keys rather than raw code points so the
 /// `IconData` values stay const — dynamic `IconData` breaks Flutter's icon
 /// tree-shaking on release builds.
@@ -43,6 +45,8 @@ class AiCharacter {
     this.isPublic = false,
     this.authorUid,
     this.avatarUrl,
+    this.genderValue,
+    this.preferenceTags = const [],
   });
 
   final String id;
@@ -69,12 +73,33 @@ class AiCharacter {
 
   /// Firebase Storage download URL, set once the user picks a picture.
   final String? avatarUrl;
+  final String? genderValue;
+  final List<String> preferenceTags;
+
+  String get gender =>
+      genderValue ??
+      (isCustom ? null : aiPresetMetadata[id]?.gender) ??
+      'unspecified';
+
+  List<String> get discoveryTags => preferenceTags.isNotEmpty
+      ? preferenceTags
+      : (isCustom ? null : aiPresetMetadata[id]?.tags) ??
+            aiTagsFromPersonality(personality);
 
   static const String customIconCodePoint = 'heart';
   static const int customColorValue = 0xFFF6C7C7;
 
   Color get tint => Color(colorValue);
   IconData get icon => aiIconForKey(iconCodePoint);
+
+  /// Resolved locally so existing Firestore characters receive the artwork
+  /// without a catalog migration or a network download.
+  String? get portraitAsset {
+    if (isCustom || !presets.any((preset) => preset.id == id)) {
+      return null;
+    }
+    return 'assets/ai_characters/$id.png';
+  }
 
   /// Stable 9-digit display id, matching the look of the human user ids shown
   /// elsewhere in the chat UI.
@@ -397,10 +422,22 @@ class AiCharacter {
           : customColorValue,
       iconCodePoint: _readString(data['iconKey']) ?? customIconCodePoint,
       isCustom: data['isCustom'] == true,
-      isFriend: data['isFriend'] == true || data['isCustom'] == true,
+      isFriend: data['isFriend'] is bool
+          ? data['isFriend'] == true
+          : data['isCustom'] == true,
       isPublic: data['isPublic'] == true,
       authorUid: _readString(data['authorUid']),
       avatarUrl: _readString(data['avatarUrl']),
+      genderValue: ['male', 'female', 'unspecified'].contains(data['gender'])
+          ? data['gender'] as String
+          : null,
+      preferenceTags: data['tags'] is List
+          ? (data['tags'] as List)
+                .whereType<String>()
+                .where(aiInterestLabels.containsKey)
+                .toSet()
+                .toList()
+          : const [],
     );
   }
 
@@ -415,6 +452,9 @@ class AiCharacter {
       'isCustom': isCustom,
       'isFriend': isFriend,
       'isPublic': isPublic,
+      'gender': gender,
+      'tags': discoveryTags,
+      if (avatarUrl != null) 'avatarUrl': avatarUrl,
       if (authorUid != null) 'authorUid': authorUid,
     };
   }
@@ -432,6 +472,9 @@ class AiCharacter {
       'iconKey': iconCodePoint,
       'isPublic': true,
       'authorUid': authorUid,
+      'gender': gender,
+      'tags': discoveryTags,
+      if (avatarUrl != null) 'avatarUrl': avatarUrl,
     };
   }
 
@@ -530,8 +573,30 @@ class TutorSession {
 }
 
 class AiChatPreview {
-  const AiChatPreview({required this.lastMessage, this.updatedAt});
+  const AiChatPreview({
+    required this.lastMessage,
+    this.updatedAt,
+    this.isHidden = false,
+  });
+
+  factory AiChatPreview.fromData(Map<String, dynamic> data) {
+    final updatedAt = (data['updatedAt'] as Timestamp?)?.toDate();
+    final deletedAt = (data['deletedAt'] as Timestamp?)?.toDate();
+    return AiChatPreview(
+      lastMessage: data['lastMessage'] is String
+          ? data['lastMessage'] as String
+          : '',
+      updatedAt: updatedAt,
+      // A later incoming reply restores the conversation automatically.
+      isHidden:
+          data['isHidden'] == true &&
+          (updatedAt == null ||
+              deletedAt == null ||
+              !updatedAt.isAfter(deletedAt)),
+    );
+  }
 
   final String lastMessage;
   final DateTime? updatedAt;
+  final bool isHidden;
 }

@@ -335,11 +335,11 @@ exports.chatWithCharacter = onCall(commonOptions, async (request) => {
     "a warm, steady friend";
 
   const systemPrompt = [
-    `You are ${name}, a supportive AI companion inside the Back Home app, which helps students feel less alone.`,
+    `You are ${name}, a supportive AI companion inside the Freewind app, which helps students feel less alone.`,
     `Your personality: ${personality}.`,
     "Stay in character in tone and warmth, but never in a way that overrides the rules below.",
     "Talk like a friend texting back: short, natural, specific. Ask about them rather than lecturing.",
-    "If using emojis, only ever use the yellow human face emojis.",
+    "Use emojis sparingly when it makes sense, not in every message. If you do use an emoji, stick to the yellow faces.",
     SAFETY_RULES,
   ].join(" ");
 
@@ -371,7 +371,10 @@ async function completeChat({ uid, systemPrompt, history }) {
     completion = await client.chat.completions.create({
       model,
       temperature: 0.8,
-      max_tokens: MAX_OUTPUT_TOKENS,
+      max_completion_tokens: MAX_OUTPUT_TOKENS,
+      // Luna defaults to reasoning, which rejects temperature and can use
+      // this short reply budget before producing any visible text.
+      ...(model === "gpt-6-luna" ? { reasoning_effort: "none" } : {}),
       messages: [
         { role: "system", content: systemPrompt },
         ...history.map((message) => ({
@@ -382,9 +385,14 @@ async function completeChat({ uid, systemPrompt, history }) {
     });
   } catch (error) {
     logger.error("OpenAI request failed", {
+      model,
       status: error?.status,
       type: error?.type,
-      message: error?.message,
+      code: error?.code,
+      param: error?.param,
+      requestId: error?.request_id,
+      // Firebase's logger overwrites `message` with its own log text.
+      providerMessage: error?.message,
     });
 
     if (error?.status === 429) {

@@ -85,8 +85,6 @@ class _BackHomeAppState extends State<BackHomeApp> {
               child: GestureDetector(
                 behavior: HitTestBehavior.translucent,
                 onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
-                onHorizontalDragDown: (dragDetails) =>
-                    FocusManager.instance.primaryFocus?.unfocus(),
                 child: child ?? const SizedBox.shrink(),
               ),
             );
@@ -430,7 +428,11 @@ class _AppShellState extends State<AppShell> {
           key: const ValueKey(AppTab.chat),
           child: SafeArea(
             bottom: false,
-            child: ChatScreen(authController: widget.authController),
+            child: ChatScreen(
+              authController: widget.authController,
+              keyboardOpen: MediaQuery.viewInsetsOf(context).bottom > 0,
+              isActive: _currentTab == AppTab.chat,
+            ),
           ),
         );
       case AppTab.profile:
@@ -462,9 +464,11 @@ class _AppShellState extends State<AppShell> {
     final isRoomTab = _currentTab == AppTab.room;
     final useCompactRoomNav =
         isRoomTab && MediaQuery.orientationOf(context) == Orientation.landscape;
+    final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
     // The nav bar auto-hides everywhere, and is additionally forced away in the
     // room's desk/night subviews.
-    final navShown = _navVisible && !(isRoomTab && _roomInSubview);
+    final navShown =
+        _navVisible && !keyboardOpen && !(isRoomTab && _roomInSubview);
     // Keep the swipe target clear of the strip iOS reserves for its own
     // home-indicator gestures, so a reveal never dismisses the app instead.
     final revealZoneBottom = math.max(
@@ -541,7 +545,7 @@ class _AppShellState extends State<AppShell> {
                   bottom: revealZoneBottom,
                   height: _navRevealZoneHeight,
                   child: IgnorePointer(
-                    ignoring: navShown,
+                    ignoring: navShown || keyboardOpen,
                     child: GestureDetector(
                       behavior: HitTestBehavior.translucent,
                       // A double tap down here is a second way in, for when a
