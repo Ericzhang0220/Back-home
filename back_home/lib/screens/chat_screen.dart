@@ -340,7 +340,6 @@ class _ChatScreenState extends State<ChatScreen> {
                               unreadCounts: _inbox?.aiCounts ?? const {},
                               searchController: _aiSearchController,
                               onSearchChanged: (_) => setState(() {}),
-                              onPickAvatar: _pickAiAvatar,
                               onOpenCharacter: _openAiConversation,
                               onCreateCharacter: _showAddAiCharacterDialog,
                             ),
@@ -477,6 +476,15 @@ class _ChatScreenState extends State<ChatScreen> {
         bytes: photo.bytes,
         contentType: photo.contentType,
       );
+      final oldUrl = character.avatarUrl;
+      if (oldUrl != null && oldUrl.isNotEmpty) {
+        // Storage can retain the same URL when replacing a photo.
+        await ResizeImage.resizeIfNeeded(
+          256,
+          null,
+          NetworkImage(oldUrl),
+        ).evict();
+      }
     } catch (error) {
       _showError('Could not upload that picture.');
     }
@@ -620,6 +628,9 @@ class _ChatScreenState extends State<ChatScreen> {
           currentUid: widget.authController.currentUser?.uid,
           repository: repository,
           inbox: _inbox,
+          onEditPhoto: character.isCustom
+              ? () => _pickAiAvatar(character)
+              : null,
         ),
       ),
     );
@@ -915,7 +926,6 @@ class _AiContactsPage extends StatelessWidget {
     this.unreadCounts = const {},
     required this.searchController,
     required this.onSearchChanged,
-    required this.onPickAvatar,
     required this.onOpenCharacter,
     required this.onCreateCharacter,
   });
@@ -924,7 +934,6 @@ class _AiContactsPage extends StatelessWidget {
   final Map<String, int> unreadCounts;
   final TextEditingController searchController;
   final ValueChanged<String> onSearchChanged;
-  final ValueChanged<AiCharacter> onPickAvatar;
   final ValueChanged<AiCharacter> onOpenCharacter;
   final VoidCallback onCreateCharacter;
 
@@ -1019,7 +1028,6 @@ class _AiContactsPage extends StatelessWidget {
                               unreadCount: unreadCounts[character.id] ?? 0,
                               // A started conversation replaces the scripted preview.
                               preview: previews[character.id]?.lastMessage,
-                              onPickAvatar: onPickAvatar,
                               onOpen: () => onOpenCharacter(character),
                             ),
                           ),
@@ -2691,14 +2699,12 @@ class _AiCharacterTile extends StatelessWidget {
   const _AiCharacterTile({
     required this.character,
     required this.preview,
-    required this.onPickAvatar,
     required this.onOpen,
     this.unreadCount = 0,
   });
 
   final AiCharacter character;
   final String? preview;
-  final ValueChanged<AiCharacter> onPickAvatar;
   final VoidCallback onOpen;
   final int unreadCount;
 
@@ -2709,27 +2715,15 @@ class _AiCharacterTile extends StatelessWidget {
     return _ChatRow(
       onTap: onOpen,
       unreadCount: unreadCount,
-      avatar: _EditableAvatar(character: character, onPickAvatar: onPickAvatar),
+      avatar: _AvatarBox(
+        color: character.tint,
+        icon: character.icon,
+        photoUrl: character.avatarUrl,
+        portraitAsset: character.portraitAsset,
+      ),
       title: character.name,
       subtitle: lastMessage.isEmpty ? character.preview : lastMessage,
       meta: character.publicId,
-      trailing: character.isCustom
-          ? const Tooltip(
-              message: 'Custom character · editable photo',
-              child: Icon(
-                Icons.image_outlined,
-                color: AppColors.muted,
-                size: 20,
-              ),
-            )
-          : const Tooltip(
-              message: 'Preset or shared character · fixed photo',
-              child: Icon(
-                Icons.lock_outline_rounded,
-                color: AppColors.muted,
-                size: 18,
-              ),
-            ),
     );
   }
 }
@@ -2775,7 +2769,7 @@ class _ChatRow extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.meta,
-    required this.trailing,
+    this.trailing,
     this.unreadCount = 0,
   });
 
@@ -2784,7 +2778,7 @@ class _ChatRow extends StatelessWidget {
   final String title;
   final String subtitle;
   final String meta;
-  final Widget trailing;
+  final Widget? trailing;
   final int unreadCount;
 
   @override
@@ -2852,14 +2846,16 @@ class _ChatRow extends StatelessWidget {
                               ),
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          SizedBox(
-                            width: 76,
-                            child: Align(
-                              alignment: Alignment.centerRight,
-                              child: trailing,
+                          if (trailing != null) ...[
+                            const SizedBox(width: 8),
+                            SizedBox(
+                              width: 76,
+                              child: Align(
+                                alignment: Alignment.centerRight,
+                                child: trailing,
+                              ),
                             ),
-                          ),
+                          ],
                         ],
                       ),
                     ],
@@ -2870,59 +2866,6 @@ class _ChatRow extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _EditableAvatar extends StatelessWidget {
-  const _EditableAvatar({required this.character, required this.onPickAvatar});
-
-  final AiCharacter character;
-  final ValueChanged<AiCharacter> onPickAvatar;
-
-  @override
-  Widget build(BuildContext context) {
-    final avatar = _AvatarBox(
-      color: character.tint,
-      icon: character.icon,
-      photoUrl: character.avatarUrl,
-      portraitAsset: character.portraitAsset,
-    );
-
-    if (!character.isCustom) {
-      return avatar;
-    }
-
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        avatar,
-        Positioned(
-          right: -4,
-          bottom: -4,
-          child: Tooltip(
-            message: 'Add picture',
-            child: InkWell(
-              onTap: () => onPickAvatar(character),
-              borderRadius: BorderRadius.circular(12),
-              child: Container(
-                height: 24,
-                width: 24,
-                decoration: BoxDecoration(
-                  color: AppColors.clay,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.white, width: 2),
-                ),
-                child: const Icon(
-                  Icons.add_a_photo_rounded,
-                  color: Colors.white,
-                  size: 13,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
     );
   }
 }
@@ -3297,9 +3240,11 @@ class _DirectChatScreen extends StatefulWidget {
     this.repository,
     this.inbox,
     this.humanFriends,
+    this.onEditPhoto,
   });
 
   final _ChatPeer peer;
+  final Future<void> Function()? onEditPhoto;
   final String? currentUid;
 
   /// Present for AI peers, whose turns are produced by a Cloud Function.
@@ -3315,6 +3260,11 @@ class _DirectChatScreen extends StatefulWidget {
 
 class _DirectChatScreenState extends State<_DirectChatScreen> {
   final _controller = TextEditingController();
+  late final _characterStream = widget.peer.isAi
+      ? widget.repository?.watchCharacter(widget.peer.id)
+      : null;
+  bool _isUpdatingPhoto = false;
+  int _photoRevision = 0;
 
   /// True while `chatWithCharacter` is in flight.
   bool _isReplying = false;
@@ -3347,7 +3297,7 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
             child: Row(
               children: [
-                _PeerAvatar(peer: widget.peer, size: 36),
+                _buildPeerAvatar(36),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
@@ -3386,6 +3336,26 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
   /// characters you made yourself — which are always in your list — keep the
   /// profile button.
   Widget _buildAppBarAction() {
+    if (widget.onEditPhoto != null) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            tooltip: 'Change photo',
+            onPressed: _isUpdatingPhoto ? null : _changePhoto,
+            icon: _isUpdatingPhoto
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.add_a_photo_outlined),
+          ),
+          _buildProfileButton(),
+        ],
+      );
+    }
+
     final repository = widget.repository;
     final humanFriends = widget.humanFriends;
 
@@ -3409,7 +3379,7 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
     }
 
     return StreamBuilder<AiCharacter?>(
-      stream: repository.watchCharacter(widget.peer.id),
+      stream: _characterStream,
       builder: (context, snapshot) {
         final character = snapshot.data;
         if (character == null) {
@@ -3421,6 +3391,36 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
         );
       },
     );
+  }
+
+  Widget _buildPeerAvatar(double size) {
+    if (_characterStream == null) {
+      return _PeerAvatar(peer: widget.peer, size: size);
+    }
+    return StreamBuilder<AiCharacter?>(
+      stream: _characterStream,
+      builder: (context, snapshot) => _PeerAvatar(
+        key: ValueKey(_photoRevision),
+        peer: widget.peer,
+        size: size,
+        character: snapshot.data,
+      ),
+    );
+  }
+
+  Future<void> _changePhoto() async {
+    if (_isUpdatingPhoto || widget.onEditPhoto == null) return;
+    setState(() => _isUpdatingPhoto = true);
+    try {
+      await widget.onEditPhoto!();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUpdatingPhoto = false;
+          _photoRevision++;
+        });
+      }
+    }
   }
 
   Widget _buildHeartButton({
@@ -3710,7 +3710,11 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (context) => _PeerProfileSheet(peer: widget.peer),
+      builder: (context) => StreamBuilder<AiCharacter?>(
+        stream: _characterStream,
+        builder: (context, snapshot) =>
+            _PeerProfileSheet(peer: widget.peer, character: snapshot.data),
+      ),
     );
   }
 
@@ -3861,9 +3865,10 @@ class _MessageComposer extends StatelessWidget {
 }
 
 class _PeerProfileSheet extends StatelessWidget {
-  const _PeerProfileSheet({required this.peer});
+  const _PeerProfileSheet({required this.peer, this.character});
 
   final _ChatPeer peer;
+  final AiCharacter? character;
 
   @override
   Widget build(BuildContext context) {
@@ -3873,7 +3878,7 @@ class _PeerProfileSheet extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _PeerAvatar(peer: peer, size: 74),
+            _PeerAvatar(peer: peer, size: 74, character: character),
             const SizedBox(height: 12),
             Text(
               peer.displayName,
@@ -3918,9 +3923,15 @@ class _PeerProfileSheet extends StatelessWidget {
 }
 
 class _PeerAvatar extends StatelessWidget {
-  const _PeerAvatar({required this.peer, required this.size});
+  const _PeerAvatar({
+    super.key,
+    required this.peer,
+    required this.size,
+    this.character,
+  });
 
   final _ChatPeer peer;
+  final AiCharacter? character;
   final double size;
 
   @override
@@ -3943,7 +3954,7 @@ class _PeerAvatar extends StatelessWidget {
         borderRadius: BorderRadius.circular(size * 0.24),
       ),
       child: CharacterPortrait(
-        photoUrl: peer.photoUrl,
+        photoUrl: character?.avatarUrl ?? peer.photoUrl,
         assetPath: peer.portraitAsset,
         assetAlignment: const Alignment(0, -0.75),
         cacheWidth: 256,

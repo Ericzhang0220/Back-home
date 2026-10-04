@@ -44,7 +44,7 @@ void main() {
       await tester.enterText(find.byType(TextField).at(0), '  Luna  ');
       await tester.enterText(find.byType(TextField).at(1), '  Kind and calm  ');
       if (dismissal == 'Add') {
-        final photoButton = find.text('Add character photo');
+        final photoButton = find.text('Add photo');
         await tester.ensureVisible(photoButton);
         await tester.tap(photoButton);
         await tester.pumpAndSettle();

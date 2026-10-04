@@ -85,11 +85,37 @@ const aiInterestLabels = <String, String>{
 /// persona. English words are matched as words ("smart" must not imply "art").
 List<String> aiTagsFromPersonality(String personality) {
   const keywords = <String, List<String>>{
-    'caring': ['caring', 'kind', 'gentle', 'supportive', 'warm', '温柔', '体贴', '善良', '治愈'],
+    'caring': [
+      'caring',
+      'kind',
+      'gentle',
+      'supportive',
+      'warm',
+      '温柔',
+      '体贴',
+      '善良',
+      '治愈',
+    ],
     'calm': ['calm', 'patient', 'easygoing', '冷静', '沉稳', '耐心'],
-    'outgoing': ['outgoing', 'social', 'talkative', 'energetic', '外向', '开朗', '健谈', '活泼'],
+    'outgoing': [
+      'outgoing',
+      'social',
+      'talkative',
+      'energetic',
+      '外向',
+      '开朗',
+      '健谈',
+      '活泼',
+    ],
     'creative': ['creative', 'artistic', '创造', '艺术'],
-    'adventurous': ['adventurous', 'adventure', 'travel', 'traveling', '冒险', '旅行'],
+    'adventurous': [
+      'adventurous',
+      'adventure',
+      'travel',
+      'traveling',
+      '冒险',
+      '旅行',
+    ],
     'thoughtful': ['thoughtful', 'curious', 'observant', '思考', '好奇', '细心'],
     'competitive': ['competitive', 'competition', '竞争', '好胜'],
     'independent': ['independent', '独立'],
@@ -113,8 +139,14 @@ List<String> aiTagsFromPersonality(String personality) {
   };
   final text = personality.toLowerCase();
   final words = text.split(RegExp(r'[^a-z]+')).toSet();
-  return keywords.entries.where((entry) => entry.value.any((keyword) =>
-      RegExp(r'^[a-z]+$').hasMatch(keyword)
-          ? words.contains(keyword) : text.contains(keyword)))
-      .map((entry) => entry.key).toList();
+  return keywords.entries
+      .where(
+        (entry) => entry.value.any(
+          (keyword) => RegExp(r'^[a-z]+$').hasMatch(keyword)
+              ? words.contains(keyword)
+              : text.contains(keyword),
+        ),
+      )
+      .map((entry) => entry.key)
+      .toList();
 }

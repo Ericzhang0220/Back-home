@@ -41,8 +41,10 @@ Future<void> openDialog(
 
 Future<void> fillDraft(WidgetTester tester, {bool choosePhoto = true}) async {
   if (choosePhoto) {
-    await tester.ensureVisible(find.text('Add character photo'));
-    await tester.tap(find.text('Add character photo'));
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('ai-character-photo-picker')),
+    );
+    await tester.tap(find.byKey(const ValueKey('ai-character-photo-picker')));
     await tester.pumpAndSettle();
   }
   await tester.enterText(find.byType(TextField).at(0), 'Luna');
@@ -65,19 +67,16 @@ void main() {
         },
       );
       await fillDraft(tester);
+      await tester.enterText(
+        find.byType(TextField).at(1),
+        'Kind and calm, loves reading novels.',
+      );
       tester.view.viewInsets = const FakeViewPadding(bottom: 280);
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Not specified'));
       await tester.tap(find.text('Not specified'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Female').last);
-      await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Interests and traits (optional)'));
-      await tester.tap(find.text('Interests and traits (optional)'));
-      await tester.pumpAndSettle();
-      final reading = find.widgetWithText(FilterChip, 'Reading');
-      await tester.ensureVisible(reading);
-      await tester.tap(reading);
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Add'));
       await tester.tap(find.text('Add'));
@@ -129,12 +128,14 @@ void main() {
       },
     );
     await fillDraft(tester, choosePhoto: false);
-    await tester.ensureVisible(find.text('Add character photo'));
-    await tester.tap(find.text('Add character photo'));
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('ai-character-photo-picker')),
+    );
+    await tester.tap(find.byKey(const ValueKey('ai-character-photo-picker')));
     await tester.pumpAndSettle();
     expect(find.textContaining('Allow access in Settings'), findsOneWidget);
     denied = false;
-    await tester.tap(find.text('Add character photo'));
+    await tester.tap(find.byKey(const ValueKey('ai-character-photo-picker')));
     await tester.pumpAndSettle();
     expect(find.text('Change photo'), findsOneWidget);
     expect(find.textContaining('Allow access in Settings'), findsNothing);
@@ -161,7 +162,10 @@ void main() {
       await fillDraft(tester);
       await tester.tap(find.text('Add'));
       await tester.pumpAndSettle();
-      expect(find.textContaining('Your draft is saved here'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('ai-character-create-error')),
+        findsOneWidget,
+      );
       expect(find.text('Change photo'), findsOneWidget);
       await tester.tap(find.text('Add'));
       await tester.pumpAndSettle();

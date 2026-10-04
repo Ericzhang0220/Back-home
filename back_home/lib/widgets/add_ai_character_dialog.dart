@@ -52,7 +52,6 @@ class _AddCharacterDialogState extends State<_AddCharacterDialog> {
   bool _isPicking = false;
   bool _isSaving = false;
   String _gender = 'unspecified';
-  final _tags = <String>{};
   AiCharacterPhoto? _photo;
   String? _photoError;
   String? _saveError;
@@ -117,7 +116,7 @@ class _AddCharacterDialogState extends State<_AddCharacterDialog> {
       isPublic: _isPublic,
       photo: _photo!,
       gender: _gender,
-      tags: _tags.toList(),
+      tags: aiTagsFromPersonality(_personalityController.text),
     );
     setState(() {
       _isSaving = true;
@@ -132,8 +131,7 @@ class _AddCharacterDialogState extends State<_AddCharacterDialog> {
       if (mounted) {
         setState(() {
           _isSaving = false;
-          _saveError =
-              'Could not upload the photo or create this character. Your draft is saved here; please try again.';
+          _saveError = 'Could not create character. Please try again.';
         });
       }
     }
@@ -168,10 +166,7 @@ class _AddCharacterDialogState extends State<_AddCharacterDialog> {
                   minLines: 1,
                   maxLines: 3,
                   textCapitalization: TextCapitalization.sentences,
-                  decoration: const InputDecoration(
-                    labelText: 'Personality',
-                    helperText: 'How should they talk to you?',
-                  ),
+                  decoration: const InputDecoration(labelText: 'Personality'),
                   validator: (value) => value == null || value.trim().isEmpty
                       ? 'Describe their personality.'
                       : null,
@@ -186,6 +181,7 @@ class _AddCharacterDialogState extends State<_AddCharacterDialog> {
                     ),
                   ),
                 OutlinedButton.icon(
+                  key: const ValueKey('ai-character-photo-picker'),
                   onPressed: _isPicking || _isSaving ? null : _choosePhoto,
                   icon: _isPicking
                       ? const SizedBox(
@@ -194,13 +190,7 @@ class _AddCharacterDialogState extends State<_AddCharacterDialog> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.add_rounded),
-                  label: Text(
-                    _photo == null ? 'Add character photo' : 'Change photo',
-                  ),
-                ),
-                const Text(
-                  'Photo required. Choose a photo or illustration for your character.',
-                  style: TextStyle(fontSize: 12),
+                  label: Text(_photo == null ? 'Add photo' : 'Change photo'),
                 ),
                 if (_photoError != null)
                   Text(
@@ -228,34 +218,6 @@ class _AddCharacterDialogState extends State<_AddCharacterDialog> {
                       ? null
                       : (value) => setState(() => _gender = value!),
                 ),
-                ExpansionTile(
-                  tilePadding: EdgeInsets.zero,
-                  title: const Text(
-                    'Interests and traits (optional)',
-                    style: TextStyle(fontSize: 14),
-                  ),
-                  children: [
-                    Wrap(
-                      spacing: 6,
-                      children: [
-                        for (final entry in aiInterestLabels.entries)
-                          FilterChip(
-                            label: Text(entry.value),
-                            selected: _tags.contains(entry.key),
-                            onSelected: _isSaving
-                                ? null
-                                : (selected) => setState(() {
-                                    if (selected) {
-                                      _tags.add(entry.key);
-                                    } else {
-                                      _tags.remove(entry.key);
-                                    }
-                                  }),
-                          ),
-                      ],
-                    ),
-                  ],
-                ),
                 SwitchListTile.adaptive(
                   value: _isPublic,
                   onChanged: _isSaving
@@ -263,11 +225,6 @@ class _AddCharacterDialogState extends State<_AddCharacterDialog> {
                       : (value) => setState(() => _isPublic = value),
                   contentPadding: EdgeInsets.zero,
                   title: Text(_isPublic ? 'Public' : 'Private'),
-                  subtitle: Text(
-                    _isPublic
-                        ? 'Everyone can find this character and photo. Your conversations stay yours.'
-                        : 'Only you can see and chat with them.',
-                  ),
                   secondary: Icon(
                     _isPublic ? Icons.public_rounded : Icons.lock_rounded,
                   ),
@@ -275,6 +232,7 @@ class _AddCharacterDialogState extends State<_AddCharacterDialog> {
                 if (_saveError != null)
                   Text(
                     _saveError!,
+                    key: const ValueKey('ai-character-create-error'),
                     style: TextStyle(
                       color: Theme.of(context).colorScheme.error,
                     ),

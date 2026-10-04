@@ -61,7 +61,7 @@ class AiCharacter {
 
   final bool isCustom;
 
-  /// Whether this character appears in the person's saved AI friends list.
+  /// Whether this character is saved as a friend, independent of chat visibility.
   final bool isFriend;
 
   /// True for a character its author shared with everyone, which publishes a

@@ -83,24 +83,32 @@ class _SwipeableChatRowState extends State<SwipeableChatRow>
                                 ? const CupertinoActivityIndicator(
                                     color: Colors.white,
                                   )
-                                : const Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        CupertinoIcons.trash,
-                                        color: Colors.white,
-                                        size: 23,
+                                : const FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    child: Padding(
+                                      padding: EdgeInsets.symmetric(
+                                        vertical: 4,
                                       ),
-                                      SizedBox(height: 5),
-                                      Text(
-                                        'Delete',
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w600,
-                                        ),
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            CupertinoIcons.trash,
+                                            color: Colors.white,
+                                            size: 23,
+                                          ),
+                                          SizedBox(height: 5),
+                                          Text(
+                                            'Delete',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ],
                                       ),
-                                    ],
+                                    ),
                                   ),
                           ),
                         ),

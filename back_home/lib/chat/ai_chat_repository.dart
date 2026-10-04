@@ -362,14 +362,16 @@ class AiChatRepository {
   /// Clears the conversation without changing the character or its heart.
   /// Keep the parent so discovery preferences and friendship remain intact.
   Future<void> deleteCharacterChat(String characterId) async {
+    final chatRef = _userRef.collection('aiChats').doc(characterId);
+    final before = await chatRef.get();
     final messages = await _characterMessagesRef(characterId).get();
-    final timestamps =
-        messages.docs
-            .map((doc) => doc.data()['createdAt'])
-            .whereType<Timestamp>()
-            .toList()
-          ..sort((a, b) => a.compareTo(b));
-    final cutoff = timestamps.isEmpty ? Timestamp.now() : timestamps.last;
+    final timestamps = [
+      before.data()?['updatedAt'],
+      ...messages.docs.map((doc) => doc.data()['createdAt']),
+    ].whereType<Timestamp>().toList()..sort((a, b) => a.compareTo(b));
+    // An empty chat uses an epoch cursor, so the phone's clock cannot hide
+    // its first incoming reply after deletion.
+    final cutoff = timestamps.isEmpty ? Timestamp(0, 0) : timestamps.last;
     // Capture only existing messages, so a reply arriving during deletion
     // isn't accidentally swept into an unbounded deletion loop.
     for (var offset = 0; offset < messages.docs.length; offset += 400) {
@@ -379,7 +381,6 @@ class AiChatRepository {
       }
       await batch.commit();
     }
-    final chatRef = _userRef.collection('aiChats').doc(characterId);
     await _firestore.runTransaction((transaction) async {
       final current = await transaction.get(chatRef);
       final data = current.data() ?? {};

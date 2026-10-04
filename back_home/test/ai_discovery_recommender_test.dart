@@ -16,6 +16,34 @@ AiCharacter character(
 void main() {
   const presets = AiCharacter.presets;
 
+  test(
+    'untagged custom personas resolve English and Chinese interests without substring mistakes',
+    () {
+      final english = AiCharacter.fromData(
+        id: 'english',
+        data: {
+          'isCustom': true,
+          'personality': 'Independent, gentle, and loves guitar.',
+        },
+      );
+      expect(
+        english.discoveryTags,
+        containsAll(['independent', 'caring', 'guitar']),
+      );
+      final chinese = AiCharacter.fromData(
+        id: 'chinese',
+        data: {'isCustom': true, 'personality': '温柔体贴，喜欢阅读小说和弹钢琴。'},
+      );
+      expect(chinese.discoveryTags, containsAll(['caring', 'book', 'music']));
+      final smart = AiCharacter.fromData(
+        id: 'smart',
+        data: {'isCustom': true, 'personality': 'Smart and dependable.'},
+      );
+      expect(smart.discoveryTags, isNot(contains('palette')));
+      expect(smart.gender, 'unspecified');
+    },
+  );
+
   test('cold start shuffles the entire mixed catalog without gender bias', () {
     final recommender = AiDiscoveryRecommender(random: Random(42));
     var maleFirst = 0;
