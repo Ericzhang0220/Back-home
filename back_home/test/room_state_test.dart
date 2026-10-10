@@ -70,14 +70,20 @@ void main() {
     );
   });
 
-  test('outdoor look stays within the outward hemisphere', () {
-    const limit = 35 * math.pi / 180;
-
-    expect(clampOutwardCameraYaw(0.4), closeTo(0.4, 1e-9));
-    expect(clampOutwardCameraYaw(math.pi).abs(), closeTo(limit, 1e-9));
-    expect(clampOutwardCameraYaw(-math.pi).abs(), closeTo(limit, 1e-9));
-    expect(clampOutwardCameraYaw(2 * math.pi - 0.3), closeTo(-0.3, 1e-9));
-  });
+  test(
+    'free look allows side and indoor headings across repeated full turns',
+    () {
+      for (final heading in [0.4, math.pi / 2, math.pi, 3 * math.pi / 2]) {
+        for (final turns in [-3, -1, 0, 1, 3]) {
+          expect(
+            normalizeRoomCameraYaw(heading + turns * 2 * math.pi),
+            closeTo(heading, 1e-9),
+          );
+        }
+      }
+      expect(normalizeRoomCameraYaw(-0.3), closeTo(2 * math.pi - 0.3, 1e-9));
+    },
+  );
 
   test('buyAndAddItem spends likes, adds inventory, and places the item', () {
     final controller = RoomEditorController();

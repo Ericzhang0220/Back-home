@@ -544,8 +544,14 @@ class _ProfileSettingsScreen extends StatelessWidget {
         final musicVolume = settingsController.musicVolume;
         final cameraRotateSensitivity =
             settingsController.cameraRotateSensitivity;
-        final currentTrackTitle = musicController.currentTrackTitle;
-        final currentTrackSubtitle = musicController.currentTrackSubtitle;
+        final musicStatus = musicVolume <= 0
+            ? 'Music is muted'
+            : musicController.statusMessage.startsWith('Playing ')
+            ? switch (musicController.source) {
+                MusicSource.builtIn => 'Playing the Freewind playlist',
+                MusicSource.appleMusic => 'Playing your Apple Music playlist',
+              }
+            : musicController.statusMessage;
         final trimmedName = authController.currentUser?.displayName?.trim();
         final displayName = (trimmedName?.isNotEmpty ?? false)
             ? trimmedName
@@ -734,22 +740,8 @@ class _ProfileSettingsScreen extends StatelessWidget {
                             value: musicVolume,
                             onChanged: settingsController.setMusicVolume,
                           ),
-                          if (currentTrackTitle != null) ...[
-                            Text(
-                              currentTrackTitle,
-                              style: Theme.of(context).textTheme.titleSmall,
-                            ),
-                            if (currentTrackSubtitle != null)
-                              Text(
-                                currentTrackSubtitle,
-                                style: Theme.of(context).textTheme.bodyMedium,
-                              ),
-                            const SizedBox(height: 8),
-                          ],
                           Text(
-                            musicVolume <= 0
-                                ? 'Muted. Raise the slider to resume Apple Music.'
-                                : musicController.statusMessage,
+                            musicStatus,
                             style: Theme.of(context).textTheme.bodyMedium,
                           ),
                         ],

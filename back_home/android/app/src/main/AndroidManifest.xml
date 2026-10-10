@@ -2,6 +2,7 @@
     <!-- Coarse location is enough to fetch the local weather for the room sky. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"/>
     <application
         android:label="back_home"
         android:name="${applicationName}"

@@ -170,7 +170,7 @@ void main() {
   });
 
   test(
-    'message rebuilds keep the current deck stable; removal does not reshuffle neighbours',
+    'messages and favorites keep history; only deleted profiles are removed',
     () {
       final deck = AiDiscoveryDeck(
         recommender: AiDiscoveryRecommender(random: Random(2)),
@@ -180,6 +180,7 @@ void main() {
         knownCharacters: presets,
         interactions: const {},
       );
+      expect(initial.length, 2);
       final updated = deck.resolve(
         candidates: presets,
         knownCharacters: presets,
@@ -193,20 +194,37 @@ void main() {
         knownCharacters: presets,
         interactions: const {},
       );
-      expect(
-        remaining.map((c) => c.id),
-        initial.where((c) => c.id != initial[1].id).map((c) => c.id),
-      );
-      deck.startNewCycle();
+      expect(remaining.map((c) => c.id), initial.map((c) => c.id));
       final next = deck.resolve(
         candidates: presets,
         knownCharacters: presets,
         interactions: const {
           'olivia-parker': AiCharacterInteraction(userMessageCount: 60),
         },
+        currentId: initial.last.id,
       );
-      expect(next.map((c) => c.id), isNot(initial.map((c) => c.id)));
-      expect(next.map((c) => c.id).toSet().length, 20);
+      expect(next.take(2).map((c) => c.id), initial.map((c) => c.id));
+      expect(next.length, 3);
+      final deleted = deck.resolve(
+        candidates: presets.where((c) => c.id != initial.first.id).toList(),
+        knownCharacters: presets
+            .where((c) => c.id != initial.first.id)
+            .toList(),
+        interactions: const {},
+        currentId: initial.last.id,
+      );
+      expect(deleted.map((c) => c.id), next.skip(1).map((c) => c.id));
+      deck.reset();
+      expect(
+        deck
+            .resolve(
+              candidates: presets,
+              knownCharacters: presets,
+              interactions: const {},
+            )
+            .length,
+        2,
+      );
     },
   );
 

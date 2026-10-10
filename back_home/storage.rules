@@ -1,0 +1,40 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function validImage() {
+      return request.resource != null
+          && request.resource.size > 0
+          && request.resource.size <= 10 * 1024 * 1024
+          && request.resource.contentType != null
+          && request.resource.contentType.matches('image/.*');
+    }
+
+    // AI character pictures, including avatars used by shared characters.
+    match /ai_avatars/{uid}/{characterId} {
+      allow get: if signedIn();
+      allow create, update: if isOwner(uid) && validImage();
+      allow delete: if isOwner(uid);
+    }
+
+    // Profile pictures shown in the Human directory and conversations.
+    match /profile_images/{uid}/{fileName} {
+      allow get: if signedIn();
+      allow create, update: if isOwner(uid) && validImage();
+      allow delete: if isOwner(uid);
+    }
+
+    // No directory listing or access to other Storage paths.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

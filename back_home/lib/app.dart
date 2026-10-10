@@ -5,6 +5,7 @@ import 'dart:ui';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'auth/app_auth_controller.dart';
 import 'auth/display_name_dialog.dart';
@@ -21,6 +22,7 @@ import 'screens/shop_screen.dart';
 import 'settings/app_settings_controller.dart';
 import 'theme/app_theme.dart';
 import 'widgets/app_ui.dart';
+import 'widgets/bottom_navigation_reveal.dart';
 
 class BackHomeApp extends StatefulWidget {
   const BackHomeApp({super.key});
@@ -85,7 +87,16 @@ class _BackHomeAppState extends State<BackHomeApp> {
               child: GestureDetector(
                 behavior: HitTestBehavior.translucent,
                 onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
-                child: child ?? const SizedBox.shrink(),
+                // Restore dark status icons after leaving a portrait card.
+                // Cards and app bars can override this nearer their artwork.
+                child: AnnotatedRegion<SystemUiOverlayStyle>(
+                  value: const SystemUiOverlayStyle(
+                    statusBarColor: Colors.transparent,
+                    statusBarBrightness: Brightness.light,
+                    statusBarIconBrightness: Brightness.dark,
+                  ),
+                  child: child ?? const SizedBox.shrink(),
+                ),
               ),
             );
           },
@@ -226,7 +237,6 @@ class _AppShellState extends State<AppShell> {
 
   Timer? _navHideTimer;
   bool _navVisible = true;
-  double _navRevealDrag = 0;
 
   /// Guards the welcome prompt so a skipped name is not asked for again until
   /// the next launch.
@@ -427,10 +437,14 @@ class _AppShellState extends State<AppShell> {
         return KeyedSubtree(
           key: const ValueKey(AppTab.chat),
           child: SafeArea(
+            // Portraits paint behind the status bar; ChatScreen keeps its
+            // controls inside their original top safe area.
+            top: false,
             bottom: false,
             child: ChatScreen(
               authController: widget.authController,
               keyboardOpen: MediaQuery.viewInsetsOf(context).bottom > 0,
+              navVisible: _navVisible,
               isActive: _currentTab == AppTab.chat,
             ),
           ),
@@ -476,58 +490,64 @@ class _AppShellState extends State<AppShell> {
       _navRevealZoneBottomGap,
     );
 
-    return Scaffold(
-      backgroundColor: isRoomTab
-          ? const Color(0xFF080706)
-          : const Color.fromARGB(0, 212, 255, 18),
-      body: _currentTab == AppTab.home
-          ? Stack(
-              children: [
-                AmbientBackground(showSideGlow: false),
-                SafeArea(bottom: false, child: _buildHomePage()),
-              ],
-            )
-          : Stack(
-              children: [
-                if (!isRoomTab) const AmbientBackground(showSideGlow: true),
-                // The content fills the whole screen and flows under the
-                // floating nav card below.
-                Positioned.fill(child: _buildTabbedPages()),
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  child: IgnorePointer(
-                    ignoring: !navShown,
-                    child: AnimatedSlide(
-                      duration: navShown ? _navSlideIn : _navSlideOut,
-                      curve: navShown
-                          ? Curves.easeOutCubic
-                          : Curves.easeInCubic,
-                      // A full child-height offset parks the card just off the
-                      // bottom edge, the way the dock tucks itself away.
-                      offset: Offset(0, navShown ? 0 : 1),
-                      child: AnimatedOpacity(
+    return BottomNavigationReveal(
+      enabled: !navShown && !keyboardOpen && _currentTab != AppTab.home,
+      bottomGap: revealZoneBottom,
+      zoneHeight: _navRevealZoneHeight,
+      onReveal: _revealNav,
+      child: Scaffold(
+        backgroundColor: isRoomTab
+            ? const Color(0xFF080706)
+            : const Color.fromARGB(0, 212, 255, 18),
+        body: _currentTab == AppTab.home
+            ? Stack(
+                children: [
+                  AmbientBackground(showSideGlow: false),
+                  SafeArea(bottom: false, child: _buildHomePage()),
+                ],
+              )
+            : Stack(
+                children: [
+                  if (!isRoomTab) const AmbientBackground(showSideGlow: true),
+                  // The content fills the whole screen and flows under the
+                  // floating nav card below.
+                  Positioned.fill(child: _buildTabbedPages()),
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: IgnorePointer(
+                      ignoring: !navShown,
+                      child: AnimatedSlide(
                         duration: navShown ? _navSlideIn : _navSlideOut,
-                        curve: Curves.easeInOutCubic,
-                        opacity: navShown ? 1 : 0,
-                        child: GestureDetector(
-                          // Flick the card back down to dismiss it early.
-                          onVerticalDragEnd: (details) {
-                            if ((details.primaryVelocity ?? 0) > 180) {
-                              _hideNav();
-                            }
-                          },
-                          child: Center(
-                            child: ConstrainedBox(
-                              constraints: BoxConstraints(
-                                maxWidth: useCompactRoomNav
-                                    ? 560
-                                    : double.infinity,
-                              ),
-                              child: _FloatingNavBar(
-                                currentTab: _currentTab,
-                                onSelect: _selectTab,
+                        curve: navShown
+                            ? Curves.easeOutCubic
+                            : Curves.easeInCubic,
+                        // A full child-height offset parks the card just off the
+                        // bottom edge, the way the dock tucks itself away.
+                        offset: Offset(0, navShown ? 0 : 1),
+                        child: AnimatedOpacity(
+                          duration: navShown ? _navSlideIn : _navSlideOut,
+                          curve: Curves.easeInOutCubic,
+                          opacity: navShown ? 1 : 0,
+                          child: GestureDetector(
+                            // Flick the card back down to dismiss it early.
+                            onVerticalDragEnd: (details) {
+                              if ((details.primaryVelocity ?? 0) > 180) {
+                                _hideNav();
+                              }
+                            },
+                            child: Center(
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  maxWidth: useCompactRoomNav
+                                      ? 560
+                                      : double.infinity,
+                                ),
+                                child: _FloatingNavBar(
+                                  currentTab: _currentTab,
+                                  onSelect: _selectTab,
+                                ),
                               ),
                             ),
                           ),
@@ -535,39 +555,9 @@ class _AppShellState extends State<AppShell> {
                       ),
                     ),
                   ),
-                ),
-                // Invisible swipe-up target that brings the card back. It only
-                // takes gestures while the card is away, so it never competes
-                // with the content underneath the rest of the time.
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: revealZoneBottom,
-                  height: _navRevealZoneHeight,
-                  child: IgnorePointer(
-                    ignoring: navShown || keyboardOpen,
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.translucent,
-                      // A double tap down here is a second way in, for when a
-                      // swipe is awkward to land.
-                      onDoubleTap: _revealNav,
-                      onVerticalDragStart: (_) => _navRevealDrag = 0,
-                      onVerticalDragUpdate: (details) {
-                        _navRevealDrag += details.delta.dy;
-                        if (_navRevealDrag <= -14) {
-                          _revealNav();
-                        }
-                      },
-                      onVerticalDragEnd: (details) {
-                        if ((details.primaryVelocity ?? 0) < -180) {
-                          _revealNav();
-                        }
-                      },
-                    ),
-                  ),
-                ),
-              ],
-            ),
+                ],
+              ),
+      ),
     );
   }
 }

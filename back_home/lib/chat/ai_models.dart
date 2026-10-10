@@ -101,8 +101,13 @@ class AiCharacter {
     return 'assets/ai_characters/$id.png';
   }
 
-  /// Stable 9-digit display id, matching the look of the human user ids shown
-  /// elsewhere in the chat UI.
+  /// Whether this account authored the character. Older private characters
+  /// predate authorUid, but still carry the local isCustom marker.
+  bool canEditBy(String uid) =>
+      isCustom && (authorUid == null || authorUid == uid);
+
+  /// Stable 9-digit AI ID. This namespace is independent of human User IDs;
+  /// the two directories may contain the same number without being linked.
   String get publicId {
     var hash = 0;
     for (final unit in id.codeUnits) {

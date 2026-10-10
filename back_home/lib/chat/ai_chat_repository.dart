@@ -5,6 +5,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 
 import 'ai_models.dart';
+import 'ai_character_catalog.dart';
 import 'ai_character_photo.dart';
 import 'ai_discovery_recommender.dart';
 
@@ -251,6 +252,50 @@ class AiChatRepository {
     return batch.commit();
   }
 
+  /// Edits this account's authored character and its published template together.
+  Future<void> updateCharacterDetails({
+    required String characterId,
+    required String name,
+    required String personality,
+  }) async {
+    final cleanName = name.trim();
+    final cleanPersonality = personality.trim();
+    if (cleanName.isEmpty ||
+        cleanName.length > 60 ||
+        cleanPersonality.isEmpty ||
+        cleanPersonality.length > 400) {
+      throw ArgumentError(
+        'Enter a name and personality within the character limits.',
+      );
+    }
+    final ref = _charactersRef.doc(characterId);
+    await _firestore.runTransaction<void>((transaction) async {
+      final snapshot = await transaction.get(ref);
+      final data = snapshot.data();
+      if (data == null) throw StateError('This character no longer exists.');
+      final character = AiCharacter.fromData(id: characterId, data: data);
+      if (!character.canEditBy(uid)) {
+        throw StateError('Only characters you created can be edited.');
+      }
+      final fields = <String, dynamic>{
+        'name': cleanName,
+        'personality': cleanPersonality,
+        'tags': aiTagsFromPersonality(cleanPersonality),
+        if (cleanName != character.name)
+          'introduction':
+              'Hi, I’m $cleanName. I’m here whenever you would like to talk.',
+      };
+      transaction.update(ref, fields);
+      if (character.isPublic && character.authorUid == uid) {
+        transaction.set(
+          _publicCharactersRef.doc(characterId),
+          {...character.toPublicTemplate(authorUid: uid), ...fields},
+          SetOptions(merge: true),
+        );
+      }
+    });
+  }
+
   /// Uploads a picked avatar and stores its download URL on the character.
   Future<void> updateCharacterAvatar({
     required String characterId,
@@ -348,6 +393,16 @@ class AiChatRepository {
     ).orderBy('createdAt').snapshots().map(_toMessages);
   }
 
+  /// Discovery cards only render the two latest turns. Keep adjacent cards
+  /// ready without subscribing to each character's complete chat history.
+  Stream<List<AiMessage>> watchCharacterPreviewMessages(String characterId) {
+    return _characterMessagesRef(characterId)
+        .orderBy('createdAt', descending: true)
+        .limit(2)
+        .snapshots()
+        .map((snapshot) => _toMessages(snapshot).reversed.toList());
+  }
+
   /// Streams the per-character conversation previews shown on the AI tab,
   /// keyed by character id.
   Stream<Map<String, AiChatPreview>> watchCharacterPreviews() {
@@ -432,6 +487,15 @@ class AiChatRepository {
 
   // --------------------------------------------------------------------- tutor
 
+  // Reuse stream identities so ordinary UI rebuilds do not put the Tutor
+  // conversation and history back into their loading states.
+  late final Stream<List<TutorSession>> _tutorSessionsStream = _tutorSessionsRef
+      .orderBy('updatedAt', descending: true)
+      .snapshots()
+      .map((snapshot) => snapshot.docs.map(TutorSession.fromDoc).toList());
+  String? _watchedTutorSessionId;
+  Stream<List<AiMessage>>? _tutorMessagesStream;
+
   CollectionReference<Map<String, dynamic>> _tutorMessagesRef(
     String sessionId,
   ) {
@@ -439,16 +503,17 @@ class AiChatRepository {
   }
 
   Stream<List<TutorSession>> watchTutorSessions() {
-    return _tutorSessionsRef
-        .orderBy('updatedAt', descending: true)
-        .snapshots()
-        .map((snapshot) => snapshot.docs.map(TutorSession.fromDoc).toList());
+    return _tutorSessionsStream;
   }
 
   Stream<List<AiMessage>> watchTutorMessages(String sessionId) {
-    return _tutorMessagesRef(
-      sessionId,
-    ).orderBy('createdAt').snapshots().map(_toMessages);
+    if (_watchedTutorSessionId != sessionId) {
+      _watchedTutorSessionId = sessionId;
+      _tutorMessagesStream = _tutorMessagesRef(
+        sessionId,
+      ).orderBy('createdAt').snapshots().map(_toMessages);
+    }
+    return _tutorMessagesStream!;
   }
 
   Future<String> createTutorSession({String? title}) async {

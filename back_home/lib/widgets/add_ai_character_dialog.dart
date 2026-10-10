@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../chat/ai_character_catalog.dart';
 import '../chat/ai_character_photo.dart';
+import 'app_ui.dart';
 
 Future<AiCharacterDraft?> showAddAiCharacterDialog(
   BuildContext context, {
@@ -44,6 +45,11 @@ class _AddCharacterDialog extends StatefulWidget {
 }
 
 class _AddCharacterDialogState extends State<_AddCharacterDialog> {
+  static const _genderOptions = {
+    'unspecified': 'Not specified',
+    'male': 'Male',
+    'female': 'Female',
+  };
   // Keep controllers alive through the route's closing animation.
   final _nameController = TextEditingController();
   final _personalityController = TextEditingController();
@@ -201,22 +207,92 @@ class _AddCharacterDialogState extends State<_AddCharacterDialog> {
                     ),
                   ),
                 const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  initialValue: _gender,
-                  decoration: const InputDecoration(
-                    labelText: 'Character gender',
-                  ),
-                  items: const [
-                    DropdownMenuItem(
-                      value: 'unspecified',
-                      child: Text('Not specified'),
+                Theme(
+                  data: Theme.of(
+                    context,
+                  ).copyWith(focusColor: Colors.transparent),
+                  child: DropdownButtonFormField<String>(
+                    initialValue: _gender,
+                    isExpanded: true,
+                    borderRadius: BorderRadius.circular(22),
+                    dropdownColor: AppColors.cream,
+                    elevation: 3,
+                    icon: const Icon(
+                      Icons.expand_more_rounded,
+                      color: AppColors.muted,
                     ),
-                    DropdownMenuItem(value: 'male', child: Text('Male')),
-                    DropdownMenuItem(value: 'female', child: Text('Female')),
-                  ],
-                  onChanged: _isSaving
-                      ? null
-                      : (value) => setState(() => _gender = value!),
+                    decoration: InputDecoration(
+                      labelText: 'Character gender',
+                      filled: true,
+                      fillColor: AppColors.cream.withValues(alpha: 0.65),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 14,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(18),
+                        borderSide: const BorderSide(color: AppColors.stroke),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(18),
+                        borderSide: const BorderSide(color: AppColors.stroke),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(18),
+                        borderSide: const BorderSide(color: AppColors.clay),
+                      ),
+                    ),
+                    selectedItemBuilder: (context) => [
+                      for (final label in _genderOptions.values)
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(label),
+                        ),
+                    ],
+                    items: [
+                      for (final option in _genderOptions.entries)
+                        DropdownMenuItem<String>(
+                          value: option.key,
+                          child: Container(
+                            height: 40,
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            decoration: BoxDecoration(
+                              color: _gender == option.key
+                                  ? AppColors.blush.withValues(alpha: 0.65)
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    option.value,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: _gender == option.key
+                                          ? AppColors.clay
+                                          : AppColors.ink,
+                                      fontWeight: _gender == option.key
+                                          ? FontWeight.w600
+                                          : FontWeight.w400,
+                                    ),
+                                  ),
+                                ),
+                                if (_gender == option.key)
+                                  const Icon(
+                                    Icons.check_rounded,
+                                    size: 18,
+                                    color: AppColors.clay,
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                    ],
+                    onChanged: _isSaving
+                        ? null
+                        : (value) => setState(() => _gender = value!),
+                  ),
                 ),
                 SwitchListTile.adaptive(
                   value: _isPublic,

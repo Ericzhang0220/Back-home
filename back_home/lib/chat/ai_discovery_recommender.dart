@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'ai_models.dart';
+import 'discovery_browse_history.dart';
 
 class AiCharacterInteraction {
   const AiCharacterInteraction({
@@ -97,33 +98,41 @@ class AiDiscoveryRecommender {
   }
 }
 
-/// Keeps an already visible card and its neighbours stable while message
-/// streams rebuild. New preference data is applied at the next deck cycle.
+/// Keeps the browsing path stable, then falls back to random repeat visits.
 class AiDiscoveryDeck {
   AiDiscoveryDeck({AiDiscoveryRecommender? recommender})
     : _recommender = recommender ?? AiDiscoveryRecommender();
   final AiDiscoveryRecommender _recommender;
-  List<String> _ids = [];
+  final _history = DiscoveryBrowseHistory(repeat: true);
+
+  int get currentIndex => _history.currentIndex;
+  String? move(int delta) => _history.move(delta);
 
   List<AiCharacter> resolve({
     required List<AiCharacter> candidates,
     required List<AiCharacter> knownCharacters,
     required Map<String, AiCharacterInteraction> interactions,
+    String? currentId,
   }) {
-    final byId = {for (final character in candidates) character.id: character};
-    _ids.removeWhere((id) => !byId.containsKey(id));
-    final additions = candidates.where((c) => !_ids.contains(c.id)).toList();
-    _ids.addAll(
-      _recommender
+    final byId = {
+      for (final character in knownCharacters) character.id: character,
+      for (final character in candidates) character.id: character,
+    };
+    final ids = _history.resolve(
+      candidates: candidates.map((character) => character.id),
+      available: byId.keys,
+      currentId: currentId,
+      orderUnseen: (unseen) => _recommender
           .order(
-            candidates: additions,
+            candidates: unseen.map((id) => byId[id]!).toList(),
             knownCharacters: knownCharacters,
             interactions: interactions,
           )
-          .map((c) => c.id),
+          .map((character) => character.id)
+          .toList(),
     );
-    return _ids.map((id) => byId[id]!).toList();
+    return ids.map((id) => byId[id]!).toList();
   }
 
-  void startNewCycle() => _ids = [];
+  void reset() => _history.reset();
 }

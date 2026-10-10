@@ -32,6 +32,8 @@
 	<string>Your location is used to show the real weather outside your window.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Choose a photo for your profile or a new AI character.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Save character photos to your photo library.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

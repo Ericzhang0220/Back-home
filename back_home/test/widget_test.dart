@@ -138,6 +138,79 @@ void main() {
     expect(find.text('Sign in to use the AI chats and tutor.'), findsOneWidget);
   });
 
+  testWidgets('reselecting Tutor keeps the page and only animates the tab', (
+    tester,
+  ) async {
+    final auth = AppAuthController.offline();
+    addTearDown(auth.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: ChatScreen(authController: auth)),
+      ),
+    );
+    await tester.tap(find.text('Tutor'));
+    await tester.pump();
+    final page = tester.widget<AnimatedSwitcher>(find.byType(AnimatedSwitcher));
+    expect(page.duration, Duration.zero);
+    for (var i = 0; i < 3; i++) {
+      await tester.tap(find.text('Tutor'));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(
+        tester.widget<AnimatedSwitcher>(find.byType(AnimatedSwitcher)),
+        same(page),
+      );
+    }
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('hidden navigation returns only with an upward swipe', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const BackHomeApp());
+    await tester.ensureVisible(find.text('Low'));
+    await tester.tap(find.text('Low'));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('Open room'));
+    await tester.pump();
+    await tester.tap(find.text('Chat').last);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(
+      tester.widget<ChatScreen>(find.byType(ChatScreen)).navVisible,
+      isTrue,
+    );
+
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(
+      tester.widget<ChatScreen>(find.byType(ChatScreen)).navVisible,
+      isFalse,
+    );
+    final size = tester.view.physicalSize / tester.view.devicePixelRatio;
+    final bottom = Offset(size.width / 2, size.height - 50);
+    await tester.tapAt(bottom);
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tapAt(bottom);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(
+      tester.widget<ChatScreen>(find.byType(ChatScreen)).navVisible,
+      isFalse,
+    );
+
+    await tester.dragFrom(bottom, const Offset(0, -80));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(
+      tester.widget<ChatScreen>(find.byType(ChatScreen)).navVisible,
+      isTrue,
+    );
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('room and Weather sheet lay out cleanly in landscape', (
     WidgetTester tester,
   ) async {

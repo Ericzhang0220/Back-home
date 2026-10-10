@@ -6,6 +6,7 @@ import 'package:three_js/three_js.dart' as three;
 
 import 'furniture_models.dart';
 import 'room_state.dart';
+import 'sky_dome.dart';
 
 enum _RoomTapTarget { desk, bed, radio, window }
 
@@ -78,12 +79,10 @@ List<({double x, double y, double radius, double opacity})> seededSkyStars(
   });
 }
 
-/// Keeps an outdoor camera facing away from the room while allowing a broad
-/// view of the landscape. Angles beyond the outward hemisphere are clamped.
-double clampOutwardCameraYaw(double yaw, {double limit = 35 * math.pi / 180}) {
+/// Wraps free-look headings without restricting turns back toward the room.
+double normalizeRoomCameraYaw(double yaw) {
   final twoPi = 2 * math.pi;
-  final signed = ((yaw + math.pi) % twoPi + twoPi) % twoPi - math.pi;
-  return signed.clamp(-limit, limit).toDouble();
+  return (yaw % twoPi + twoPi) % twoPi;
 }
 
 class IsometricRoomView extends StatefulWidget {
@@ -117,6 +116,8 @@ class IsometricRoomView extends StatefulWidget {
   final bool isActive;
   final bool deskFocused;
   final bool nightMode;
+
+  /// Looks from the window ledge just inside the glass, with full free-look.
   final bool outsideView;
   final VoidCallback? onTapDesk;
   final VoidCallback? onTapBed;
@@ -606,10 +607,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     three.Vector3 lookAt;
     final double baseFov;
     if (widget.outsideView) {
-      // Pass through the centre of the opening and settle just beyond the
-      // exterior wall. The gaze remains aimed into the landscape; outdoor drag
-      // handling clamps yaw before it could turn back toward the room.
-      basePos = three.Vector3(1.0, 2.32, farWallZ - 1.35);
+      // Stand on the window ledge, just inside the glass. Desk accessories
+      // sit below and behind the eye instead of filling the landscape view.
+      basePos = three.Vector3(1.7, 2.5, farWallZ + 0.4);
       lookAt = three.Vector3(
         basePos.x + math.sin(_cameraYaw),
         basePos.y + _cameraPitch,
@@ -774,8 +774,8 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       final pitchDelta = targetPitch - _currentCameraPitch;
       rotationSettled = yawDelta.abs() < 0.0001 && pitchDelta.abs() < 0.0001;
       _currentCameraYaw = rotationSettled
-          ? _normalizeRadians(targetYaw)
-          : _normalizeRadians(_currentCameraYaw + yawDelta * rotationT);
+          ? normalizeRoomCameraYaw(targetYaw)
+          : normalizeRoomCameraYaw(_currentCameraYaw + yawDelta * rotationT);
       _currentCameraPitch = rotationSettled
           ? targetPitch
           : _lerpDouble(_currentCameraPitch, targetPitch, rotationT);
@@ -822,11 +822,6 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
 
   double _lerpDouble(double from, double to, double t) =>
       from + (to - from) * t.clamp(0.0, 1.0);
-
-  double _normalizeRadians(double angle) {
-    final twoPi = 2 * math.pi;
-    return (angle % twoPi + twoPi) % twoPi;
-  }
 
   double _shortestAngleDelta(double from, double to) {
     final twoPi = 2 * math.pi;
@@ -881,8 +876,8 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         settings: three.Settings(
           antialias: true,
           alpha: true,
-          // Any pixels beyond the outdoor panorama should disappear into the
-          // window surround instead of exposing the renderer's black void.
+          // Fallback during setup; the closed sky dome covers the background
+          // once the room scene is ready.
           clearColor: _hex(_windowFrameColor),
           clearAlpha: 1,
         ),
@@ -1055,8 +1050,15 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       (w: frameThickness, h: frameHeight, x: 3.37, y: 2.35),
     ]) {
       scene.add(
-        _box(width: bar.w, height: bar.h, depth: 0.1, color: _windowFrameColor)
-          ..position.setValues(bar.x, bar.y, frameZ),
+        _box(
+          width: bar.w,
+          height: bar.h,
+          depth: 0.1,
+          color: _windowFrameColor,
+          // Thin trim magnifies shadow-map texels at the desk viewpoint.
+          // Keep its lighting and cast shadows without receiving that map.
+          receiveShadow: false,
+        )..position.setValues(bar.x, bar.y, frameZ),
       );
     }
 
@@ -1086,6 +1088,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       height: 2.25,
       depth: 0.08,
       color: const Color(0xFF5B463B),
+      receiveShadow: false,
     )..position.setValues(1.0, 2.28, -roomDepth / 2 + 0.24);
     scene.add(mullion);
 
@@ -1565,25 +1568,14 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     final look = _skyLook(time, weather);
     _activeSkyLook = look;
 
-    const skyW = 220.0;
-    const skyH = 72.0;
-    const bottomY = -22.0;
-    const bands = 20;
     final backdropCenterX = _windowProjectionCenterX(backdropZ, wallZ);
-    final bandH = skyH / bands;
-    for (var i = 0; i < bands; i += 1) {
-      final f = (i + 0.5) / bands; // 0 at the horizon, 1 at the zenith
-      group.add(
-        _skyPanel(
-          width: skyW,
-          height: bandH + 0.04,
-          color: _lerpColor(look.horizon, look.zenith, f),
-          x: backdropCenterX,
-          y: bottomY + (i + 0.5) * bandH,
-          z: backdropZ,
-        ),
-      );
-    }
+    group.add(
+      buildRoomSkyDome(
+        horizon: look.horizon,
+        zenith: look.zenith,
+        center: three.Vector3(1.0, 2.32, wallZ - 1.35),
+      ),
+    );
 
     // A broad low-altitude glow makes dawn and dusk legible even when the
     // actual disc is partially hidden by the hills.
@@ -1847,11 +1839,11 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       _landscapeBox(
         width: 120,
         height: 0.12,
-        depth: 34,
+        depth: 120,
         color: look.nearHills,
         x: groundCenterX,
         y: -0.38,
-        z: wallZ - 16.5,
+        z: wallZ,
       ),
     );
     _addRiver(group, look);
@@ -2833,9 +2825,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   void _beginCameraTiltCandidate(dynamic event) {
     _cameraTiltCandidate = true;
     _cameraTiltActive = false;
-    _cameraYaw = widget.outsideView
-        ? clampOutwardCameraYaw(_currentCameraYaw)
-        : _currentCameraYaw;
+    _cameraYaw = _currentCameraYaw;
     _cameraPitch = _currentCameraPitch;
     _yawAtDragStart = _cameraYaw;
     _pitchAtDragStart = _cameraPitch;
@@ -2881,9 +2871,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     final requestedYaw =
         _yawAtDragStart -
         deltaX * _yawSensitivity * widget.cameraRotateSensitivity;
-    _cameraYaw = widget.outsideView
-        ? clampOutwardCameraYaw(requestedYaw)
-        : _normalizeRadians(requestedYaw);
+    _cameraYaw = normalizeRoomCameraYaw(requestedYaw);
     _cameraPitch =
         (_pitchAtDragStart +
                 deltaY * _pitchSensitivity * widget.cameraRotateSensitivity)
