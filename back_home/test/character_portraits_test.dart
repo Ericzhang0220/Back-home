@@ -37,7 +37,7 @@ void main() {
         frame.image.dispose();
         codec.dispose();
       }
-      expect(paths.length, 20);
+      expect(paths.length, 50);
     },
   );
 

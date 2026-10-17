@@ -10,6 +10,7 @@ import '../chat/ai_chat_repository.dart';
 import '../chat/ai_character_photo.dart';
 import '../chat/ai_discovery_recommender.dart';
 import '../chat/ai_models.dart';
+import '../chat/character_share.dart';
 import '../chat/chat_inbox_controller.dart';
 import '../chat/chat_background_store.dart';
 import '../chat/discovery_browse_history.dart';
@@ -22,6 +23,7 @@ import '../widgets/app_ui.dart';
 import '../widgets/add_ai_character_dialog.dart';
 import '../widgets/edit_ai_character_dialog.dart';
 import '../widgets/fullscreen_photo_viewer.dart';
+import '../widgets/character_share_sheet.dart';
 import '../widgets/chat_message_actions.dart';
 import '../widgets/swipeable_chat_row.dart';
 import '../widgets/visible_chat_read_receipt.dart';
@@ -39,6 +41,7 @@ Future<void> openAiCharacterConversation(
   Future<void> Function()? onEditPhoto,
   ChatBackgroundStore? backgroundStore,
   Future<AiCharacterPhoto?> Function()? pickBackgroundPhoto,
+  bool replyToShare = false,
 }) => Navigator.of(context).push<void>(
   MaterialPageRoute(
     builder: (_) => _DirectChatScreen(
@@ -53,6 +56,7 @@ Future<void> openAiCharacterConversation(
         icon: character.icon,
       ),
       initialCharacter: character,
+      replyToShare: replyToShare,
       currentUid: repository.uid,
       repository: repository,
       inbox: inbox,
@@ -338,9 +342,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 messageController: _humanDiscoveryMessageController,
                 contactUid: _discoveryContactUid,
                 onContactChanged: (uid) {
-                  if (_discoveryContactUid != uid) {
-                    setState(() => _discoveryContactUid = uid);
-                  }
+                  setState(() => _discoveryContactUid = uid);
                 },
               ),
             ),
@@ -1308,8 +1310,6 @@ class _AiDiscoveryPageState extends State<_AiDiscoveryPage> {
     }
 
     if (selected == null) {
-      // The tab button shows the side you are on, so the deck is left by
-      // tapping the button that currently reads "AI".
       return const _DiscoveryCompleteState(
         title: 'No characters available yet',
         text: 'Characters will appear here when they are available.',
@@ -1355,6 +1355,7 @@ class _AiDiscoveryPageState extends State<_AiDiscoveryPage> {
             readKey: 'ai:${character.id}',
             isActive: widget.isActive,
             title: character.name,
+            compactText: true,
             photoUrl: character.avatarUrl,
             portraitAsset: character.portraitAsset,
             tint: character.tint,
@@ -1660,6 +1661,7 @@ class _DiscoveryPortrait extends StatelessWidget {
     this.inbox,
     this.readKey,
     this.isActive = true,
+    this.compactText = false,
   });
 
   final String title;
@@ -1684,6 +1686,7 @@ class _DiscoveryPortrait extends StatelessWidget {
   final ChatInboxController? inbox;
   final String? readKey;
   final bool isActive;
+  final bool compactText;
 
   @override
   Widget build(BuildContext context) {
@@ -1753,13 +1756,24 @@ class _DiscoveryPortrait extends StatelessWidget {
               children: [
                 Text(
                   title,
-                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w800,
-                    shadows: const [
-                      Shadow(color: Colors.black54, blurRadius: 10),
-                    ],
-                  ),
+                  style:
+                      (compactText
+                              ? Theme.of(context).textTheme.headlineSmall
+                              : Theme.of(context).textTheme.headlineMedium)
+                          ?.copyWith(
+                            fontSize: compactText
+                                ? (Theme.of(
+                                            context,
+                                          ).textTheme.headlineSmall?.fontSize ??
+                                          24) +
+                                      2
+                                : null,
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                            shadows: const [
+                              Shadow(color: Colors.black54, blurRadius: 10),
+                            ],
+                          ),
                 ),
                 if (subtitle != null)
                   Text(
@@ -1805,6 +1819,7 @@ class _DiscoveryPortrait extends StatelessWidget {
                       text: bubble.text,
                       isUser: bubble.isUser,
                       isPending: bubble.isPending,
+                      compactText: compactText,
                     ),
                   ),
                 ],
@@ -1822,11 +1837,13 @@ class _DiscoveryChatBubble extends StatelessWidget {
     required this.text,
     required this.isUser,
     this.isPending = false,
+    this.compactText = false,
   });
 
   final String text;
   final bool isUser;
   final bool isPending;
+  final bool compactText;
 
   @override
   Widget build(BuildContext context) {
@@ -1837,7 +1854,7 @@ class _DiscoveryChatBubble extends StatelessWidget {
         enabled: !isPending,
         child: Container(
           constraints: const BoxConstraints(maxWidth: 360),
-          padding: const EdgeInsets.all(14),
+          padding: EdgeInsets.all(compactText ? 12 : 14),
           decoration: BoxDecoration(
             color: isUser
                 ? AppColors.clay.withValues(alpha: 0.60)
@@ -1848,10 +1865,21 @@ class _DiscoveryChatBubble extends StatelessWidget {
               ? const _TypingIndicator()
               : Text(
                   text,
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    color: isUser ? Colors.white : AppColors.ink,
-                    height: 1.35,
-                  ),
+                  style:
+                      (compactText
+                              ? Theme.of(context).textTheme.bodyMedium
+                              : Theme.of(context).textTheme.bodyLarge)
+                          ?.copyWith(
+                            fontSize: compactText
+                                ? (Theme.of(
+                                            context,
+                                          ).textTheme.bodyMedium?.fontSize ??
+                                          14) +
+                                      1
+                                : null,
+                            color: isUser ? Colors.white : AppColors.ink,
+                            height: 1.35,
+                          ),
                 ),
         ),
       ),
@@ -2244,7 +2272,11 @@ class _HumanDiscoveryPageState extends State<_HumanDiscoveryPage> {
               frontCard: portraitFor(selected, currentIndex),
               previousCard: previous == null
                   ? null
-                  : portraitFor(previous, currentIndex - 1, isInteractive: false),
+                  : portraitFor(
+                      previous,
+                      currentIndex - 1,
+                      isInteractive: false,
+                    ),
               nextCard: next == null
                   ? null
                   : portraitFor(next, currentIndex + 1, isInteractive: false),
@@ -3395,10 +3427,12 @@ class _DirectChatScreen extends StatefulWidget {
     this.initialCharacter,
     this.backgroundStore,
     this.pickBackgroundPhoto,
+    this.replyToShare = false,
   });
 
   final _ChatPeer peer;
   final AiCharacter? initialCharacter;
+  final bool replyToShare;
   final ChatBackgroundStore? backgroundStore;
   final Future<AiCharacterPhoto?> Function()? pickBackgroundPhoto;
   final Future<void> Function()? onEditPhoto;
@@ -3453,9 +3487,99 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
   /// True while `chatWithCharacter` is in flight.
   bool _isReplying = false;
 
-  /// True while the friend toggle is being written, so a double tap cannot
-  /// queue two conflicting writes.
-  bool _isUpdatingFriend = false;
+  bool _isOpeningSharedCard = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.replyToShare) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _requestSharedReply();
+      });
+    }
+  }
+
+  Future<void> _requestSharedReply() async {
+    if (_isReplying || widget.repository == null) return;
+    setState(() => _isReplying = true);
+    try {
+      await widget.repository!.replyToSharedCharacter(widget.peer.id);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Card sent, but the AI could not reply.'),
+            action: SnackBarAction(
+              label: 'Retry reply',
+              onPressed: _requestSharedReply,
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isReplying = false);
+    }
+  }
+
+  Future<void> _shareCharacter(AiCharacter character) async {
+    final repository = widget.repository;
+    if (repository == null) return;
+    FocusScope.of(context).unfocus();
+    final recipient = await showCharacterShareSheet(
+      context,
+      character: character,
+      repository: repository,
+    );
+    if (recipient == null || !mounted) return;
+    if (recipient.isAi && recipient.character != null) {
+      await openAiCharacterConversation(
+        context,
+        character: recipient.character!,
+        repository: repository,
+        inbox: widget.inbox,
+        replyToShare: true,
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Character card sent to ${recipient.name}.')),
+      );
+    }
+  }
+
+  Future<void> _openSharedCard(_DirectMessage message) async {
+    final uid = widget.currentUid;
+    final share = message.sharedCharacter;
+    if (uid == null || share == null || _isOpeningSharedCard) return;
+    _isOpeningSharedCard = true;
+    try {
+      final repository = widget.repository ?? AiChatRepository(uid: uid);
+      final character = widget.peer.isAi
+          ? await repository.loadCharacter(share.character.id)
+          : await repository.adoptSharedCharacter(
+              chatId: _chatIdFor(uid, widget.peer.id),
+              messageId: message.id!,
+            );
+      if (character == null) {
+        throw const AiChatException('That character is no longer available.');
+      }
+      if (mounted) {
+        await openAiCharacterConversation(
+          context,
+          character: character,
+          repository: repository,
+          inbox: widget.inbox,
+        );
+      }
+    } catch (error) {
+      _showError(
+        error is AiChatException
+            ? error.message
+            : 'Could not open that character card.',
+      );
+    } finally {
+      _isOpeningSharedCard = false;
+    }
+  }
 
   Future<void> _restoreBackground() async {
     try {
@@ -3486,8 +3610,7 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
         foregroundColor: AppColors.ink,
         surfaceTintColor: Colors.transparent,
         titleSpacing: 0,
-        // The action slot belongs to the heart for AI friends, so the profile
-        // moves onto the name itself.
+        // Tapping the name opens the profile; sharing stays in the toolbar.
         title: StreamBuilder<AiCharacter?>(
           stream: _characterStream,
           initialData: widget.initialCharacter,
@@ -3612,12 +3735,18 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
                 onPressed: () => _editCharacter(character),
                 icon: const Icon(Icons.edit_outlined),
               ),
+              IconButton(
+                tooltip: 'Share character',
+                onPressed: () => _shareCharacter(character),
+                icon: const Icon(Icons.ios_share_rounded),
+              ),
             ],
           );
         }
-        return _buildHeartButton(
-          isFriend: character.isFriend,
-          friendsLabel: 'AI friends',
+        return IconButton(
+          tooltip: 'Share character',
+          onPressed: () => _shareCharacter(character),
+          icon: const Icon(Icons.ios_share_rounded),
         );
       },
     );
@@ -3642,15 +3771,10 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
     required bool isFriend,
     required String friendsLabel,
   }) {
-    return IconButton(
-      tooltip: isFriend ? 'Remove from $friendsLabel' : 'Add to $friendsLabel',
-      onPressed: _isUpdatingFriend
-          ? null
-          : () => _setFriend(isFriend: !isFriend),
-      icon: Icon(
-        isFriend ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-        color: isFriend ? AppColors.clay : AppColors.muted,
-      ),
+    return _ProfileFriendHeart(
+      isFriend: isFriend,
+      friendsLabel: friendsLabel,
+      onChanged: (value) => _setFriend(isFriend: value),
     );
   }
 
@@ -3695,7 +3819,6 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
         mode: switch (action) {
           ChatBackgroundAction.portrait => ChatBackgroundMode.portrait,
           ChatBackgroundAction.choosePhoto => ChatBackgroundMode.photo,
-          ChatBackgroundAction.plain => ChatBackgroundMode.plain,
         },
         photo: photo?.bytes,
       );
@@ -3712,11 +3835,6 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
   Future<void> _setFriend({required bool isFriend}) async {
     final repository = widget.repository;
     final humanFriends = widget.humanFriends;
-    if (_isUpdatingFriend) {
-      return;
-    }
-
-    setState(() => _isUpdatingFriend = true);
     try {
       if (widget.peer.isAi) {
         if (repository == null) {
@@ -3759,10 +3877,7 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
           const SnackBar(content: Text('Could not update that friend.')),
         );
       }
-    } finally {
-      if (mounted) {
-        setState(() => _isUpdatingFriend = false);
-      }
+      rethrow;
     }
   }
 
@@ -3816,12 +3931,20 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
                 .map((doc) {
                   final data = doc.data();
                   return _DirectMessage(
+                    id: doc.id,
                     isMine: data['senderUid'] == currentUid,
                     text: _stringValue(data['text']) ?? '',
+                    sharedCharacter: SharedAiCharacter.fromData(
+                      data['sharedCharacter'],
+                    ),
                     sentAt: (data['createdAt'] as Timestamp?)?.toDate(),
                   );
                 })
-                .where((message) => message.text.isNotEmpty)
+                .where(
+                  (message) =>
+                      message.text.isNotEmpty ||
+                      message.sharedCharacter != null,
+                )
                 .toList() ??
             <_DirectMessage>[];
 
@@ -3840,6 +3963,7 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
 
         return _MessageList(
           messages: messages,
+          onOpenSharedCard: _openSharedCard,
           inbox: widget.inbox,
           readKey: 'human:${_chatIdFor(currentUid, widget.peer.id)}',
         );
@@ -3878,12 +4002,15 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
 
         return _MessageList(
           inbox: widget.inbox,
+          onOpenSharedCard: _openSharedCard,
           readKey: 'ai:${widget.peer.id}',
           messages: [
             for (final message in messages)
               _DirectMessage(
+                id: message.id,
                 isMine: message.isUser,
                 text: message.text,
+                sharedCharacter: message.sharedCharacter,
                 sentAt: message.createdAt,
               ),
             if (_isReplying)
@@ -3993,6 +4120,12 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
           return _PeerProfileSheet(
             peer: widget.peer,
             character: character,
+            heart: character != null && repository != null
+                ? _buildHeartButton(
+                    isFriend: character.isFriend,
+                    friendsLabel: 'AI friends',
+                  )
+                : null,
             onEdit:
                 character != null &&
                     repository != null &&
@@ -4014,11 +4147,17 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
 }
 
 class _MessageList extends StatelessWidget {
-  const _MessageList({required this.messages, this.inbox, this.readKey});
+  const _MessageList({
+    required this.messages,
+    this.inbox,
+    this.readKey,
+    this.onOpenSharedCard,
+  });
 
   final List<_DirectMessage> messages;
   final ChatInboxController? inbox;
   final String? readKey;
+  final ValueChanged<_DirectMessage>? onOpenSharedCard;
 
   @override
   Widget build(BuildContext context) {
@@ -4056,7 +4195,20 @@ class _MessageList extends StatelessWidget {
                 ),
                 child: message.isPending
                     ? const _TypingIndicator()
-                    : Text(message.text),
+                    : Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (message.sharedCharacter != null)
+                            SharedCharacterCard(
+                              share: message.sharedCharacter!,
+                              onTap: onOpenSharedCard == null
+                                  ? null
+                                  : () => onOpenSharedCard!(message),
+                            ),
+                          if (message.text.isNotEmpty) Text(message.text),
+                        ],
+                      ),
               ),
             ),
           ),
@@ -4152,12 +4304,82 @@ class _MessageComposer extends StatelessWidget {
   }
 }
 
+class _ProfileFriendHeart extends StatefulWidget {
+  const _ProfileFriendHeart({
+    required this.isFriend,
+    required this.friendsLabel,
+    required this.onChanged,
+  });
+  final bool isFriend;
+  final String friendsLabel;
+  final Future<void> Function(bool) onChanged;
+  @override
+  State<_ProfileFriendHeart> createState() => _ProfileFriendHeartState();
+}
+
+class _ProfileFriendHeartState extends State<_ProfileFriendHeart> {
+  late bool _value = widget.isFriend;
+  late bool _saved = widget.isFriend;
+  bool _saving = false;
+
+  @override
+  void didUpdateWidget(covariant _ProfileFriendHeart oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // An acknowledgement of an earlier tap must not undo a newer choice.
+    if (!_saving && oldWidget.isFriend != widget.isFriend) {
+      _value = _saved = widget.isFriend;
+    }
+  }
+
+  void _toggle() {
+    setState(() => _value = !_value);
+    if (!_saving) unawaited(_save());
+  }
+
+  Future<void> _save() async {
+    _saving = true;
+    try {
+      // Save sequentially and coalesce rapid taps to the latest choice.
+      while (mounted && _value != _saved) {
+        final target = _value;
+        try {
+          await widget.onChanged(target);
+          _saved = target;
+        } catch (_) {
+          if (mounted) setState(() => _value = _saved);
+          break;
+        }
+      }
+    } finally {
+      _saving = false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => IconButton(
+    tooltip: _value
+        ? 'Remove from ${widget.friendsLabel}'
+        : 'Add to ${widget.friendsLabel}',
+    onPressed: _toggle,
+    icon: Icon(
+      _value ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+      color: _value ? AppColors.clay : AppColors.muted,
+    ),
+  );
+}
+
 class _PeerProfileSheet extends StatelessWidget {
-  const _PeerProfileSheet({required this.peer, this.character, this.onEdit});
+  const _PeerProfileSheet({
+    required this.peer,
+    this.character,
+    this.onEdit,
+    this.heart,
+  });
 
   final _ChatPeer peer;
   final AiCharacter? character;
   final VoidCallback? onEdit;
+  final Widget? heart;
 
   @override
   Widget build(BuildContext context) {
@@ -4179,35 +4401,47 @@ class _PeerProfileSheet extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(24, 22, 24, 28),
             child: Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Semantics(
-                  button: photo != null,
-                  label: 'View $name photo',
-                  child: GestureDetector(
-                    onTap: photo == null
-                        ? null
-                        : () => showFullscreenPhoto(
-                            context,
-                            image: photo,
-                            label: name,
-                          ),
-                    child: _PeerAvatar(
-                      peer: peer,
-                      size: 74,
-                      character: character,
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Semantics(
+                      button: photo != null,
+                      label: 'View $name photo',
+                      child: GestureDetector(
+                        onTap: photo == null
+                            ? null
+                            : () => showFullscreenPhoto(
+                                context,
+                                image: photo,
+                                label: name,
+                              ),
+                        child: _PeerAvatar(
+                          peer: peer,
+                          size: 74,
+                          character: character,
+                        ),
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          name,
+                          textAlign: TextAlign.left,
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                      ),
+                    ),
+                    ?heart,
+                  ],
                 ),
-                const SizedBox(height: 12),
-                Text(
-                  name,
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 14),
                 Text(
                   character?.personality ?? peer.subtitle,
-                  textAlign: TextAlign.center,
+                  textAlign: TextAlign.left,
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
                 const SizedBox(height: 18),
@@ -4387,9 +4621,13 @@ class _DirectMessage {
     required this.text,
     required this.sentAt,
     this.isPending = false,
+    this.id,
+    this.sharedCharacter,
   });
 
   final bool isMine;
+  final String? id;
+  final SharedAiCharacter? sharedCharacter;
   final String text;
   final DateTime? sentAt;
 

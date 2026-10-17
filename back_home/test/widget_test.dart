@@ -181,7 +181,13 @@ void main() {
       isTrue,
     );
 
-    await tester.pump(const Duration(seconds: 4));
+    // 400 ms has elapsed since opening Chat. Chrome starts hiding at 4 seconds.
+    await tester.pump(const Duration(milliseconds: 3599));
+    expect(
+      tester.widget<ChatScreen>(find.byType(ChatScreen)).navVisible,
+      isTrue,
+    );
+    await tester.pump(const Duration(milliseconds: 1));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
     expect(

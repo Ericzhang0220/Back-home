@@ -109,7 +109,8 @@ service cloud.firestore {
           // written by the Cloud Function, so a client cannot forge model
           // output or poison the context sent to OpenAI.
           allow create: if isOwner(uid)
-                        && request.resource.data.role == 'user';
+                        && request.resource.data.role == 'user'
+                        && !('sharedCharacter' in request.resource.data);
           allow update: if false;
           allow delete: if isOwner(uid);
         }
@@ -209,6 +210,7 @@ service cloud.firestore {
         // ordinary auto-ids are accepted and the chat is unrestricted.
         allow create: if signedIn()
                       && request.resource.data.senderUid == request.auth.uid
+                      && !('sharedCharacter' in request.resource.data)
                       && (
                            peerHasReplied()
                            || messageId == 'intro_' + request.auth.uid

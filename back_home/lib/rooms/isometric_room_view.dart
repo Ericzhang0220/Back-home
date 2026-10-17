@@ -237,19 +237,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   double _pitchAtDragStart = _lookPitch;
   double _cameraTiltPointerStartX = 0;
   double _cameraTiltPointerStartY = 0;
-  // Seated desk view: the camera stays put but can pan its gaze within the
-  // front hemisphere. Base = the look toward the desk; offsets are the drag.
-  double _deskBaseYaw = 0;
-  double _deskBasePitch = 0;
-  double _deskYaw = 0;
-  double _deskPitch = 0;
-  double _deskYawAtDragStart = 0;
-  double _deskPitchAtDragStart = 0;
-  static const double _deskYawLimit = math.pi / 2; // front hemisphere only
-  static const double _deskPitchMin = -0.5;
-  static const double _deskPitchMax = 0.5;
-  static const double _outsidePitchMin = -0.85;
-  static const double _outsidePitchMax = 0.72;
+  // Desk/window taps seed a free camera position once, rather than holding
+  // the camera at that destination on every resize, zoom or drag.
+  bool _cameraShortcutPending = true;
 
   // Smooth camera motion + pinch zoom. The camera eases toward these targets
   // every frame instead of snapping; _zoom drives the field of view.
@@ -359,30 +349,26 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         _resetFocusedCameraState();
         _cameraYaw = 0;
         _cameraPitch = -0.04;
-      } else if (leavingOutside && _preOutsideCameraState != null) {
-        _restoreCameraViewState(_preOutsideCameraState!);
-        _preOutsideCameraState = null;
       } else if (enteringNight) {
         _preNightCameraState = _captureCameraViewState();
         _resetFocusedCameraState();
-      } else if (leavingNight && _preNightCameraState != null) {
-        _restoreCameraViewState(_preNightCameraState!);
-        _preNightCameraState = null;
       } else if (enteringDesk) {
         _preDeskCameraState = _captureCameraViewState();
         _resetFocusedCameraState();
+      } else if (leavingOutside && _preOutsideCameraState != null) {
+        _restoreCameraViewState(_preOutsideCameraState!);
+        _preOutsideCameraState = null;
+      } else if (leavingNight && _preNightCameraState != null) {
+        _restoreCameraViewState(_preNightCameraState!);
+        _preNightCameraState = null;
       } else if (leavingDesk && _preDeskCameraState != null) {
         _restoreCameraViewState(_preDeskCameraState!);
         _preDeskCameraState = null;
       } else {
         _resetFocusedCameraState();
       }
+      _cameraShortcutPending = enteringDesk || enteringOutside;
       _lastPanCentroid = null;
-      if (!widget.outsideView) {
-        // Sit down facing the desk; the seated look starts centred each time.
-        _deskYaw = 0;
-        _deskPitch = 0;
-      }
       _configureCamera(_currentViewportSize());
     }
 
@@ -610,11 +596,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       // Stand on the window ledge, just inside the glass. Desk accessories
       // sit below and behind the eye instead of filling the landscape view.
       basePos = three.Vector3(1.7, 2.5, farWallZ + 0.4);
-      lookAt = three.Vector3(
-        basePos.x + math.sin(_cameraYaw),
-        basePos.y + _cameraPitch,
-        basePos.z - math.cos(_cameraYaw),
-      );
+      lookAt = three.Vector3(basePos.x, basePos.y - 0.04, basePos.z - 1);
       baseFov = 54;
     } else if (widget.deskFocused) {
       // Fly to a close-up of the tapped desk, viewed from the room-centre side
@@ -625,16 +607,6 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         eyeHeight: 1.75,
         lookHeight: 1.15,
       );
-      // Remember the seated forward look so drags can pan around it (front
-      // hemisphere only). Yaw/pitch follow the same convention as free-look:
-      // look dir = (sin yaw, pitch, -cos yaw).
-      final dirX = lookAt.x - basePos.x;
-      final dirZ = lookAt.z - basePos.z;
-      final horizontal = math.sqrt(dirX * dirX + dirZ * dirZ);
-      _deskBaseYaw = math.atan2(dirX, -dirZ);
-      _deskBasePitch = horizontal < 1e-3
-          ? 0
-          : (lookAt.y - basePos.y) / horizontal;
       baseFov = _focusFov;
     } else if (widget.nightMode) {
       // The good-night overlay does not need a bed close-up, so fly straight
@@ -682,6 +654,35 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       basePos.add(_cameraPanOffset);
       lookAt.add(_cameraPanOffset);
     }
+
+    if (!widget.nightMode && (widget.outsideView || widget.deskFocused)) {
+      if (_cameraShortcutPending) {
+        final direction = lookAt.clone()..sub(basePos);
+        final horizontal = math.sqrt(
+          direction.x * direction.x + direction.z * direction.z,
+        );
+        _cameraPanOffset.setValues(
+          basePos.x,
+          basePos.y - _eyeHeight,
+          basePos.z,
+        );
+        _cameraYaw = normalizeRoomCameraYaw(
+          math.atan2(direction.x, -direction.z),
+        );
+        _cameraPitch = horizontal < 1e-3 ? 0 : direction.y / horizontal;
+        if (!_cameraPosed) {
+          _currentCameraYaw = _cameraYaw;
+          _currentCameraPitch = _cameraPitch;
+        }
+      }
+      basePos = three.Vector3(0, _eyeHeight, 0)..add(_cameraPanOffset);
+      lookAt = three.Vector3(
+        basePos.x + math.sin(_currentCameraYaw),
+        basePos.y + _currentCameraPitch,
+        basePos.z - math.cos(_currentCameraYaw),
+      );
+    }
+    _cameraShortcutPending = false;
 
     _cameraTargetBaseFov = baseFov;
     _applyCameraFov();
@@ -757,16 +758,14 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _currentZoom = zoomSettled ? _zoom : nextZoom;
     _applyCameraFov();
 
-    final mainFreeLook = !widget.deskFocused && !widget.nightMode;
-    final deskLook = widget.deskFocused && !widget.nightMode;
     // The night camera moves the eye but never changes the user's heading.
-    // Main and desk views interpolate orientation as angles instead of blending
+    // Free views interpolate orientation as angles instead of blending
     // world-space look-at points. The latter can pass through the moving eye
     // during a transition and briefly invert the camera.
     var rotationSettled = true;
-    if (mainFreeLook || deskLook) {
-      final targetYaw = deskLook ? _deskBaseYaw + _deskYaw : _cameraYaw;
-      final targetPitch = deskLook ? _deskBasePitch + _deskPitch : _cameraPitch;
+    if (!widget.nightMode) {
+      final targetYaw = _cameraYaw;
+      final targetPitch = _cameraPitch;
       final rotationT = (1 - math.exp(-dt * _rotationLerpSpeed))
           .clamp(0.0, 1.0)
           .toDouble();
@@ -2829,15 +2828,12 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _cameraPitch = _currentCameraPitch;
     _yawAtDragStart = _cameraYaw;
     _pitchAtDragStart = _cameraPitch;
-    _deskYawAtDragStart = _deskYaw;
-    _deskPitchAtDragStart = _deskPitch;
     _cameraTiltPointerStartX = _eventClientX(event);
     _cameraTiltPointerStartY = _eventClientY(event);
   }
 
   void _updateCameraTilt(dynamic event) {
-    // Night mode is a fixed shot behind the good-night overlay, so it stays
-    // locked. The desk view allows a limited seated look (handled below).
+    // Only the good-night overlay holds a fixed shot.
     if (!_cameraTiltCandidate || widget.nightMode) {
       return;
     }
@@ -2852,22 +2848,6 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _cameraTiltActive = true;
     _pendingTapTarget = null;
 
-    if (widget.deskFocused) {
-      // Seated: pan the gaze within the front hemisphere only, eye fixed.
-      _deskYaw =
-          (_deskYawAtDragStart -
-                  deltaX * _yawSensitivity * widget.cameraRotateSensitivity)
-              .clamp(-_deskYawLimit, _deskYawLimit)
-              .toDouble();
-      _deskPitch =
-          (_deskPitchAtDragStart +
-                  deltaY * _pitchSensitivity * widget.cameraRotateSensitivity)
-              .clamp(_deskPitchMin, _deskPitchMax)
-              .toDouble();
-      _refreshCamera();
-      return;
-    }
-
     final requestedYaw =
         _yawAtDragStart -
         deltaX * _yawSensitivity * widget.cameraRotateSensitivity;
@@ -2875,16 +2855,13 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _cameraPitch =
         (_pitchAtDragStart +
                 deltaY * _pitchSensitivity * widget.cameraRotateSensitivity)
-            .clamp(
-              widget.outsideView ? _outsidePitchMin : _minLookPitch,
-              widget.outsideView ? _outsidePitchMax : _maxLookPitch,
-            )
+            .clamp(_minLookPitch, _maxLookPitch)
             .toDouble();
     _refreshCamera();
   }
 
   void _updateCameraPan() {
-    if (widget.deskFocused || widget.nightMode || widget.outsideView) {
+    if (widget.nightMode) {
       _lastPanCentroid = null;
       return;
     }
@@ -2979,7 +2956,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   }
 
   void _updateCameraHeightPan() {
-    if (widget.deskFocused || widget.nightMode || widget.outsideView) {
+    if (widget.nightMode) {
       _lastPanCentroid = null;
       return;
     }
@@ -3426,6 +3403,10 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _focusAnchor = _focusAnchorForTapTarget(target, anchor);
     switch (target) {
       case _RoomTapTarget.desk:
+        if (widget.deskFocused && !widget.nightMode) {
+          _cameraShortcutPending = true;
+          _configureCamera(_currentViewportSize());
+        }
         widget.onTapDesk?.call();
         return;
       case _RoomTapTarget.bed:
@@ -3435,7 +3416,11 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         widget.onTapRadio?.call();
         return;
       case _RoomTapTarget.window:
-        if (!widget.deskFocused && !widget.nightMode && !widget.outsideView) {
+        if (!widget.nightMode) {
+          if (widget.outsideView) {
+            _cameraShortcutPending = true;
+            _configureCamera(_currentViewportSize());
+          }
           widget.onTapWindow?.call();
         }
         return;

@@ -8,6 +8,7 @@ import 'ai_models.dart';
 import 'ai_character_catalog.dart';
 import 'ai_character_photo.dart';
 import 'ai_discovery_recommender.dart';
+import 'character_share.dart';
 
 /// Firestore + Cloud Functions data layer behind the AI and Tutor chat tabs.
 ///
@@ -44,6 +45,95 @@ class AiChatRepository {
       _firestore.collection('publicAiCharacters');
 
   // ---------------------------------------------------------------- characters
+
+  Future<List<CharacterShareRecipient>> loadShareRecipients(
+    String sourceId,
+  ) async {
+    final characters = await _charactersRef.get();
+    final friends = await _userRef.collection('humanFriends').get();
+    final chats = await _firestore
+        .collection('chats')
+        .where('participantUids', arrayContains: uid)
+        .get();
+    final humanIds = <String>{
+      ...friends.docs.map((doc) => doc.id),
+      for (final chat in chats.docs)
+        ...(chat.data()['participantUids'] as List? ?? []).whereType<String>(),
+    }..remove(uid);
+    final people = await Future.wait(
+      humanIds.map((id) => _firestore.collection('users').doc(id).get()),
+    );
+    return [
+      for (final doc in characters.docs)
+        if (doc.id != sourceId && doc.data()['isFriend'] == true)
+          CharacterShareRecipient(
+            id: doc.id,
+            name: AiCharacter.fromDoc(doc).name,
+            isAi: true,
+            photoUrl: AiCharacter.fromDoc(doc).avatarUrl,
+            portraitAsset: AiCharacter.fromDoc(doc).portraitAsset,
+            character: AiCharacter.fromDoc(doc),
+          ),
+      for (final doc in people)
+        if (doc.exists)
+          CharacterShareRecipient(
+            id: doc.id,
+            name: _readString(doc.data()?['displayName']).isNotEmpty
+                ? _readString(doc.data()?['displayName'])
+                : 'Back Home user',
+            isAi: false,
+            photoUrl: doc.data()?['photoUrl'] as String?,
+          ),
+    ];
+  }
+
+  String newShareRequestId() => _charactersRef.doc().id;
+
+  Future<AiCharacter?> loadCharacter(String id) async {
+    final doc = await _charactersRef.doc(id).get();
+    return doc.exists ? AiCharacter.fromData(id: id, data: doc.data()!) : null;
+  }
+
+  Future<void> shareCharacter({
+    required String characterId,
+    required CharacterShareRecipient recipient,
+    required String requestId,
+    String note = '',
+  }) async {
+    if (recipient.isAi) await _ensureInteractionCount(recipient.id);
+    await _callFunction('shareAiCharacter', {
+      'characterId': characterId,
+      'recipientId': recipient.id,
+      'recipientKind': recipient.isAi ? 'ai' : 'human',
+      'requestId': requestId,
+      'note': note,
+    });
+  }
+
+  Future<void> replyToSharedCharacter(String characterId) =>
+      _callFunction('chatWithCharacter', {'characterId': characterId});
+
+  Future<AiCharacter> adoptSharedCharacter({
+    required String chatId,
+    required String messageId,
+  }) async {
+    try {
+      final result = await _functions
+          .httpsCallable('adoptSharedAiCharacter')
+          .call<Map<String, dynamic>>({
+            'chatId': chatId,
+            'messageId': messageId,
+          });
+      final id = result.data['characterId'] as String;
+      final snapshot = await _charactersRef.doc(id).get();
+      if (!snapshot.exists) {
+        throw const AiChatException('That character is unavailable.');
+      }
+      return AiCharacter.fromData(id: id, data: snapshot.data()!);
+    } on FirebaseFunctionsException catch (error) {
+      throw AiChatException(error.message ?? 'Could not open that card.');
+    }
+  }
 
   Stream<List<AiCharacter>> watchCharacters() {
     return _charactersRef.orderBy('createdAt').snapshots().map((snapshot) {
@@ -287,11 +377,10 @@ class AiChatRepository {
       };
       transaction.update(ref, fields);
       if (character.isPublic && character.authorUid == uid) {
-        transaction.set(
-          _publicCharactersRef.doc(characterId),
-          {...character.toPublicTemplate(authorUid: uid), ...fields},
-          SetOptions(merge: true),
-        );
+        transaction.set(_publicCharactersRef.doc(characterId), {
+          ...character.toPublicTemplate(authorUid: uid),
+          ...fields,
+        }, SetOptions(merge: true));
       }
     });
   }

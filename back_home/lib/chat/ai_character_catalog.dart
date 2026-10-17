@@ -51,6 +51,69 @@ const aiPresetMetadata = <String, ({String gender, List<String> tags})>{
     gender: 'female',
     tags: ['guitar', 'code', 'independent', 'creative'],
   ),
+  'theo-bennett': (gender: 'male', tags: ["witty", "tabletop", "calm"]),
+  'kai-nakamura': (gender: 'male', tags: ["playful", "creative", "food"]),
+  'rowan-brooks': (gender: 'male', tags: ["candid", "pragmatic", "plants"]),
+  'jude-santos': (gender: 'male', tags: ["candid", "calm", "hiking"]),
+  'felix-reed': (gender: 'male', tags: ["tabletop", "playful", "creative"]),
+  'arlo-chen': (gender: 'male', tags: ["romantic", "journaling", "reflective"]),
+  'dante-rivera': (
+    gender: 'male',
+    tags: ["candid", "empathetic", "independent"],
+  ),
+  'micah-okafor': (gender: 'male', tags: ["empathetic", "caring", "music"]),
+  'ezra-singh': (
+    gender: 'male',
+    tags: ["reflective", "thoughtful", "tabletop"],
+  ),
+  'leo-moreau': (gender: 'male', tags: ["thrifting", "creative", "playful"]),
+  'nico-park': (gender: 'male', tags: ["crafts", "reflective", "low-pressure"]),
+  'owen-ellis': (gender: 'male', tags: ["cozy-games", "low-pressure", "calm"]),
+  'hugo-alvarez': (gender: 'male', tags: ["offbeat", "creative", "tabletop"]),
+  'samir-haddad': (gender: 'male', tags: ["empathetic", "thoughtful", "food"]),
+  'soren-lind': (
+    gender: 'male',
+    tags: ["pragmatic", "low-pressure", "independent"],
+  ),
+  'iris-laurent': (gender: 'female', tags: ["offbeat", "witty", "plants"]),
+  'sienna-patel': (
+    gender: 'female',
+    tags: ["empathetic", "thrifting", "playful"],
+  ),
+  'zoe-kim': (gender: 'female', tags: ["playful", "offbeat", "food"]),
+  'freya-morgan': (
+    gender: 'female',
+    tags: ["candid", "pragmatic", "independent"],
+  ),
+  'maya-okafor': (gender: 'female', tags: ["caring", "pragmatic", "plants"]),
+  'elena-rossi': (
+    gender: 'female',
+    tags: ["low-pressure", "empathetic", "calm"],
+  ),
+  'nora-chen': (
+    gender: 'female',
+    tags: ["journaling", "reflective", "empathetic"],
+  ),
+  'ruby-santos': (gender: 'female', tags: ["witty", "playful", "tabletop"]),
+  'aisha-rahman': (
+    gender: 'female',
+    tags: ["astronomy", "thoughtful", "reflective"],
+  ),
+  'violet-hayes': (
+    gender: 'female',
+    tags: ["romantic", "camera", "reflective"],
+  ),
+  'lucia-vega': (gender: 'female', tags: ["food", "candid", "playful"]),
+  'tessa-nguyen': (
+    gender: 'female',
+    tags: ["crafts", "playful", "low-pressure"],
+  ),
+  'cleo-brooks': (gender: 'female', tags: ["candid", "thoughtful", "tabletop"]),
+  'june-park': (gender: 'female', tags: ["crafts", "low-pressure", "calm"]),
+  'amara-diallo': (
+    gender: 'female',
+    tags: ["candid", "empathetic", "independent"],
+  ),
 };
 
 const aiInterestLabels = <String, String>{
@@ -79,6 +142,22 @@ const aiInterestLabels = <String, String>{
   'thoughtful': 'Thoughtful',
   'competitive': 'Competitive',
   'independent': 'Independent',
+  'witty': 'Witty',
+  'playful': 'Playful',
+  'candid': 'Candid',
+  'empathetic': 'Empathetic',
+  'romantic': 'Romantic',
+  'pragmatic': 'Practical',
+  'reflective': 'Reflective',
+  'offbeat': 'Offbeat',
+  'low-pressure': 'Low-pressure company',
+  'tabletop': 'Tabletop games',
+  'crafts': 'Crafts',
+  'astronomy': 'Astronomy',
+  'thrifting': 'Thrifting',
+  'food': 'Food',
+  'cozy-games': 'Cozy games',
+  'journaling': 'Journaling',
 };
 
 /// Fallback for older or untagged custom characters, using only their authored

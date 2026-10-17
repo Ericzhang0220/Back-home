@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../auth/app_auth_controller.dart';
 import '../mood/mood_repository.dart';
 import '../widgets/app_ui.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
@@ -282,6 +283,12 @@ class _HomeScreenState extends State<HomeScreen> {
 class _HomeHeader extends StatelessWidget {
   const _HomeHeader();
 
+  FirebaseAuth get _auth => FirebaseAuth.instance;
+  User? get currentUser => _auth.currentUser;
+  String get displayName => currentUser?.displayName?.trim().isNotEmpty == true
+      ? currentUser!.displayName!.trim()
+      : currentUser?.phoneNumber ?? 'Your account';
+
   @override
   Widget build(BuildContext context) {
     return Row(
@@ -291,7 +298,7 @@ class _HomeHeader extends StatelessWidget {
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: const [
+            children: [
               Text(
                 'Welcome Back',
                 style: TextStyle(
@@ -302,7 +309,7 @@ class _HomeHeader extends StatelessWidget {
               ),
               SizedBox(height: 8),
               Text(
-                'Username',
+                displayName,
                 style: TextStyle(
                   color: Color.fromARGB(255, 0, 0, 0),
                   fontSize: 24,
@@ -313,7 +320,18 @@ class _HomeHeader extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 16),
-        const _HomeIllustration(),
+        // const _HomeIllustration(),
+        SizedBox(
+          width: 124,
+          height: 124,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(32),
+            child: Image.asset(
+              'assets/APP store button.png',
+              fit: BoxFit.cover,
+            ),
+          ),
+        ),
       ],
     );
   }

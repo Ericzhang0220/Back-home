@@ -483,6 +483,9 @@ class _AppShellState extends State<AppShell> {
     // room's desk/night subviews.
     final navShown =
         _navVisible && !keyboardOpen && !(isRoomTab && _roomInSubview);
+    final navSlideOut = _currentTab == AppTab.chat
+        ? const Duration(milliseconds: 180)
+        : _navSlideOut;
     // Keep the swipe target clear of the strip iOS reserves for its own
     // home-indicator gestures, so a reveal never dismisses the app instead.
     final revealZoneBottom = math.max(
@@ -519,7 +522,7 @@ class _AppShellState extends State<AppShell> {
                     child: IgnorePointer(
                       ignoring: !navShown,
                       child: AnimatedSlide(
-                        duration: navShown ? _navSlideIn : _navSlideOut,
+                        duration: navShown ? _navSlideIn : navSlideOut,
                         curve: navShown
                             ? Curves.easeOutCubic
                             : Curves.easeInCubic,
@@ -527,7 +530,7 @@ class _AppShellState extends State<AppShell> {
                         // bottom edge, the way the dock tucks itself away.
                         offset: Offset(0, navShown ? 0 : 1),
                         child: AnimatedOpacity(
-                          duration: navShown ? _navSlideIn : _navSlideOut,
+                          duration: navShown ? _navSlideIn : navSlideOut,
                           curve: Curves.easeInOutCubic,
                           opacity: navShown ? 1 : 0,
                           child: GestureDetector(

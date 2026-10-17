@@ -30,9 +30,10 @@ class DiscoveryBrowseHistory {
   }) {
     final availableIds = available.toSet();
     // Only a truly unavailable/deleted profile leaves the browsing path.
-    final removedBefore = _ids.take(_currentIndex).where(
-      (id) => !availableIds.contains(id),
-    ).length;
+    final removedBefore = _ids
+        .take(_currentIndex)
+        .where((id) => !availableIds.contains(id))
+        .length;
     _ids.removeWhere((id) => !availableIds.contains(id));
     _currentIndex = max(0, min(_currentIndex - removedBefore, _ids.length - 1));
     final eligible = candidates.toSet().intersection(availableIds);
@@ -44,9 +45,9 @@ class DiscoveryBrowseHistory {
       } else if (repeat && availableIds.isNotEmpty) {
         // Once fresh recommendations run out, include saved profiles too.
         // Avoid showing the current person twice in a row when possible.
-        final pool = availableIds.where(
-          (id) => _ids.isEmpty || id != _ids.last,
-        ).toList();
+        final pool = availableIds
+            .where((id) => _ids.isEmpty || id != _ids.last)
+            .toList();
         if (pool.isEmpty) pool.addAll(availableIds);
         _ids.add(pool[_random.nextInt(pool.length)]);
       }

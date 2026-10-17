@@ -40,7 +40,7 @@ class ChatBackground extends StatelessWidget {
   }
 }
 
-enum ChatBackgroundAction { portrait, choosePhoto, plain }
+enum ChatBackgroundAction { portrait, choosePhoto }
 
 Future<ChatBackgroundAction?> showChatBackgroundPicker(
   BuildContext context, {
@@ -80,14 +80,6 @@ Future<ChatBackgroundAction?> showChatBackgroundPicker(
               : null,
           onTap: () =>
               Navigator.of(context).pop(ChatBackgroundAction.choosePhoto),
-        ),
-        ListTile(
-          leading: const Icon(Icons.format_color_fill_outlined),
-          title: const Text('Plain background'),
-          trailing: selected == ChatBackgroundMode.plain
-              ? const Icon(Icons.check_rounded)
-              : null,
-          onTap: () => Navigator.of(context).pop(ChatBackgroundAction.plain),
         ),
         const SizedBox(height: 8),
       ],

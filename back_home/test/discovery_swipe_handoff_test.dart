@@ -1,11 +1,14 @@
 import 'dart:async';
 
+import 'package:back_home/chat/ai_discovery_recommender.dart';
+import 'package:back_home/chat/ai_models.dart';
 import 'package:back_home/screens/chat_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _Card extends StatefulWidget {
-  _Card(this.id, this.starts) : super(key: ValueKey(id));
+  _Card(this.id, this.starts, {Key? visitKey})
+    : super(key: visitKey ?? ValueKey(id));
   final String id;
   final Map<String, int> starts;
 
@@ -138,4 +141,81 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  for (final count in [1, 2, 3]) {
+    testWidgets('repeated discovery visits keep swiping with $count profiles', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(400, 700));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final deck = AiDiscoveryDeck();
+      final characters = [
+        for (var i = 0; i < count; i++)
+          AiCharacter.fromData(id: 'person-$i', data: {'name': 'Person $i'}),
+      ];
+      final selection = ValueNotifier(0);
+      addTearDown(selection.dispose);
+      final starts = <String, int>{};
+      String? currentId;
+      var commits = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ValueListenableBuilder<int>(
+              valueListenable: selection,
+              builder: (_, _, _) {
+                final path = deck.resolve(
+                  candidates: characters,
+                  knownCharacters: characters,
+                  interactions: const {},
+                  currentId: currentId,
+                );
+                final index = deck.currentIndex;
+                currentId = path[index].id;
+                Widget card(int visit) => _Card(
+                  path[visit].id,
+                  starts,
+                  visitKey: ValueKey((path[visit].id, visit)),
+                );
+                return SwipeableDiscoveryDeck(
+                  cardKey: (currentId, index),
+                  frontCard: card(index),
+                  previousCard: index == 0 ? null : card(index - 1),
+                  nextCard: card(index + 1),
+                  enabled: true,
+                  onSwiped: (direction) {
+                    currentId = deck.move(direction);
+                    selection.value = deck.currentIndex;
+                    commits++;
+                  },
+                );
+              },
+            ),
+          ),
+        ),
+      );
+      for (var visit = 1; visit <= 8; visit++) {
+        await tester.dragFrom(const Offset(200, 350), const Offset(-240, 0));
+        await tester.pumpAndSettle();
+        expect(deck.currentIndex, visit);
+        expect(
+          tester.getRect(find.byKey(ValueKey((currentId!, visit)))),
+          const Rect.fromLTWH(0, 0, 400, 700),
+        );
+        expect(tester.takeException(), isNull);
+      }
+      for (var visit = 7; visit >= 0; visit--) {
+        await tester.dragFrom(const Offset(200, 350), const Offset(240, 0));
+        await tester.pumpAndSettle();
+        expect(deck.currentIndex, visit);
+        expect(
+          tester.getRect(find.byKey(ValueKey((currentId!, visit)))),
+          const Rect.fromLTWH(0, 0, 400, 700),
+        );
+        expect(tester.takeException(), isNull);
+      }
+      expect(commits, 16);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
 }

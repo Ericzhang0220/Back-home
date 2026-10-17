@@ -101,7 +101,7 @@ class DiscoveryControlVisibility extends StatelessWidget {
           excluding: !visible,
           child: AnimatedOpacity(
             opacity: visible ? 1 : 0,
-            duration: Duration(milliseconds: visible ? 260 : 380),
+            duration: Duration(milliseconds: visible ? 260 : 180),
             curve: Curves.easeInOutCubic,
             child: child,
           ),

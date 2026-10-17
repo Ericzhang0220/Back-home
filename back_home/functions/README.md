@@ -7,9 +7,31 @@ moderates Hall posters before publication.
 | --- | --- | --- |
 | `askTutor` | Tutor page | `{ "sessionId": "..." }` |
 | `chatWithCharacter` | AI companion chats | `{ "characterId": "..." }` |
+| `shareAiCharacter` | Share picker | `{ "characterId": "...", "recipientKind": "ai" or "human", "recipientId": "...", "requestId": "...", "note"?: "..." }` |
+| `adoptSharedAiCharacter` | Received character card | `{ "chatId": "...", "messageId": "..." }` |
 | `submitHallPost` | Hall create/edit flow | `{ "topic": "...", "message": "...", "mood": "...", "postId"?: "..." }` |
 
 The two chat callables return `{ "text": "...", "model": "gpt-4o-mini" }`.
+
+## Character cards
+
+Sharing snapshots the character's current photo, name and personality into a
+message. It does not publish a private character to the public catalog. Human
+recipients can open the card to add a separate copy and begin their own chat;
+the sender's conversation is never copied. Existing recipient characters and
+messages are preserved. Human sharing observes the one unanswered opening
+message limit, and retries use an idempotent request ID.
+
+When a card is shared with an AI, `chatWithCharacter` reads up to 16 recent turns
+from the sender's own chat with that character. Subsequent questions retain the
+reference while the card remains in the receiving AI's recent history. The
+receiving AI keeps its own persona and treats the referenced dialogue as quoted
+data. It cannot read another account's chats.
+
+Deployment includes `shareAiCharacter`, `adoptSharedAiCharacter`, the updated
+`chatWithCharacter`, and `firestore:rules`. Rules reserve `sharedCharacter` on
+messages for server-created cards. Run `node --test character_sharing.test.js`
+and `npm run lint` in this directory before deployment.
 
 ## Hall poster moderation
 

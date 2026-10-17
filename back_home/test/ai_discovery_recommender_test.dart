@@ -17,6 +17,34 @@ void main() {
   const presets = AiCharacter.presets;
 
   test(
+    'expanded catalog has 30 distinct authored personas with valid metadata',
+    () {
+      expect(presets.length, 50);
+      expect(presets.map((p) => p.id).toSet().length, 50);
+      expect(presets.map((p) => p.name).toSet().length, 50);
+      expect(presets.map((p) => p.personality).toSet().length, 50);
+      for (final persona in presets.skip(20)) {
+        expect(persona.introduction, isNotEmpty);
+        expect(persona.preview, isNotEmpty);
+        expect(persona.discoveryTags, isNotEmpty);
+        expect(kAiCharacterIcons.containsKey(persona.iconCodePoint), isTrue);
+        // Older copies missing explicit fields still resolve authored metadata.
+        final restored = AiCharacter.fromData(
+          id: persona.id,
+          data: {'name': persona.name, 'personality': persona.personality},
+        );
+        expect(restored.gender, persona.gender);
+        expect(restored.discoveryTags, persona.discoveryTags);
+        final serialized = AiCharacter.fromData(
+          id: persona.id,
+          data: persona.toFirestore(),
+        );
+        expect(serialized.discoveryTags, persona.discoveryTags);
+      }
+    },
+  );
+
+  test(
     'untagged custom personas resolve English and Chinese interests without substring mistakes',
     () {
       final english = AiCharacter.fromData(
@@ -58,7 +86,7 @@ void main() {
       firstIds.add(deck.first.id);
       if (deck.first.gender == 'male') maleFirst++;
     }
-    expect(firstIds.length, 20);
+    expect(firstIds.length, 50);
     expect(maleFirst, inInclusiveRange(450, 550));
   });
 
@@ -229,8 +257,8 @@ void main() {
   );
 
   test('old preset documents resolve authored genders and tags locally', () {
-    expect(presets.where((c) => c.gender == 'male').length, 10);
-    expect(presets.where((c) => c.gender == 'female').length, 10);
+    expect(presets.where((c) => c.gender == 'male').length, 25);
+    expect(presets.where((c) => c.gender == 'female').length, 25);
     final restored = AiCharacter.fromData(
       id: 'olivia-parker',
       data: {'name': 'Olivia'},

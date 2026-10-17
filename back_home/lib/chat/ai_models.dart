@@ -2,6 +2,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import 'ai_character_catalog.dart';
+import 'character_share.dart';
+
+part 'ai_character_expansion.dart';
 
 /// Icons are stored as stable string keys rather than raw code points so the
 /// `IconData` values stay const — dynamic `IconData` breaks Flutter's icon
@@ -119,7 +122,7 @@ class AiCharacter {
   /// Increment this whenever the built-in catalog changes. It lets existing
   /// accounts receive a one-time catalog update without restoring presets a
   /// person intentionally removed later.
-  static const int presetCatalogVersion = 3;
+  static const int presetCatalogVersion = 4;
 
   static const List<String> legacyPresetIds = ['ari', 'noah', 'mentor-lin'];
 
@@ -404,6 +407,7 @@ class AiCharacter {
       colorValue: 0xFFEAD3BB,
       iconCodePoint: 'guitar',
     ),
+    ..._additionalAiPresets,
   ];
 
   factory AiCharacter.fromDoc(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
@@ -507,11 +511,13 @@ class AiMessage {
     required this.text,
     this.createdAt,
     this.isPending = false,
+    this.sharedCharacter,
   });
 
   final String id;
   final bool isUser;
   final String text;
+  final SharedAiCharacter? sharedCharacter;
   final DateTime? createdAt;
 
   /// True for the local "Thinking..." placeholder shown while the callable is
@@ -522,6 +528,7 @@ class AiMessage {
     : id = '__pending__',
       isUser = false,
       text = 'Thinking...',
+      sharedCharacter = null,
       createdAt = null,
       isPending = true;
 
@@ -532,6 +539,7 @@ class AiMessage {
       id: doc.id,
       isUser: data['role'] != 'assistant',
       text: text is String ? text.trim() : '',
+      sharedCharacter: SharedAiCharacter.fromData(data['sharedCharacter']),
       createdAt: (data['createdAt'] as Timestamp?)?.toDate(),
     );
   }

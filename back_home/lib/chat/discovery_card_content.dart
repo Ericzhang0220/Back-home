@@ -117,7 +117,7 @@ class _DiscoveryCardContentState extends State<DiscoveryCardContent> {
             // The profile and composer move together into the space vacated
             // by the dock, then make room again when it is swiped back up.
             AnimatedPositioned(
-              duration: Duration(milliseconds: widget.navVisible ? 260 : 380),
+              duration: Duration(milliseconds: widget.navVisible ? 260 : 180),
               curve: Curves.easeInOutCubic,
               left: 16,
               right: 16,
@@ -178,9 +178,9 @@ class _DiscoveryComposer extends StatelessWidget {
           child: isInteractive
               ? TextField(
                   controller: controller,
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    color: AppColors.ink,
-                  ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodyLarge?.copyWith(color: AppColors.ink),
                   enabled: !isReplying,
                   minLines: 1,
                   maxLines: 5,
