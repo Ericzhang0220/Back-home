@@ -22,6 +22,13 @@ the sender's conversation is never copied. Existing recipient characters and
 messages are preserved. Human sharing observes the one unanswered opening
 message limit, and retries use an idempotent request ID.
 
+Forwarding uses a recipient picker followed by a compact confirmation with a
+card preview, optional blank note, Cancel and Send. Without a note the stored
+message text is empty: no question or sharing caption is appended below the
+card. Model history gives card-only turns an internal neutral description so
+they still produce an AI reply. This change requires deploying both
+`shareAiCharacter` and `chatWithCharacter` along with updating the app.
+
 When a card is shared with an AI, `chatWithCharacter` reads up to 16 recent turns
 from the sender's own chat with that character. Subsequent questions retain the
 reference while the card remains in the receiving AI's recent history. The

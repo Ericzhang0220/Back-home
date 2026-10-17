@@ -466,6 +466,26 @@ void main() {
     },
   );
 
+  testWidgets('latest heart choice is saved even after closing the profile', (
+    tester,
+  ) async {
+    await open(tester, character: AiCharacter.presets.first);
+    await tester.tap(find.text(repository.character.name));
+    await tester.pumpAndSettle();
+    repository.friendUpdate = Completer<void>();
+    await tester.tap(find.byTooltip('Add to AI friends'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('Remove from AI friends'));
+    await tester.pump();
+    Navigator.of(tester.element(find.byTooltip('Add to AI friends'))).pop();
+    await tester.pumpAndSettle();
+    repository.friendUpdate!.complete();
+    await tester.pumpAndSettle();
+    expect(repository.friendWrites, [true, false]);
+    expect(repository.character.isFriend, isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('share picker fits above the phone keyboard', (tester) async {
     await open(tester);
     await tester.tap(find.byTooltip('Share character'));

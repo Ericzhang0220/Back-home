@@ -3771,10 +3771,18 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
     required bool isFriend,
     required String friendsLabel,
   }) {
+    final peer = widget.peer;
+    final repository = widget.repository;
+    final humanFriends = widget.humanFriends;
     return _ProfileFriendHeart(
       isFriend: isFriend,
       friendsLabel: friendsLabel,
-      onChanged: (value) => _setFriend(isFriend: value),
+      onChanged: (value) => _setFriend(
+        isFriend: value,
+        peer: peer,
+        repository: repository,
+        humanFriends: humanFriends,
+      ),
     );
   }
 
@@ -3832,33 +3840,36 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
     }
   }
 
-  Future<void> _setFriend({required bool isFriend}) async {
-    final repository = widget.repository;
-    final humanFriends = widget.humanFriends;
+  Future<void> _setFriend({
+    required bool isFriend,
+    required _ChatPeer peer,
+    required AiChatRepository? repository,
+    required HumanFriendsRepository? humanFriends,
+  }) async {
     try {
-      if (widget.peer.isAi) {
+      if (peer.isAi) {
         if (repository == null) {
           return;
         }
         if (isFriend) {
-          await repository.addCharacterAsFriend(widget.peer.id);
+          await repository.addCharacterAsFriend(peer.id);
         } else {
-          await repository.removeCharacterAsFriend(widget.peer.id);
+          await repository.removeCharacterAsFriend(peer.id);
         }
       } else {
         if (humanFriends == null) {
           return;
         }
         if (isFriend) {
-          await humanFriends.addFriend(widget.peer.id);
+          await humanFriends.addFriend(peer.id);
         } else {
-          await humanFriends.removeFriend(widget.peer.id);
+          await humanFriends.removeFriend(peer.id);
         }
       }
 
       if (mounted) {
-        final name = widget.peer.displayName;
-        final list = widget.peer.isAi ? 'your AI friends' : 'your people';
+        final name = peer.displayName;
+        final list = peer.isAi ? 'your AI friends' : 'your people';
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
           ..showSnackBar(
@@ -4337,13 +4348,14 @@ class _ProfileFriendHeartState extends State<_ProfileFriendHeart> {
   }
 
   Future<void> _save() async {
+    final onChanged = widget.onChanged;
     _saving = true;
     try {
       // Save sequentially and coalesce rapid taps to the latest choice.
-      while (mounted && _value != _saved) {
+      while (_value != _saved) {
         final target = _value;
         try {
-          await widget.onChanged(target);
+          await onChanged(target);
           _saved = target;
         } catch (_) {
           if (mounted) setState(() => _value = _saved);

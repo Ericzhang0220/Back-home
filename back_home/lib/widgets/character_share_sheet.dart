@@ -125,8 +125,9 @@ class _CharacterShareSheetState extends State<_CharacterShareSheet> {
                       ),
                     );
                   }
-                  if (!snapshot.hasData)
+                  if (!snapshot.hasData) {
                     return const Center(child: CircularProgressIndicator());
+                  }
                   final recipients = snapshot.data!
                       .where(
                         (r) =>
@@ -134,8 +135,9 @@ class _CharacterShareSheetState extends State<_CharacterShareSheet> {
                             r.name.toLowerCase().contains(_query),
                       )
                       .toList();
-                  if (recipients.isEmpty)
+                  if (recipients.isEmpty) {
                     return const Center(child: Text('No recipients yet.'));
+                  }
                   return ListView.builder(
                     itemCount: recipients.length,
                     itemBuilder: (context, index) {
@@ -227,12 +229,13 @@ class _CharacterShareConfirmationState
       );
       if (mounted) Navigator.of(context).pop(true);
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         setState(
           () => _error = error is AiChatException
               ? error.message
               : 'Could not share. Please try again.',
         );
+      }
     } finally {
       if (mounted) setState(() => _sending = false);
     }
