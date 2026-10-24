@@ -10,6 +10,7 @@ import 'package:back_home/screens/chat_screen.dart';
 import 'package:back_home/screens/shop_screen.dart';
 import 'package:back_home/theme/app_theme.dart';
 import 'package:back_home/widgets/app_ui.dart';
+import 'package:back_home/widgets/bottom_navigation_reveal.dart';
 
 void main() {
   // The 3D views would otherwise open real GL contexts, whose platform channels
@@ -164,7 +165,7 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('hidden navigation returns only with an upward swipe', (
+  testWidgets('hidden navigation returns with double tap or upward swipe', (
     tester,
   ) async {
     await tester.pumpWidget(const BackHomeApp());
@@ -203,9 +204,21 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
     expect(
       tester.widget<ChatScreen>(find.byType(ChatScreen)).navVisible,
-      isFalse,
+      isTrue,
     );
 
+    await tester.timedDrag(
+      find.byType(NavigationBar),
+      const Offset(0, 65),
+      const Duration(seconds: 1),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<BottomNavigationReveal>(find.byType(BottomNavigationReveal))
+          .enabled,
+      isTrue,
+    );
     await tester.dragFrom(bottom, const Offset(0, -80));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
@@ -216,6 +229,105 @@ void main() {
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });
+
+  testWidgets(
+    'every tab supports swipe reveal and dismiss; Room skips double tap',
+    (tester) async {
+      await tester.pumpWidget(const BackHomeApp());
+      final size = tester.view.physicalSize / tester.view.devicePixelRatio;
+      final bottom = Offset(size.width / 2, size.height - 50);
+      final background = Offset(size.width - 8, size.height * 0.4);
+      bool hidden() => tester
+          .widget<BottomNavigationReveal>(find.byType(BottomNavigationReveal))
+          .enabled;
+      Future<void> settle() async {
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+      }
+
+      // The landing page can reveal the same navigation without opening a tab.
+      expect(hidden(), isTrue);
+      await tester.dragFrom(bottom, const Offset(0, -90));
+      await settle();
+      expect(hidden(), isFalse);
+      for (final label in ['Room', 'Hall', 'Chat', 'Profile']) {
+        await tester.tap(
+          find.descendant(
+            of: find.byType(NavigationBar),
+            matching: find.text(label),
+          ),
+        );
+        await settle();
+        await tester.timedDrag(
+          find.byType(NavigationBar),
+          const Offset(0, 65),
+          const Duration(seconds: 1),
+        );
+        await settle();
+        expect(
+          hidden(),
+          isTrue,
+          reason: '$label must support slow downward dismissal',
+        );
+        await tester.tapAt(background);
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.tapAt(background);
+        await settle();
+        expect(
+          hidden(),
+          label == 'Room',
+          reason: 'Only Room ignores double-tap navigation reveal',
+        );
+        if (label != 'Room') {
+          await tester.drag(find.byType(NavigationBar), const Offset(0, 65));
+          await settle();
+        }
+        await tester.dragFrom(bottom, const Offset(0, -90));
+        await settle();
+        expect(hidden(), isFalse, reason: '$label must support upward reveal');
+      }
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
+    'navigation stays above settings and switches out of the detail route',
+    (tester) async {
+      await tester.pumpWidget(const BackHomeApp());
+      final size = tester.view.physicalSize / tester.view.devicePixelRatio;
+      final bottom = Offset(size.width / 2, size.height - 50);
+      await tester.dragFrom(bottom, const Offset(0, -90));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: find.byType(NavigationBar),
+          matching: find.text('Profile'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Profile settings'));
+      await tester.pumpAndSettle();
+      expect(find.text('Settings'), findsOneWidget);
+      // Hide it while the detail route remains open, then reveal from that page.
+      await tester.drag(find.byType(NavigationBar), const Offset(0, 65));
+      await tester.pumpAndSettle();
+      await tester.dragFrom(bottom, const Offset(0, -90));
+      await tester.pumpAndSettle();
+      expect(find.byType(NavigationBar).hitTestable(), findsOneWidget);
+      await tester.tap(
+        find.descendant(
+          of: find.byType(NavigationBar),
+          matching: find.text('Chat'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Settings'), findsNothing);
+      expect(find.byType(ChatScreen), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
 
   testWidgets('room and Weather sheet lay out cleanly in landscape', (
     WidgetTester tester,

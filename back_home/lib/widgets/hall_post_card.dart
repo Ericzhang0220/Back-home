@@ -41,7 +41,6 @@ class HallPostCard extends StatelessWidget {
                     photoUrl: post.authorPhotoUrl,
                     radius: 22,
                     onTap: onAuthorTap,
-                    heroTag: 'hall-avatar-${post.authorUid ?? post.author}',
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -87,7 +86,11 @@ class HallPostCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  TopicChip(label: post.topic, icon: Icons.sell_rounded),
+                  TopicChip(
+                    label: post.topic,
+                    icon: Icons.circle,
+                    iconSize: 6,
+                  ),
                   Text(
                     post.relativeTime,
                     textAlign: TextAlign.end,

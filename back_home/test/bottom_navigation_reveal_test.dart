@@ -15,6 +15,7 @@ void main() {
         MaterialApp(
           home: BottomNavigationReveal(
             enabled: true,
+            allowDoubleTap: true,
             bottomGap: 34,
             onReveal: () => reveals++,
             child: Scaffold(
@@ -83,4 +84,44 @@ void main() {
     await tester.dragFrom(const Offset(200, 790), const Offset(0, -100));
     expect(reveals, 1);
   });
+
+  testWidgets(
+    'optional double tap reveals anywhere without taking child taps',
+    (tester) async {
+      var reveals = 0;
+      var presses = 0;
+      Widget screen(bool doubleTap) => MaterialApp(
+        home: BottomNavigationReveal(
+          enabled: true,
+          allowDoubleTap: doubleTap,
+          bottomGap: 34,
+          onReveal: () => reveals++,
+          child: Scaffold(
+            body: Center(
+              child: TextButton(
+                onPressed: () => presses++,
+                child: const Text('Page button'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpWidget(screen(true));
+      await tester.tap(find.text('Page button'));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(find.text('Page button'));
+      expect(reveals, 1);
+      expect(presses, 2);
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.tapAt(const Offset(30, 200));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tapAt(const Offset(30, 200));
+      expect(reveals, 1);
+      await tester.pumpWidget(screen(false));
+      await tester.tapAt(const Offset(30, 200));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tapAt(const Offset(30, 200));
+      expect(reveals, 1);
+    },
+  );
 }

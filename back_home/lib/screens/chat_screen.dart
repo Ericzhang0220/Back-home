@@ -30,6 +30,7 @@ import '../widgets/visible_chat_read_receipt.dart';
 import '../widgets/character_portrait.dart';
 import '../widgets/chat_background.dart';
 import '../widgets/profile_avatar.dart';
+import '../keyboard/keyboard_host.dart';
 
 enum _ChatPage { ai, human, tutor }
 
@@ -44,25 +45,29 @@ Future<void> openAiCharacterConversation(
   bool replyToShare = false,
 }) => Navigator.of(context).push<void>(
   MaterialPageRoute(
-    builder: (_) => _DirectChatScreen(
-      peer: _ChatPeer.ai(
-        id: character.id,
-        publicUserId: character.publicId,
-        displayName: character.name,
-        subtitle: character.personality,
-        photoUrl: character.avatarUrl,
-        portraitAsset: character.portraitAsset,
-        tint: character.tint,
-        icon: character.icon,
+    builder: (_) => KeyboardTarget(
+      isAi: true,
+      artworkAsset: character.portraitAsset,
+      child: _DirectChatScreen(
+        peer: _ChatPeer.ai(
+          id: character.id,
+          publicUserId: character.publicId,
+          displayName: character.name,
+          subtitle: character.personality,
+          photoUrl: character.avatarUrl,
+          portraitAsset: character.portraitAsset,
+          tint: character.tint,
+          icon: character.icon,
+        ),
+        initialCharacter: character,
+        replyToShare: replyToShare,
+        currentUid: repository.uid,
+        repository: repository,
+        inbox: inbox,
+        onEditPhoto: character.canEditBy(repository.uid) ? onEditPhoto : null,
+        backgroundStore: backgroundStore,
+        pickBackgroundPhoto: pickBackgroundPhoto,
       ),
-      initialCharacter: character,
-      replyToShare: replyToShare,
-      currentUid: repository.uid,
-      repository: repository,
-      inbox: inbox,
-      onEditPhoto: character.canEditBy(repository.uid) ? onEditPhoto : null,
-      backgroundStore: backgroundStore,
-      pickBackgroundPhoto: pickBackgroundPhoto,
     ),
   ),
 );
@@ -1362,6 +1367,7 @@ class _AiDiscoveryPageState extends State<_AiDiscoveryPage> {
             icon: character.icon,
             isFriend: character.isFriend,
             friendsLabel: 'AI friends',
+            isAiKeyboard: true,
             bubbles: [
               _DiscoveryBubble(text: character.introduction),
               for (final message
@@ -1662,6 +1668,7 @@ class _DiscoveryPortrait extends StatelessWidget {
     this.readKey,
     this.isActive = true,
     this.compactText = false,
+    this.isAiKeyboard = false,
   });
 
   final String title;
@@ -1687,6 +1694,7 @@ class _DiscoveryPortrait extends StatelessWidget {
   final String? readKey;
   final bool isActive;
   final bool compactText;
+  final bool isAiKeyboard;
 
   @override
   Widget build(BuildContext context) {
@@ -1744,86 +1752,91 @@ class _DiscoveryPortrait extends StatelessWidget {
               ),
             ),
           ),
-          DiscoveryCardContent(
-            keyboardOpen: keyboardOpen,
-            navVisible: navVisible,
-            controller: messageController,
-            isReplying: isBusy,
-            isInteractive: isInteractive,
-            onSendMessage: onSendMessage,
-            conversation: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style:
-                      (compactText
-                              ? Theme.of(context).textTheme.headlineSmall
-                              : Theme.of(context).textTheme.headlineMedium)
-                          ?.copyWith(
-                            fontSize: compactText
-                                ? (Theme.of(
-                                            context,
-                                          ).textTheme.headlineSmall?.fontSize ??
-                                          24) +
-                                      2
-                                : null,
-                            color: Colors.white,
-                            fontWeight: FontWeight.w800,
-                            shadows: const [
-                              Shadow(color: Colors.black54, blurRadius: 10),
-                            ],
-                          ),
-                ),
-                if (subtitle != null)
+          KeyboardTarget(
+            isAi: isAiKeyboard,
+            artworkAsset: portraitAsset,
+            child: DiscoveryCardContent(
+              keyboardOpen: keyboardOpen,
+              navVisible: navVisible,
+              controller: messageController,
+              isReplying: isBusy,
+              isInteractive: isInteractive,
+              onSendMessage: onSendMessage,
+              conversation: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Text(
-                    subtitle!,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Colors.white.withValues(alpha: 0.88),
-                      fontWeight: FontWeight.w600,
-                      shadows: const [
-                        Shadow(color: Colors.black54, blurRadius: 8),
-                      ],
-                    ),
+                    title,
+                    style:
+                        (compactText
+                                ? Theme.of(context).textTheme.headlineSmall
+                                : Theme.of(context).textTheme.headlineMedium)
+                            ?.copyWith(
+                              fontSize: compactText
+                                  ? (Theme.of(context)
+                                                .textTheme
+                                                .headlineSmall
+                                                ?.fontSize ??
+                                            24) +
+                                        2
+                                  : null,
+                              color: Colors.white.withValues(alpha: 0.94),
+                              fontWeight: FontWeight.w800,
+                              shadows: const [
+                                Shadow(color: Colors.black54, blurRadius: 10),
+                              ],
+                            ),
                   ),
-                if (bio != null) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    bio!,
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Colors.white.withValues(alpha: 0.94),
-                      fontWeight: FontWeight.w600,
-                      height: 1.35,
-                      shadows: const [
-                        Shadow(color: Colors.black54, blurRadius: 8),
-                      ],
+                  if (subtitle != null)
+                    Text(
+                      subtitle!,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.82),
+                        fontWeight: FontWeight.w600,
+                        shadows: const [
+                          Shadow(color: Colors.black54, blurRadius: 8),
+                        ],
+                      ),
                     ),
-                  ),
+                  if (bio != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      bio!,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.88),
+                        fontWeight: FontWeight.w600,
+                        height: 1.35,
+                        shadows: const [
+                          Shadow(color: Colors.black54, blurRadius: 8),
+                        ],
+                      ),
+                    ),
+                  ],
+                  for (final (index, bubble) in bubbles.indexed) ...[
+                    const SizedBox(height: 8),
+                    VisibleChatReadReceipt(
+                      key: ValueKey('$readKey:$index'),
+                      through: bubble.createdAt,
+                      enabled:
+                          isActive &&
+                          isInteractive &&
+                          !bubble.isUser &&
+                          !bubble.isPending,
+                      onRead: (date) => inbox != null && readKey != null
+                          ? inbox!.markRead(readKey!, date)
+                          : Future<void>.value(),
+                      child: _DiscoveryChatBubble(
+                        text: bubble.text,
+                        isUser: bubble.isUser,
+                        isPending: bubble.isPending,
+                        compactText: compactText,
+                      ),
+                    ),
+                  ],
                 ],
-                for (final (index, bubble) in bubbles.indexed) ...[
-                  const SizedBox(height: 8),
-                  VisibleChatReadReceipt(
-                    key: ValueKey('$readKey:$index'),
-                    through: bubble.createdAt,
-                    enabled:
-                        isActive &&
-                        isInteractive &&
-                        !bubble.isUser &&
-                        !bubble.isPending,
-                    onRead: (date) => inbox != null && readKey != null
-                        ? inbox!.markRead(readKey!, date)
-                        : Future<void>.value(),
-                    child: _DiscoveryChatBubble(
-                      text: bubble.text,
-                      isUser: bubble.isUser,
-                      isPending: bubble.isPending,
-                      compactText: compactText,
-                    ),
-                  ),
-                ],
-              ],
+              ),
             ),
           ),
         ],
@@ -1857,8 +1870,8 @@ class _DiscoveryChatBubble extends StatelessWidget {
           padding: EdgeInsets.all(compactText ? 12 : 14),
           decoration: BoxDecoration(
             color: isUser
-                ? AppColors.clay.withValues(alpha: 0.60)
-                : Colors.white.withValues(alpha: 0.56),
+                ? AppColors.clay.withValues(alpha: 0.50)
+                : Colors.white.withValues(alpha: 0.42),
             borderRadius: BorderRadius.circular(20),
           ),
           child: isPending
@@ -1877,7 +1890,8 @@ class _DiscoveryChatBubble extends StatelessWidget {
                                           14) +
                                       1
                                 : null,
-                            color: isUser ? Colors.white : AppColors.ink,
+                            color: (isUser ? Colors.white : AppColors.ink)
+                                .withValues(alpha: 0.90),
                             height: 1.35,
                           ),
                 ),
@@ -3212,110 +3226,113 @@ class _TutorConversation extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.76),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.stroke),
-      ),
-      child: Column(
-        children: [
-          Container(
-            height: 54,
-            padding: const EdgeInsets.fromLTRB(6, 0, 14, 0),
-            decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: AppColors.stroke)),
-            ),
-            child: Row(
-              children: [
-                IconButton(
-                  tooltip: 'Chat history',
-                  onPressed: onOpenHistory,
-                  icon: const Icon(Icons.menu_rounded),
-                  color: AppColors.clay,
-                ),
-                const Icon(Icons.school_rounded, color: AppColors.clay),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    session.title,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleMedium,
+    return KeyboardTarget(
+      isAi: true,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.76),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: AppColors.stroke),
+        ),
+        child: Column(
+          children: [
+            Container(
+              height: 54,
+              padding: const EdgeInsets.fromLTRB(6, 0, 14, 0),
+              decoration: const BoxDecoration(
+                border: Border(bottom: BorderSide(color: AppColors.stroke)),
+              ),
+              child: Row(
+                children: [
+                  IconButton(
+                    tooltip: 'Chat history',
+                    onPressed: onOpenHistory,
+                    icon: const Icon(Icons.menu_rounded),
+                    color: AppColors.clay,
                   ),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: isLoading && messages.isEmpty
-                ? const Center(child: CircularProgressIndicator())
-                : messages.isEmpty
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: Text(
-                        'What would you like to work through right now?',
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                    ),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.all(12),
-                    // Newest messages sit at the bottom, so anchoring the
-                    // list there keeps the latest reply in view as it grows.
-                    reverse: true,
-                    itemCount: messages.length,
-                    itemBuilder: (context, index) {
-                      return _TutorBubble(
-                        message: messages[messages.length - 1 - index],
-                      );
-                    },
-                  ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: messageController,
-                    minLines: 1,
-                    maxLines: 3,
-                    enabled: !isReplying,
-                    textInputAction: TextInputAction.send,
-                    onSubmitted: (_) => onSendMessage(),
-                    decoration: InputDecoration(
-                      hintText: isReplying
-                          ? 'Waiting for reply'
-                          : 'Ask the tutor',
-                      filled: true,
-                      fillColor: AppColors.cream,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        borderSide: BorderSide.none,
-                      ),
+                  const Icon(Icons.school_rounded, color: AppColors.clay),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      session.title,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleMedium,
                     ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                IconButton.filled(
-                  onPressed: isReplying ? null : onSendMessage,
-                  icon: const Icon(Icons.arrow_upward_rounded),
-                  tooltip: 'Send',
-                  style: IconButton.styleFrom(
-                    backgroundColor: AppColors.clay,
-                    foregroundColor: Colors.white,
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
+            Expanded(
+              child: isLoading && messages.isEmpty
+                  ? const Center(child: CircularProgressIndicator())
+                  : messages.isEmpty
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Text(
+                          'What would you like to work through right now?',
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(12),
+                      // Newest messages sit at the bottom, so anchoring the
+                      // list there keeps the latest reply in view as it grows.
+                      reverse: true,
+                      itemCount: messages.length,
+                      itemBuilder: (context, index) {
+                        return _TutorBubble(
+                          message: messages[messages.length - 1 - index],
+                        );
+                      },
+                    ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: messageController,
+                      minLines: 1,
+                      maxLines: 3,
+                      enabled: !isReplying,
+                      textInputAction: TextInputAction.send,
+                      onSubmitted: (_) => onSendMessage(),
+                      decoration: InputDecoration(
+                        hintText: isReplying
+                            ? 'Waiting for reply'
+                            : 'Ask the tutor',
+                        filled: true,
+                        fillColor: AppColors.cream,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton.filled(
+                    onPressed: isReplying ? null : onSendMessage,
+                    icon: const Icon(Icons.arrow_upward_rounded),
+                    tooltip: 'Send',
+                    style: IconButton.styleFrom(
+                      backgroundColor: AppColors.clay,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -3730,11 +3747,6 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
                         )
                       : const Icon(Icons.add_a_photo_outlined),
                 ),
-              IconButton(
-                tooltip: 'Edit character',
-                onPressed: () => _editCharacter(character),
-                icon: const Icon(Icons.edit_outlined),
-              ),
               IconButton(
                 tooltip: 'Share character',
                 onPressed: () => _shareCharacter(character),

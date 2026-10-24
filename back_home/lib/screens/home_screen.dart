@@ -131,7 +131,11 @@ class _HomeScreenState extends State<HomeScreen> {
               bottom: 140,
             ),
             children: [
-              const StaggeredFadeIn(child: _HomeHeader()),
+              StaggeredFadeIn(
+                child: _HomeHeader(
+                  currentUser: widget.authController.currentUser,
+                ),
+              ),
               const SizedBox(height: 18),
               StaggeredFadeIn(
                 delay: const Duration(milliseconds: 170),
@@ -281,10 +285,9 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 class _HomeHeader extends StatelessWidget {
-  const _HomeHeader();
+  const _HomeHeader({required this.currentUser});
 
-  FirebaseAuth get _auth => FirebaseAuth.instance;
-  User? get currentUser => _auth.currentUser;
+  final User? currentUser;
   String get displayName => currentUser?.displayName?.trim().isNotEmpty == true
       ? currentUser!.displayName!.trim()
       : currentUser?.phoneNumber ?? 'Your account';

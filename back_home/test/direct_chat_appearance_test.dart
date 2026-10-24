@@ -231,20 +231,24 @@ void main() {
   }
 
   testWidgets(
-    'own character has a visible editor in the toolbar and no info button',
+    'own character is edited from its profile without a duplicate toolbar icon',
     (tester) async {
       await open(tester);
       expect(find.byIcon(Icons.info_outline_rounded), findsNothing);
-      expect(find.byTooltip('Edit character'), findsOneWidget);
+      expect(find.byTooltip('Edit character'), findsNothing);
       expect(find.byTooltip('Chat background'), findsOneWidget);
       await tester.enterText(find.byType(TextField), 'Keep this draft');
-      await tester.tap(find.byTooltip('Edit character'));
+      await tester.tap(find.text(repository.character.name));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Edit character'));
       await tester.pumpAndSettle();
       expect(find.text('Edit AI character'), findsOneWidget);
       final fields = find.byType(TextFormField);
       await tester.enterText(fields.first, 'Nova');
       await tester.enterText(fields.last, 'Talkative and thoughtful');
       await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      Navigator.of(tester.element(find.text('Edit character'))).pop();
       await tester.pumpAndSettle();
       expect(find.text('Nova'), findsOneWidget);
       expect(repository.character.personality, 'Talkative and thoughtful');

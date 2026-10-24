@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:three_js/three_js.dart' as three;
 
 import 'furniture_models.dart';
+import 'room_camera_focus.dart';
 import 'room_state.dart';
 import 'sky_dome.dart';
 
@@ -211,8 +212,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   GridPoint? _dragPreviewOrigin;
   bool _dragPreviewValid = true;
   _RoomTapTarget? _pendingTapTarget;
-  // The pending point comes from the touch ray; the focus anchor is normalized
-  // to the relevant furniture centre before opening the activity view.
+  // Preserve the touched surface point through the delayed tap and camera move.
   three.Vector3? _pendingTapAnchor;
   three.Vector3? _focusAnchor;
   String? _pendingFurnitureTapItemId;
@@ -253,6 +253,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   double _zoom = 1.0;
   double _currentZoom = 1.0;
   double _cameraTargetBaseFov = _mainFov;
+  double _cameraCurrentBaseFov = _mainFov;
   final Set<int> _activePointers = <int>{};
   final Map<int, Offset> _activePointerPositions = <int, Offset>{};
   bool _multiTouchSequenceActive = false;
@@ -294,12 +295,6 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   // Higher = snappier camera transitions (eases ~this fraction per second).
   static const double _cameraLerpSpeed = 7.0;
   static const double _bedFocusCameraLerpSpeed = 2.0;
-  // The good-night camera settles directly over the bed, high enough to clear
-  // its headboard and pillows without feeling detached from it.
-  static const double _bedOverheadCameraHeight = 2.1;
-  // Stop slightly short of the bed's centre, on the side the camera entered
-  // from, so a side approach does not appear to fly past the bed.
-  static const double _bedApproachInset = 0.55;
   static const double _zoomLerpSpeed = 9.0;
   static const double _rotationLerpSpeed = 9.0;
   static const double _rotationDragDegreesPerPixel = 0.12;
@@ -312,7 +307,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   bool get _isCameraHeightPanning => _activePointers.length >= 4;
   int get _cameraPanPointerCount => _isCameraHeightPanning ? 4 : 3;
   bool get _delaysRoomTapActions =>
-      !widget.canMoveFurniture && !widget.deskFocused && !widget.nightMode;
+      !widget.canMoveFurniture && !widget.nightMode;
 
   @override
   void initState() {
@@ -347,8 +342,6 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       if (enteringOutside) {
         _preOutsideCameraState = _captureCameraViewState();
         _resetFocusedCameraState();
-        _cameraYaw = 0;
-        _cameraPitch = -0.04;
       } else if (enteringNight) {
         _preNightCameraState = _captureCameraViewState();
         _resetFocusedCameraState();
@@ -367,7 +360,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       } else {
         _resetFocusedCameraState();
       }
-      _cameraShortcutPending = enteringDesk || enteringOutside;
+      _cameraShortcutPending = enteringDesk || enteringOutside || enteringNight;
       _lastPanCentroid = null;
       _configureCamera(_currentViewportSize());
     }
@@ -589,102 +582,57 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         RoomEditorController.roomDepth * RoomEditorController.cellSize;
     final farWallZ = -roomDepth / 2;
 
-    three.Vector3 basePos;
-    three.Vector3 lookAt;
-    final double baseFov;
-    if (widget.outsideView) {
-      // Stand on the window ledge, just inside the glass. Desk accessories
-      // sit below and behind the eye instead of filling the landscape view.
-      basePos = three.Vector3(1.7, 2.5, farWallZ + 0.4);
-      lookAt = three.Vector3(basePos.x, basePos.y - 0.04, basePos.z - 1);
-      baseFov = 54;
-    } else if (widget.deskFocused) {
-      // Fly to a close-up of the tapped desk, viewed from the room-centre side
-      // so the camera stays inside the room wherever the desk sits.
-      (basePos, lookAt) = _focusFraming(
-        fallbackAnchor: three.Vector3(1.0, 0, farWallZ + 0.48),
-        standDistance: 3.2,
-        eyeHeight: 1.75,
-        lookHeight: 1.15,
+    final focused =
+        widget.outsideView || widget.deskFocused || widget.nightMode;
+    final baseFov = widget.outsideView
+        ? 54.0
+        : focused
+        ? _focusFov
+        : _mainFov;
+    if (focused && _cameraShortcutPending) {
+      final fallbackAnchor = widget.outsideView
+          ? three.Vector3(1.0, 2.28, farWallZ + 0.22)
+          : widget.nightMode
+          ? three.Vector3(-0.5, 0.6, -3.4)
+          : three.Vector3(1.0, 0.9, farWallZ + 0.48);
+      final pose = roomFocusPoseForPoint(
+        eye: _cameraPosed ? _camera.position : three.Vector3(0, _eyeHeight, 0),
+        point: _focusAnchor ?? fallbackAnchor,
+        standDistance: widget.outsideView
+            ? 1.1
+            : widget.nightMode
+            ? 2.0
+            : 2.6,
+        maxX:
+            RoomEditorController.roomWidth * RoomEditorController.cellSize / 2 -
+            _cameraPanWallPaddingX,
+        maxZ: roomDepth / 2 - _cameraPanWallPaddingZ,
+        minEyeHeight: widget.nightMode ? 1.7 : 0.7,
       );
-      baseFov = _focusFov;
-    } else if (widget.nightMode) {
-      // The good-night overlay does not need a bed close-up, so fly straight
-      // above the bed instead of orbiting toward it. Keeping the current look
-      // direction avoids a disorienting turn when entering from elsewhere in
-      // the room.
-      final anchor = _focusAnchor ?? three.Vector3(-0.5, 0, -3.4);
-      var approachX = _camera.position.x - anchor.x;
-      var approachZ = _camera.position.z - anchor.z;
-      final approachLength = math.sqrt(
-        approachX * approachX + approachZ * approachZ,
+      _cameraPanOffset.setValues(
+        pose.position.x,
+        pose.position.y - _eyeHeight,
+        pose.position.z,
       );
-      if (approachLength < 1e-3) {
-        // When already over the centre, keep a small offset behind the view
-        // direction rather than arbitrarily choosing a side of the bed.
-        approachX = -math.sin(_currentCameraYaw);
-        approachZ = math.cos(_currentCameraYaw);
-      } else {
-        approachX /= approachLength;
-        approachZ /= approachLength;
+      _cameraYaw = normalizeRoomCameraYaw(pose.yaw);
+      _cameraPitch = pose.pitch;
+      if (!_cameraPosed) {
+        _currentCameraYaw = _cameraYaw;
+        _currentCameraPitch = _cameraPitch;
       }
-      basePos = three.Vector3(
-        anchor.x + approachX * _bedApproachInset,
-        _bedOverheadCameraHeight,
-        anchor.z + approachZ * _bedApproachInset,
-      );
-      lookAt = basePos.clone()
-        ..add(
-          three.Vector3(
-            math.sin(_currentCameraYaw),
-            _currentCameraPitch,
-            -math.cos(_currentCameraYaw),
-          ),
-        );
-      baseFov = _focusFov;
-    } else {
-      // Centred free-look: stand in the middle of the room and turn 360°.
-      basePos = three.Vector3(0, _eyeHeight, 0);
-      lookAt = three.Vector3(
-        math.sin(_currentCameraYaw),
-        _eyeHeight + _currentCameraPitch,
-        -math.cos(_currentCameraYaw),
-      );
-      baseFov = _mainFov;
-      basePos.add(_cameraPanOffset);
-      lookAt.add(_cameraPanOffset);
     }
-
-    if (!widget.nightMode && (widget.outsideView || widget.deskFocused)) {
-      if (_cameraShortcutPending) {
-        final direction = lookAt.clone()..sub(basePos);
-        final horizontal = math.sqrt(
-          direction.x * direction.x + direction.z * direction.z,
-        );
-        _cameraPanOffset.setValues(
-          basePos.x,
-          basePos.y - _eyeHeight,
-          basePos.z,
-        );
-        _cameraYaw = normalizeRoomCameraYaw(
-          math.atan2(direction.x, -direction.z),
-        );
-        _cameraPitch = horizontal < 1e-3 ? 0 : direction.y / horizontal;
-        if (!_cameraPosed) {
-          _currentCameraYaw = _cameraYaw;
-          _currentCameraPitch = _cameraPitch;
-        }
-      }
-      basePos = three.Vector3(0, _eyeHeight, 0)..add(_cameraPanOffset);
-      lookAt = three.Vector3(
-        basePos.x + math.sin(_currentCameraYaw),
-        basePos.y + _currentCameraPitch,
-        basePos.z - math.cos(_currentCameraYaw),
-      );
-    }
+    final basePos = three.Vector3(0, _eyeHeight, 0)..add(_cameraPanOffset);
+    final lookAt = three.Vector3(
+      basePos.x + math.sin(_currentCameraYaw),
+      basePos.y + _currentCameraPitch,
+      basePos.z - math.cos(_currentCameraYaw),
+    );
     _cameraShortcutPending = false;
 
     _cameraTargetBaseFov = baseFov;
+    if (!_cameraPosed) {
+      _cameraCurrentBaseFov = baseFov;
+    }
     _applyCameraFov();
     _cameraTargetPos.setFrom(basePos);
     _cameraTargetLook.setFrom(lookAt);
@@ -697,49 +645,6 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       _camera.lookAt(_cameraCurrentLook);
       _cameraPosed = true;
     }
-  }
-
-  /// Frames a focus view on [_focusAnchor] (the tapped furniture point, falling
-  /// back to [fallbackAnchor]): the camera stands [standDistance] toward the
-  /// room centre from the furniture at [eyeHeight], looking back at it. Standing
-  /// on the centre side keeps the camera inside the room wherever the piece is.
-  (three.Vector3, three.Vector3) _focusFraming({
-    required three.Vector3 fallbackAnchor,
-    required double standDistance,
-    required double eyeHeight,
-    required double lookHeight,
-  }) {
-    final anchor = _focusAnchor ?? fallbackAnchor;
-
-    var dirX = -anchor.x;
-    var dirZ = -anchor.z;
-    final length = math.sqrt(dirX * dirX + dirZ * dirZ);
-    if (length < 1e-3) {
-      // Piece sits dead centre — back toward the near (+Z) side of the room.
-      dirX = 0;
-      dirZ = 1;
-    } else {
-      dirX /= length;
-      dirZ /= length;
-    }
-
-    final halfWidth =
-        RoomEditorController.roomWidth * RoomEditorController.cellSize / 2;
-    final halfDepth =
-        RoomEditorController.roomDepth * RoomEditorController.cellSize / 2;
-    const wallPadding = 0.5;
-
-    final basePos = three.Vector3(
-      (anchor.x + dirX * standDistance)
-          .clamp(-halfWidth + wallPadding, halfWidth - wallPadding)
-          .toDouble(),
-      eyeHeight,
-      (anchor.z + dirZ * standDistance)
-          .clamp(-halfDepth + wallPadding, halfDepth - wallPadding)
-          .toDouble(),
-    );
-    final lookAt = three.Vector3(anchor.x, lookHeight, anchor.z);
-    return (basePos, lookAt);
   }
 
   void _animateCamera(double dt) {
@@ -756,34 +661,38 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     );
     final zoomSettled = (nextZoom - _zoom).abs() < 0.0001;
     _currentZoom = zoomSettled ? _zoom : nextZoom;
+    final nextBaseFov = _lerpDouble(
+      _cameraCurrentBaseFov,
+      _cameraTargetBaseFov,
+      1 - math.exp(-dt * _zoomLerpSpeed),
+    );
+    final fovSettled = (nextBaseFov - _cameraTargetBaseFov).abs() < 0.0001;
+    _cameraCurrentBaseFov = fovSettled ? _cameraTargetBaseFov : nextBaseFov;
     _applyCameraFov();
 
-    // The night camera moves the eye but never changes the user's heading.
-    // Free views interpolate orientation as angles instead of blending
-    // world-space look-at points. The latter can pass through the moving eye
-    // during a transition and briefly invert the camera.
-    var rotationSettled = true;
-    if (!widget.nightMode) {
-      final targetYaw = _cameraYaw;
-      final targetPitch = _cameraPitch;
-      final rotationT = (1 - math.exp(-dt * _rotationLerpSpeed))
-          .clamp(0.0, 1.0)
-          .toDouble();
-      final yawDelta = _shortestAngleDelta(_currentCameraYaw, targetYaw);
-      final pitchDelta = targetPitch - _currentCameraPitch;
-      rotationSettled = yawDelta.abs() < 0.0001 && pitchDelta.abs() < 0.0001;
-      _currentCameraYaw = rotationSettled
-          ? normalizeRoomCameraYaw(targetYaw)
-          : normalizeRoomCameraYaw(_currentCameraYaw + yawDelta * rotationT);
-      _currentCameraPitch = rotationSettled
-          ? targetPitch
-          : _lerpDouble(_currentCameraPitch, targetPitch, rotationT);
-    }
+    // Interpolate orientation as angles so transitions aim at the touched
+    // point without a blended look-at point crossing through the moving eye.
+    final targetYaw = _cameraYaw;
+    final targetPitch = _cameraPitch;
+    final rotationT = (1 - math.exp(-dt * _rotationLerpSpeed))
+        .clamp(0.0, 1.0)
+        .toDouble();
+    final yawDelta = _shortestAngleDelta(_currentCameraYaw, targetYaw);
+    final pitchDelta = targetPitch - _currentCameraPitch;
+    final rotationSettled =
+        yawDelta.abs() < 0.0001 && pitchDelta.abs() < 0.0001;
+    _currentCameraYaw = rotationSettled
+        ? normalizeRoomCameraYaw(targetYaw)
+        : normalizeRoomCameraYaw(_currentCameraYaw + yawDelta * rotationT);
+    _currentCameraPitch = rotationSettled
+        ? targetPitch
+        : _lerpDouble(_currentCameraPitch, targetPitch, rotationT);
 
     // Nothing to do once the camera has settled on its target.
     if (_camera.position.distanceToSquared(_cameraTargetPos) < 1e-8 &&
         rotationSettled &&
-        zoomSettled) {
+        zoomSettled &&
+        fovSettled) {
       return;
     }
     final cameraLerpSpeed = widget.nightMode
@@ -809,7 +718,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         .clamp(_minZoom, _maxZoom)
         .toDouble();
     final aspectAdjustedFov = roomVerticalFovForAspect(
-      _cameraTargetBaseFov,
+      _cameraCurrentBaseFov,
       _viewportAspect,
       maxHorizontalFov: widget.outsideView ? 60 : 82,
     );
@@ -1074,11 +983,11 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _addRoomTapTarget(
       scene,
       target: _RoomTapTarget.window,
-      width: 4.45,
-      height: 2.25,
+      width: frameWidth,
+      height: frameHeight,
       depth: 0.08,
       x: 1.0,
-      y: 2.28,
+      y: 2.35,
       z: -roomDepth / 2 + 0.28,
     );
 
@@ -1099,6 +1008,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       receiveShadow: true,
     )..position.setValues(1.0, 0.7, -roomDepth / 2 + 0.58);
     scene.add(windowSeat);
+    _registerRoomTapSurface(windowSeat, _RoomTapTarget.desk);
 
     final windowSeatBase = _box(
       width: 5.2,
@@ -1108,9 +1018,10 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       receiveShadow: true,
     )..position.setValues(1.0, 0.25, -roomDepth / 2 + 0.6);
     scene.add(windowSeatBase);
+    _registerRoomTapSurface(windowSeatBase, _RoomTapTarget.desk);
 
     _addRadiator(scene, roomDepth);
-    _addDeskTapTarget(scene, roomDepth);
+    final deskAccessoriesStart = scene.children.length;
 
     final laptopBase = _box(
       width: 0.64,
@@ -1159,6 +1070,15 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
           ..position.setValues(1.45, 0.92, -roomDepth / 2 + 0.38)
           ..castShadow = true;
     scene.add(candle);
+
+    // Match visible accessories instead of covering the lower window with a
+    // tall invisible desk box. The radio's own target keeps its separate action.
+    for (final accessory in scene.children.skip(deskAccessoriesStart)) {
+      if (_resolveRoomTapTarget(accessory) != null) {
+        continue;
+      }
+      _registerRoomTapSurface(accessory, _RoomTapTarget.desk);
+    }
 
     final pendantZ = -roomDepth / 2 + 3.1;
     final pendantStem = _box(
@@ -2352,19 +2272,6 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       ..position.setValues(x, y, z);
   }
 
-  void _addDeskTapTarget(three.Scene scene, double roomDepth) {
-    _addRoomTapTarget(
-      scene,
-      target: _RoomTapTarget.desk,
-      width: 5.8,
-      height: 1.6,
-      depth: 1.2,
-      x: 1.0,
-      y: 1.25,
-      z: -roomDepth / 2 + 0.48,
-    );
-  }
-
   void _addDeskAccessories(three.Scene scene, double roomDepth) {
     final deskZ = -roomDepth / 2 + 0.36;
 
@@ -2415,10 +2322,10 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       z: deskZ,
     );
     scene.add(radioBody);
+    _registerRoomTapSurface(radioBody, _RoomTapTarget.radio);
 
     // Invisible hit box around the radio so tapping it opens the music picker.
-    // A touch larger than the body, and resolved with priority over the desk
-    // tap target it sits inside (see _onPointerDown).
+    // A touch larger than the body; normal depth ordering still applies.
     _addRoomTapTarget(
       scene,
       target: _RoomTapTarget.radio,
@@ -2441,6 +2348,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
           ..rotation.x = math.pi / 2
           ..castShadow = true;
     scene.add(radioDial);
+    _registerRoomTapSurface(radioDial, _RoomTapTarget.radio);
 
     for (var index = 0; index < 3; index += 1) {
       final grille = _box(
@@ -2453,6 +2361,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         z: deskZ + 0.14,
       );
       scene.add(grille);
+      _registerRoomTapSurface(grille, _RoomTapTarget.radio);
     }
 
     final tray =
@@ -2500,6 +2409,11 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       );
       scene.add(leg);
     }
+  }
+
+  void _registerRoomTapSurface(three.Object3D object, _RoomTapTarget target) {
+    object.userData['roomTapTarget'] = target;
+    _roomTapTargets.add(object);
   }
 
   void _addRoomTapTarget(
@@ -2597,46 +2511,17 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _cameraTiltCandidate = false;
     _cameraTiltActive = false;
     _updatePointer(event);
+    _camera.updateMatrixWorld(true);
     _raycaster.setFromCamera(_pointer, _camera);
-    final intersections = _raycaster.intersectObjects(
-      _sceneFurniture.values.map((item) => item.root).toList(),
-      true,
+    final hit = nearestRoomTapIntersection(
+      _raycaster,
+      furniture: _sceneFurniture.values.map((item) => item.root).toList(),
+      surfaces: _roomTapTargets,
     );
-
-    if (intersections.isEmpty) {
-      final roomIntersections = _raycaster.intersectObjects(
-        _roomTapTargets,
-        true,
-      );
-      if (roomIntersections.isNotEmpty) {
-        // The radio hit box sits inside the larger desk hit box, so prefer the
-        // radio when the ray passes through it; otherwise take the nearest hit.
-        for (final hit in roomIntersections) {
-          final resolved = _resolveRoomTapTarget(hit.object);
-          if (resolved == null) {
-            continue;
-          }
-          _pendingTapTarget ??= resolved;
-          _pendingTapAnchor ??= hit.point?.clone();
-          if (resolved == _RoomTapTarget.radio) {
-            _pendingTapTarget = resolved;
-            _pendingTapAnchor = hit.point?.clone();
-            break;
-          }
-        }
-        widget.controller.selectItem(null);
-        _beginCameraTiltCandidate(event);
-        return;
-      }
-
-      widget.controller.selectItem(null);
-      _beginCameraTiltCandidate(event);
-      return;
-    }
-
-    final hit = intersections.first.object;
-    final sceneFurniture = _resolveSceneFurniture(hit);
+    final sceneFurniture = _resolveSceneFurniture(hit?.object);
     if (sceneFurniture == null) {
+      _pendingTapTarget = _resolveRoomTapTarget(hit?.object);
+      _pendingTapAnchor = hit?.point?.clone();
       widget.controller.selectItem(null);
       _beginCameraTiltCandidate(event);
       return;
@@ -2647,7 +2532,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       _pendingTapTarget = _tapTargetForDefinition(
         widget.controller.definitionFor(placed.definitionId),
       );
-      _pendingTapAnchor = intersections.first.point?.clone();
+      _pendingTapAnchor = hit?.point?.clone();
     }
 
     if (!widget.canMoveFurniture ||
@@ -2694,6 +2579,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     }
     _recordPointerPosition(event, isDown: false);
     if (_pointerTravel > 10) {
+      _cancelPendingRoomTap();
       _pendingTapTarget = null;
       _pendingFurnitureTapItemId = null;
     }
@@ -3396,11 +3282,10 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   }
 
   void _handleRoomTapTarget(_RoomTapTarget? target, [three.Vector3? anchor]) {
-    // Resolve beds to their centre rather than preserving the surface point
-    // under the finger. That gives every bed tap the same flight destination.
-    // Set it before the callback flips deskFocused/nightMode, which triggers
-    // _configureCamera on the next build.
-    _focusAnchor = _focusAnchorForTapTarget(target, anchor);
+    if (target == null) {
+      return;
+    }
+    _focusAnchor = anchor?.clone();
     switch (target) {
       case _RoomTapTarget.desk:
         if (widget.deskFocused && !widget.nightMode) {
@@ -3410,6 +3295,10 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         widget.onTapDesk?.call();
         return;
       case _RoomTapTarget.bed:
+        if (widget.nightMode) {
+          _cameraShortcutPending = true;
+          _configureCamera(_currentViewportSize());
+        }
         widget.onTapBed?.call();
         return;
       case _RoomTapTarget.radio:
@@ -3424,41 +3313,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
           widget.onTapWindow?.call();
         }
         return;
-      case null:
-        return;
     }
-  }
-
-  three.Vector3? _focusAnchorForTapTarget(
-    _RoomTapTarget? target,
-    three.Vector3? tapAnchor,
-  ) {
-    if (target != _RoomTapTarget.bed) {
-      return tapAnchor?.clone();
-    }
-
-    three.Vector3? nearestBedCenter;
-    var nearestDistanceSquared = double.infinity;
-    for (final bed in widget.controller.placedItems) {
-      if (widget.controller.definitionFor(bed.definitionId).visualKind !=
-          RoomItemVisualKind.bed) {
-        continue;
-      }
-      final bedCenter = _gridOriginToWorld(
-        definitionId: bed.definitionId,
-        quarterTurns: bed.rotationQuarterTurns,
-        origin: bed.origin,
-      );
-      final distanceSquared = tapAnchor == null
-          ? 0.0
-          : (bedCenter.x - tapAnchor.x) * (bedCenter.x - tapAnchor.x) +
-                (bedCenter.z - tapAnchor.z) * (bedCenter.z - tapAnchor.z);
-      if (distanceSquared < nearestDistanceSquared) {
-        nearestBedCenter = bedCenter;
-        nearestDistanceSquared = distanceSquared;
-      }
-    }
-    return nearestBedCenter ?? tapAnchor?.clone();
   }
 
   void _recordPointerPosition(dynamic event, {required bool isDown}) {
@@ -3496,9 +3351,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       return;
     }
 
-    final localPosition = box.globalToLocal(
-      Offset(_eventClientX(event), _eventClientY(event)),
-    );
+    // Peripherals has already converted clientX/clientY to renderer-local
+    // coordinates. Converting them a second time shifts the hit below the tap.
+    final localPosition = Offset(_eventClientX(event), _eventClientY(event));
     _pointer.x = localPosition.dx / width * 2 - 1;
     _pointer.y = -(localPosition.dy / height) * 2 + 1;
   }

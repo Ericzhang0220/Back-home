@@ -197,14 +197,14 @@ class _RoomScreenState extends State<RoomScreen> {
     }
     if (_deskFocused) {
       // Leave the desk subview for the main room view, keeping the nav hidden —
-      // a second double-tap (handled below) is what brings it up.
+      // an upward swipe brings navigation back.
       setState(() {
         _deskFocused = false;
       });
       widget.onSubviewChanged(_inSubview);
       return;
     }
-    // Already in the main room view: this double-tap reveals the nav bar.
+    // Already in the main room view: reveal its shop controls.
     widget.onRevealChrome();
   }
 

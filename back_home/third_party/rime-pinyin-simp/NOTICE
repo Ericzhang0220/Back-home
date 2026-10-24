@@ -1,0 +1,5 @@
+Pinyin candidate data derived from rime/rime-pinyin-simp pinyin_simp.dict.yaml (Apache-2.0), in turn derived from Android PinyinIME.
+Source: https://github.com/rime/rime-pinyin-simp
+Source SHA-256: e341598343a0f0f2035bb1aafc34a7f3bb7887deeecb3f60796262aaa2983e6b
+Modified for Chet: spaces removed from syllable codes; candidates sorted by weight and limited to 32 per spelling; converted to JSON.
+No upstream input engine code is included.

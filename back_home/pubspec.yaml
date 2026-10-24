@@ -35,6 +35,7 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   shared_preferences: ^2.5.3
+  characters: ^1.4.1
   path_provider: ^2.1.6
   three_js: ^0.2.7
   firebase_core: ^4.7.0
@@ -78,6 +79,7 @@ flutter:
   assets:
     - assets/
     - assets/ai_characters/
+    - assets/keyboard/
   #   - images/a_dot_ham.jpeg
 
   # An image asset can refer to one or more resolution-specific "variants", see

@@ -4,17 +4,23 @@ import 'package:flutter/material.dart';
 
 import '../auth/app_auth_controller.dart';
 import '../notifications/notifications_repository.dart';
+import '../profile/hall_profile_navigation.dart';
 import '../widgets/app_ui.dart';
 import '../widgets/hall_post_card.dart';
+import '../widgets/swipe_back_page_route.dart';
 import 'create_post_screen.dart';
 import 'hall_post.dart';
 import 'hall_post_thread_screen.dart';
-import 'hall_user_profile_screen.dart';
 
 class HallScreen extends StatefulWidget {
-  const HallScreen({required this.authController, super.key});
+  const HallScreen({
+    required this.authController,
+    required this.onOwnProfileTap,
+    super.key,
+  });
 
   final AppAuthController authController;
+  final VoidCallback onOwnProfileTap;
 
   @override
   State<HallScreen> createState() => _HallScreenState();
@@ -274,7 +280,7 @@ class _HallScreenState extends State<HallScreen> {
 
   Future<void> _openCreatePost({HallPost? existingPost}) async {
     final createdPost = await Navigator.of(context).push<HallPost>(
-      MaterialPageRoute<HallPost>(
+      SwipeBackPageRoute<HallPost>(
         builder: (_) => CreatePostScreen(
           existingPost: existingPost,
           authorName: _currentUserName(),
@@ -362,12 +368,13 @@ class _HallScreenState extends State<HallScreen> {
 
   Future<void> _openPostThread(HallPost post) async {
     await Navigator.of(context).push(
-      MaterialPageRoute<void>(
+      SwipeBackPageRoute<HallPost>(
         builder: (_) => HallPostThreadScreen(
           post: post,
           authorName: _currentUserName(),
           authorUid: widget.authController.currentUser?.uid,
           authorPhotoUrl: widget.authController.currentUser?.photoURL,
+          onOwnProfileTap: widget.onOwnProfileTap,
         ),
       ),
     );
@@ -429,16 +436,16 @@ class _HallScreenState extends State<HallScreen> {
     }
   }
 
-  Future<void> _openUserProfile(HallPost post) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => HallUserProfileScreen(
-          displayName: post.author,
-          uid: post.authorUid,
-          photoUrl: post.authorPhotoUrl,
-          mood: post.mood,
-        ),
-      ),
+  void _openUserProfile(HallPost post) {
+    openHallProfile(
+      context,
+      displayName: post.author,
+      uid: post.authorUid,
+      currentUid: widget.authController.currentUser?.uid,
+      photoUrl: post.authorPhotoUrl,
+      mood: post.mood,
+      isMe: post.canEdit,
+      onOwnProfileTap: widget.onOwnProfileTap,
     );
   }
 

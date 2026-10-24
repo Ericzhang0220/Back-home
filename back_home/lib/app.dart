@@ -23,6 +23,9 @@ import 'settings/app_settings_controller.dart';
 import 'theme/app_theme.dart';
 import 'widgets/app_ui.dart';
 import 'widgets/bottom_navigation_reveal.dart';
+import 'widgets/swipe_back_page_route.dart';
+import 'keyboard/keyboard_host.dart';
+import 'keyboard/keyboard_store.dart';
 
 class BackHomeApp extends StatefulWidget {
   const BackHomeApp({super.key});
@@ -36,6 +39,9 @@ class _BackHomeAppState extends State<BackHomeApp> {
   late final BackgroundMusicController _musicController;
   late final AppAuthController _authController;
   late final bool _useOfflineAuth;
+  late final RoomEditorController _shopRoomController;
+  late final KeyboardStore _keyboards;
+  String? _keyboardAccount;
 
   @override
   void initState() {
@@ -45,6 +51,10 @@ class _BackHomeAppState extends State<BackHomeApp> {
     _authController = _useOfflineAuth
         ? AppAuthController.offline()
         : AppAuthController();
+    _shopRoomController = RoomEditorController();
+    _keyboards = KeyboardStore(_shopRoomController);
+    _authController.addListener(_syncKeyboardAccount);
+    _syncKeyboardAccount();
     _musicController = BackgroundMusicController(
       settingsController: _settingsController,
     );
@@ -53,10 +63,20 @@ class _BackHomeAppState extends State<BackHomeApp> {
 
   @override
   void dispose() {
+    _authController.removeListener(_syncKeyboardAccount);
+    _keyboards.dispose();
+    _shopRoomController.dispose();
     unawaited(_musicController.shutdown());
     _authController.dispose();
     _settingsController.dispose();
     super.dispose();
+  }
+
+  void _syncKeyboardAccount() {
+    final uid = _authController.currentUser?.uid ?? 'signed-out';
+    if (_keyboardAccount == uid) return;
+    _keyboardAccount = uid;
+    unawaited(_keyboards.loadForAccount(uid));
   }
 
   Future<void> _initializeControllers() async {
@@ -84,23 +104,27 @@ class _BackHomeAppState extends State<BackHomeApp> {
               // so it never takes a tap from the widget under the finger:
               // buttons, fields and scrolls all still win the gesture arena,
               // and this only picks up the taps nothing else claimed.
-              child: GestureDetector(
-                behavior: HitTestBehavior.translucent,
-                onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
-                // Restore dark status icons after leaving a portrait card.
-                // Cards and app bars can override this nearer their artwork.
-                child: AnnotatedRegion<SystemUiOverlayStyle>(
-                  value: const SystemUiOverlayStyle(
-                    statusBarColor: Colors.transparent,
-                    statusBarBrightness: Brightness.light,
-                    statusBarIconBrightness: Brightness.dark,
+              child: AppKeyboardHost(
+                store: _keyboards,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+                  // Restore dark status icons after leaving a portrait card.
+                  // Cards and app bars can override this nearer their artwork.
+                  child: AnnotatedRegion<SystemUiOverlayStyle>(
+                    value: const SystemUiOverlayStyle(
+                      statusBarColor: Colors.transparent,
+                      statusBarBrightness: Brightness.light,
+                      statusBarIconBrightness: Brightness.dark,
+                    ),
+                    child: child ?? const SizedBox.shrink(),
                   ),
-                  child: child ?? const SizedBox.shrink(),
                 ),
               ),
             );
           },
           home: _AuthGate(
+            roomController: _shopRoomController,
             settingsController: _settingsController,
             musicController: _musicController,
             authController: _authController,
@@ -114,6 +138,7 @@ class _BackHomeAppState extends State<BackHomeApp> {
 
 class _AuthGate extends StatelessWidget {
   const _AuthGate({
+    required this.roomController,
     required this.settingsController,
     required this.musicController,
     required this.authController,
@@ -124,11 +149,13 @@ class _AuthGate extends StatelessWidget {
   final BackgroundMusicController musicController;
   final AppAuthController authController;
   final bool bypassAuth;
+  final RoomEditorController roomController;
 
   @override
   Widget build(BuildContext context) {
     if (bypassAuth) {
       return AppShell(
+        roomController: roomController,
         settingsController: settingsController,
         musicController: musicController,
         authController: authController,
@@ -173,6 +200,7 @@ class _AuthGate extends StatelessWidget {
             }
 
             return AppShell(
+              roomController: roomController,
               settingsController: settingsController,
               musicController: musicController,
               authController: authController,
@@ -188,6 +216,7 @@ enum AppTab { home, room, hall, chat, profile }
 
 class AppShell extends StatefulWidget {
   const AppShell({
+    this.roomController,
     required this.settingsController,
     required this.musicController,
     required this.authController,
@@ -197,12 +226,22 @@ class AppShell extends StatefulWidget {
   final AppSettingsController settingsController;
   final BackgroundMusicController musicController;
   final AppAuthController authController;
+  final RoomEditorController? roomController;
 
   @override
   State<AppShell> createState() => _AppShellState();
 }
 
 class _AppShellState extends State<AppShell> {
+  static const _shellPageRoute = '/shell';
+  final _pageNavigator = GlobalKey<NavigatorState>();
+  bool _showingDetail = false;
+  double _navDragDistance = 0;
+  late final _pageObserver = _ShellNavigationObserver((showingDetail) {
+    if (mounted && _showingDetail != showingDetail) {
+      setState(() => _showingDetail = showingDetail);
+    }
+  });
   static const List<AppTab> _navigationTabs = [
     AppTab.room,
     AppTab.hall,
@@ -210,7 +249,7 @@ class _AppShellState extends State<AppShell> {
     AppTab.profile,
   ];
 
-  final RoomEditorController _roomController = RoomEditorController();
+  late final RoomEditorController _roomController;
   final Set<AppTab> _initializedTabs = <AppTab>{};
   AppTab _currentTab = AppTab.home;
 
@@ -236,7 +275,7 @@ class _AppShellState extends State<AppShell> {
   static const double _navRevealZoneBottomGap = 22;
 
   Timer? _navHideTimer;
-  bool _navVisible = true;
+  bool _navVisible = false;
 
   /// Guards the welcome prompt so a skipped name is not asked for again until
   /// the next launch.
@@ -245,6 +284,7 @@ class _AppShellState extends State<AppShell> {
   @override
   void initState() {
     super.initState();
+    _roomController = widget.roomController ?? RoomEditorController();
     _scheduleNavHide();
     // Reaching the shell means the account is verified and complete, so this is
     // the first moment a new person can be asked what to call them.
@@ -275,7 +315,7 @@ class _AppShellState extends State<AppShell> {
     _roomChromeFadeTimer?.cancel();
     _roomChromeInputTimer?.cancel();
     _navHideTimer?.cancel();
-    _roomController.dispose();
+    if (widget.roomController == null) _roomController.dispose();
     super.dispose();
   }
 
@@ -304,8 +344,11 @@ class _AppShellState extends State<AppShell> {
   }
 
   void _selectTab(AppTab tab) {
+    FocusManager.instance.primaryFocus?.unfocus();
+    _pageNavigator.currentState?.popUntil((route) => route.isFirst);
     setState(() {
       _currentTab = tab;
+      _showingDetail = false;
       _navVisible = true;
       if (tab == AppTab.room) {
         _roomChromeVisible = true;
@@ -357,8 +400,8 @@ class _AppShellState extends State<AppShell> {
       _roomChromeInteractive = true;
     });
     _scheduleRoomChromeFade();
-    // A double-tap in the room asks for the chrome back, nav card included.
-    _revealNav();
+    // Room double-taps keep their camera/shop behavior. Reveal navigation with
+    // an upward swipe instead.
   }
 
   void _handleRoomSubviewChanged(bool inSubview) {
@@ -367,13 +410,14 @@ class _AppShellState extends State<AppShell> {
     }
     if (!inSubview) {
       // Returning to the main room view leaves the nav bar hidden until the user
-      // double-taps or swipes it up — so drop any pending auto-hide and hide it.
+      // swipes it up — so drop any pending auto-hide and hide it.
       _roomChromeFadeTimer?.cancel();
       _roomChromeInputTimer?.cancel();
       _navHideTimer?.cancel();
     }
     setState(() {
       _roomInSubview = inSubview;
+      _navVisible = false;
       if (!inSubview) {
         _roomChromeVisible = false;
         _roomChromeInteractive = false;
@@ -383,7 +427,7 @@ class _AppShellState extends State<AppShell> {
   }
 
   Future<void> _openShop() async {
-    await Navigator.of(context).push(
+    await _pageNavigator.currentState!.push(
       MaterialPageRoute<void>(
         builder: (_) => ShopScreen(controller: _roomController),
       ),
@@ -391,9 +435,31 @@ class _AppShellState extends State<AppShell> {
   }
 
   Future<void> _openAchievements() async {
-    await Navigator.of(
-      context,
-    ).push(MaterialPageRoute<void>(builder: (_) => const AchievementsScreen()));
+    await _pageNavigator.currentState!.push(
+      MaterialPageRoute<void>(builder: (_) => const AchievementsScreen()),
+    );
+  }
+
+  void _openOwnProfile() {
+    Navigator.of(context).push<void>(
+      SwipeBackPageRoute(
+        builder: (_) => Scaffold(
+          body: Stack(
+            children: [
+              const AmbientBackground(),
+              SafeArea(
+                child: ProfileScreen(
+                  settingsController: widget.settingsController,
+                  musicController: widget.musicController,
+                  authController: widget.authController,
+                  showBackButton: true,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildHomePage() {
@@ -430,7 +496,14 @@ class _AppShellState extends State<AppShell> {
         return KeyedSubtree(
           key: const ValueKey(AppTab.hall),
           child: SafeArea(
-            child: HallScreen(authController: widget.authController),
+            // Let the feed scroll behind the home indicator and floating nav.
+            bottom: false,
+            child: widget.authController.currentUser == null
+                ? const Center(child: Text('Sign in to see the hall.'))
+                : HallScreen(
+                    authController: widget.authController,
+                    onOwnProfileTap: _openOwnProfile,
+                  ),
           ),
         );
       case AppTab.chat:
@@ -479,89 +552,127 @@ class _AppShellState extends State<AppShell> {
     final useCompactRoomNav =
         isRoomTab && MediaQuery.orientationOf(context) == Orientation.landscape;
     final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
-    // The nav bar auto-hides everywhere, and is additionally forced away in the
-    // room's desk/night subviews.
-    final navShown =
-        _navVisible && !keyboardOpen && !(isRoomTab && _roomInSubview);
+    final navShown = _navVisible && !keyboardOpen;
     final navSlideOut = _currentTab == AppTab.chat
         ? const Duration(milliseconds: 180)
         : _navSlideOut;
-    // Keep the swipe target clear of the strip iOS reserves for its own
-    // home-indicator gestures, so a reveal never dismisses the app instead.
     final revealZoneBottom = math.max(
       MediaQuery.paddingOf(context).bottom,
       _navRevealZoneBottomGap,
     );
+    final backgroundColor = isRoomTab
+        ? const Color(0xFF080706)
+        : Colors.transparent;
+    final shellPage = Scaffold(
+      backgroundColor: backgroundColor,
+      body: _currentTab == AppTab.home
+          ? Stack(
+              children: [
+                const AmbientBackground(showSideGlow: false),
+                SafeArea(bottom: false, child: _buildHomePage()),
+              ],
+            )
+          : Stack(
+              children: [
+                if (!isRoomTab) const AmbientBackground(showSideGlow: true),
+                Positioned.fill(child: _buildTabbedPages()),
+              ],
+            ),
+    );
 
     return BottomNavigationReveal(
-      enabled: !navShown && !keyboardOpen && _currentTab != AppTab.home,
+      enabled: !navShown && !keyboardOpen,
+      allowDoubleTap:
+          !navShown && !keyboardOpen && (!isRoomTab || _showingDetail),
       bottomGap: revealZoneBottom,
       zoneHeight: _navRevealZoneHeight,
       onReveal: _revealNav,
       child: Scaffold(
-        backgroundColor: isRoomTab
-            ? const Color(0xFF080706)
-            : const Color.fromARGB(0, 212, 255, 18),
-        body: _currentTab == AppTab.home
-            ? Stack(
-                children: [
-                  AmbientBackground(showSideGlow: false),
-                  SafeArea(bottom: false, child: _buildHomePage()),
-                ],
-              )
-            : Stack(
-                children: [
-                  if (!isRoomTab) const AmbientBackground(showSideGlow: true),
-                  // The content fills the whole screen and flows under the
-                  // floating nav card below.
-                  Positioned.fill(child: _buildTabbedPages()),
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    child: IgnorePointer(
-                      ignoring: !navShown,
-                      child: AnimatedSlide(
-                        duration: navShown ? _navSlideIn : navSlideOut,
-                        curve: navShown
-                            ? Curves.easeOutCubic
-                            : Curves.easeInCubic,
-                        // A full child-height offset parks the card just off the
-                        // bottom edge, the way the dock tucks itself away.
-                        offset: Offset(0, navShown ? 0 : 1),
-                        child: AnimatedOpacity(
-                          duration: navShown ? _navSlideIn : navSlideOut,
-                          curve: Curves.easeInOutCubic,
-                          opacity: navShown ? 1 : 0,
-                          child: GestureDetector(
-                            // Flick the card back down to dismiss it early.
-                            onVerticalDragEnd: (details) {
-                              if ((details.primaryVelocity ?? 0) > 180) {
-                                _hideNav();
-                              }
-                            },
-                            child: Center(
-                              child: ConstrainedBox(
-                                constraints: BoxConstraints(
-                                  maxWidth: useCompactRoomNav
-                                      ? 560
-                                      : double.infinity,
-                                ),
-                                child: _FloatingNavBar(
-                                  currentTab: _currentTab,
-                                  onSelect: _selectTab,
-                                ),
-                              ),
-                            ),
+        // Each content page handles its own keyboard resize. The navigation
+        // overlay stays at the physical bottom and hides while typing.
+        resizeToAvoidBottomInset: false,
+        backgroundColor: backgroundColor,
+        body: Stack(
+          children: [
+            Positioned.fill(
+              child: NavigatorPopHandler<Object?>(
+                onPopWithResult: (result) =>
+                    _pageNavigator.currentState!.pop(result),
+                child: Navigator(
+                  key: _pageNavigator,
+                  observers: [_pageObserver],
+                  pages: [
+                    MaterialPage<void>(
+                      key: const ValueKey('shell-content'),
+                      name: _shellPageRoute,
+                      child: shellPage,
+                    ),
+                  ],
+                  onDidRemovePage: (_) {},
+                ),
+              ),
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: IgnorePointer(
+                ignoring: !navShown,
+                child: AnimatedSlide(
+                  key: ValueKey(_currentTab == AppTab.home),
+                  duration: navShown ? _navSlideIn : navSlideOut,
+                  curve: navShown ? Curves.easeOutCubic : Curves.easeInCubic,
+                  offset: Offset(0, navShown ? 0 : 1),
+                  child: AnimatedOpacity(
+                    duration: navShown ? _navSlideIn : navSlideOut,
+                    curve: Curves.easeInOutCubic,
+                    opacity: navShown ? 1 : 0,
+                    child: GestureDetector(
+                      onVerticalDragStart: (_) => _navDragDistance = 0,
+                      onVerticalDragUpdate: (details) =>
+                          _navDragDistance += details.delta.dy,
+                      onVerticalDragEnd: (details) {
+                        if (_navDragDistance > 24 ||
+                            (details.primaryVelocity ?? 0) > 180) {
+                          _hideNav();
+                        }
+                      },
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxWidth: useCompactRoomNav ? 560 : double.infinity,
+                          ),
+                          child: _FloatingNavBar(
+                            currentTab: _currentTab,
+                            onSelect: _selectTab,
                           ),
                         ),
                       ),
                     ),
                   ),
-                ],
+                ),
               ),
+            ),
+          ],
+        ),
       ),
     );
+  }
+}
+
+class _ShellNavigationObserver extends NavigatorObserver {
+  _ShellNavigationObserver(this.onChanged);
+  final ValueChanged<bool> onChanged;
+  int _revision = 0;
+
+  @override
+  void didChangeTop(Route<dynamic> topRoute, Route<dynamic>? previousTopRoute) {
+    final revision = ++_revision;
+    final showingDetail =
+        topRoute.settings.name != _AppShellState._shellPageRoute;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (revision == _revision) onChanged(showingDetail);
+    });
   }
 }
 
@@ -611,7 +722,10 @@ class _FloatingNavBar extends StatelessWidget {
                   shadowColor: Colors.transparent,
                   elevation: 0,
                   height: 72,
-                  selectedIndex: currentTab.index - 1,
+                  selectedIndex: math.max(0, currentTab.index - 1),
+                  indicatorColor: currentTab == AppTab.home
+                      ? Colors.transparent
+                      : null,
                   onDestinationSelected: (index) {
                     onSelect(AppTab.values[index + 1]);
                   },

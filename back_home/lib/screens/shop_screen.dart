@@ -5,12 +5,19 @@ import 'package:flutter/material.dart';
 import '../rooms/furniture_preview.dart';
 import '../rooms/room_state.dart';
 import '../widgets/app_ui.dart';
+import '../keyboard/keyboard_host.dart';
+import '../keyboard/keyboard_shop.dart';
 import 'room_edit_screen.dart';
 
 class ShopScreen extends StatefulWidget {
-  const ShopScreen({super.key, required this.controller});
+  const ShopScreen({
+    super.key,
+    required this.controller,
+    this.initialKeyboards = false,
+  });
 
   final RoomEditorController controller;
+  final bool initialKeyboards;
 
   @override
   State<ShopScreen> createState() => _ShopScreenState();
@@ -18,10 +25,12 @@ class ShopScreen extends StatefulWidget {
 
 class _ShopScreenState extends State<ShopScreen> {
   RoomItemDefinition? _previewed;
+  late bool _showKeyboards;
 
   @override
   void initState() {
     super.initState();
+    _showKeyboards = widget.initialKeyboards;
     final catalog = widget.controller.catalog;
     _previewed = catalog.isEmpty ? null : catalog.first;
   }
@@ -48,6 +57,7 @@ class _ShopScreenState extends State<ShopScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final keyboards = KeyboardStoreScope.maybeOf(context);
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: Stack(
@@ -95,11 +105,32 @@ class _ShopScreenState extends State<ShopScreen> {
                         ),
                       ],
                     ),
-                    title: 'Comfort shop',
-                    subtitle:
-                        'Buy more furniture, then arrange it in edit mode.',
+                    title: _showKeyboards ? 'Keyboard studio' : 'Comfort shop',
+                    subtitle: _showKeyboards
+                        ? 'A little of their world, under your fingertips.'
+                        : 'Buy more furniture, then arrange it in edit mode.',
                     padding: const EdgeInsets.fromLTRB(20, 18, 20, 32),
                     children: [
+                      if (keyboards != null) ...[
+                        SegmentedButton<bool>(
+                          segments: const [
+                            ButtonSegment(
+                              value: false,
+                              icon: Icon(Icons.chair_outlined),
+                              label: Text('Furniture'),
+                            ),
+                            ButtonSegment(
+                              value: true,
+                              icon: Icon(Icons.keyboard_outlined),
+                              label: Text('Keyboards'),
+                            ),
+                          ],
+                          selected: {_showKeyboards},
+                          onSelectionChanged: (selection) =>
+                              setState(() => _showKeyboards = selection.single),
+                        ),
+                        const SizedBox(height: 18),
+                      ],
                       SoftCard(
                         gradient: const LinearGradient(
                           colors: [Color(0xFFFFF8F0), Color(0xFFF4D8C7)],
@@ -150,51 +181,55 @@ class _ShopScreenState extends State<ShopScreen> {
                         ),
                       ),
                       const SizedBox(height: 28),
-                      _PreviewPanel(
-                        definition: _previewed,
-                        bakeKinds: _catalogKinds,
-                      ),
-                      const SizedBox(height: 28),
-                      const SectionHeader(
-                        title: 'Categories',
-                        subtitle:
-                            'Statement pieces first, then small fillers for empty tiles.',
-                      ),
-                      const SizedBox(height: 14),
-                      const Wrap(
-                        spacing: 10,
-                        runSpacing: 10,
-                        children: [
-                          TopicChip(
-                            label: 'Statement',
-                            icon: Icons.bed_rounded,
-                            highlight: true,
-                          ),
-                          TopicChip(
-                            label: 'Storage',
-                            icon: Icons.inventory_2_rounded,
-                          ),
-                          TopicChip(
-                            label: 'Lighting',
-                            icon: Icons.light_rounded,
-                          ),
-                          TopicChip(
-                            label: 'Decor',
-                            icon: Icons.local_florist_rounded,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 20),
-                      _ShopCatalogGrid(
-                        controller: widget.controller,
-                        previewedId: _previewed?.id,
-                        onPreview: _preview,
-                        onBuy: (definitionId) => _buy(context, definitionId),
-                        onPlaceOwnedAndEdit: (definitionId) => _openEditor(
-                          context,
-                          initialDefinitionId: definitionId,
+                      if (_showKeyboards && keyboards != null)
+                        KeyboardShopSection(store: keyboards)
+                      else ...[
+                        _PreviewPanel(
+                          definition: _previewed,
+                          bakeKinds: _catalogKinds,
                         ),
-                      ),
+                        const SizedBox(height: 28),
+                        const SectionHeader(
+                          title: 'Categories',
+                          subtitle:
+                              'Statement pieces first, then small fillers for empty tiles.',
+                        ),
+                        const SizedBox(height: 14),
+                        const Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: [
+                            TopicChip(
+                              label: 'Statement',
+                              icon: Icons.bed_rounded,
+                              highlight: true,
+                            ),
+                            TopicChip(
+                              label: 'Storage',
+                              icon: Icons.inventory_2_rounded,
+                            ),
+                            TopicChip(
+                              label: 'Lighting',
+                              icon: Icons.light_rounded,
+                            ),
+                            TopicChip(
+                              label: 'Decor',
+                              icon: Icons.local_florist_rounded,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 20),
+                        _ShopCatalogGrid(
+                          controller: widget.controller,
+                          previewedId: _previewed?.id,
+                          onPreview: _preview,
+                          onBuy: (definitionId) => _buy(context, definitionId),
+                          onPlaceOwnedAndEdit: (definitionId) => _openEditor(
+                            context,
+                            initialDefinitionId: definitionId,
+                          ),
+                        ),
+                      ],
                     ],
                   );
                 },

@@ -16,6 +16,7 @@ import '../settings/app_settings_controller.dart';
 import '../widgets/app_ui.dart';
 import '../widgets/profile_avatar.dart';
 import '../widgets/settings_gear_icon.dart';
+import '../widgets/swipe_back_page_route.dart';
 import '../widgets/weather_settings_controls.dart';
 import 'mood_calendar_screen.dart';
 import 'notifications_screen.dart';
@@ -25,12 +26,14 @@ class ProfileScreen extends StatefulWidget {
     required this.settingsController,
     required this.musicController,
     required this.authController,
+    this.showBackButton = false,
     super.key,
   });
 
   final AppSettingsController settingsController;
   final BackgroundMusicController musicController;
   final AppAuthController authController;
+  final bool showBackButton;
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -60,17 +63,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
         return AppPage(
           title: '',
           subtitle: '',
-          leading: currentUser == null
-              ? IconButton(
-                  padding: const EdgeInsets.only(right: 6),
-                  icon: const Icon(Icons.mail_outline),
-                  tooltip: 'Notifications',
-                  onPressed: _openNotifications,
-                )
-              : _MailboxButton(
-                  uid: currentUser.uid,
-                  onPressed: _openNotifications,
-                ),
+          leading: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (widget.showBackButton) const BackButton(),
+              currentUser == null
+                  ? IconButton(
+                      padding: const EdgeInsets.only(right: 6),
+                      icon: const Icon(Icons.mail_outline),
+                      tooltip: 'Notifications',
+                      onPressed: _openNotifications,
+                    )
+                  : _MailboxButton(
+                      uid: currentUser.uid,
+                      onPressed: _openNotifications,
+                    ),
+            ],
+          ),
           trailing: IconButton(
             icon: const SettingsGearIcon(),
             tooltip: 'Profile settings',
@@ -135,7 +144,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               uid: currentUser?.uid,
               onTap: () async {
                 await Navigator.of(context).push(
-                  MaterialPageRoute<void>(
+                  SwipeBackPageRoute<void>(
                     builder: (_) => MoodCalendarScreen(uid: currentUser?.uid),
                   ),
                 );
@@ -150,7 +159,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _openNotifications() async {
     final uid = widget.authController.currentUser?.uid;
     await Navigator.of(context).push(
-      MaterialPageRoute<void>(
+      SwipeBackPageRoute<void>(
         builder: (_) => NotificationsScreen(
           friendsRepository: uid == null
               ? null
@@ -165,7 +174,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _openSettings() async {
     await Navigator.of(context).push(
-      MaterialPageRoute<void>(
+      SwipeBackPageRoute<void>(
         builder: (_) => _ProfileSettingsScreen(
           settingsController: widget.settingsController,
           musicController: widget.musicController,
@@ -725,11 +734,15 @@ class _ProfileSettingsScreen extends StatelessWidget {
                                 color: AppColors.clay,
                               ),
                               const SizedBox(width: 10),
-                              Text(
-                                'Background music',
-                                style: Theme.of(context).textTheme.titleMedium,
+                              Expanded(
+                                child: Text(
+                                  'Background music',
+                                  style: Theme.of(
+                                    context,
+                                  ).textTheme.titleMedium,
+                                ),
                               ),
-                              const Spacer(),
+                              const SizedBox(width: 8),
                               Text(
                                 '${(musicVolume * 100).round()}%',
                                 style: Theme.of(context).textTheme.labelLarge,
@@ -765,11 +778,15 @@ class _ProfileSettingsScreen extends StatelessWidget {
                                 color: AppColors.clay,
                               ),
                               const SizedBox(width: 10),
-                              Text(
-                                'Rotate sensitivity',
-                                style: Theme.of(context).textTheme.titleMedium,
+                              Expanded(
+                                child: Text(
+                                  'Rotate sensitivity',
+                                  style: Theme.of(
+                                    context,
+                                  ).textTheme.titleMedium,
+                                ),
                               ),
-                              const Spacer(),
+                              const SizedBox(width: 8),
                               Text(
                                 '${cameraRotateSensitivity.toStringAsFixed(1)}x',
                                 style: Theme.of(context).textTheme.labelLarge,
@@ -1063,13 +1080,15 @@ class _HappinessIndexCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Text(
-                isInteractive
-                    ? 'Tap to open monthly mood calendar'
-                    : 'Weekly Mood record',
-                style: Theme.of(context).textTheme.bodyMedium,
+              Expanded(
+                child: Text(
+                  isInteractive
+                      ? 'Tap to open monthly mood calendar'
+                      : 'Weekly Mood record',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
               ),
-              const Spacer(),
+              const SizedBox(width: 8),
               if (isInteractive)
                 const Icon(
                   Icons.arrow_forward_ios_rounded,
@@ -1116,13 +1135,16 @@ class _SettingsSwitchRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SwitchListTile.adaptive(
-      contentPadding: EdgeInsets.zero,
-      title: Text(title, style: Theme.of(context).textTheme.titleMedium),
-      subtitle: Text(detail, style: Theme.of(context).textTheme.bodyMedium),
-      value: value,
-      onChanged: onChanged,
-      activeThumbColor: AppColors.clay,
+    return Material(
+      color: Colors.transparent,
+      child: SwitchListTile.adaptive(
+        contentPadding: EdgeInsets.zero,
+        title: Text(title, style: Theme.of(context).textTheme.titleMedium),
+        subtitle: Text(detail, style: Theme.of(context).textTheme.bodyMedium),
+        value: value,
+        onChanged: onChanged,
+        activeThumbColor: AppColors.clay,
+      ),
     );
   }
 }

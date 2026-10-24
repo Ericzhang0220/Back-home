@@ -306,27 +306,29 @@ class InfoPill extends StatelessWidget {
         children: [
           Icon(icon, size: 18, color: AppColors.clay),
           const SizedBox(width: 10),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 112),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall,
-                ),
-                Text(
-                  value,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
+          Flexible(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 112),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall,
                   ),
-                ),
-              ],
+                  Text(
+                    value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -398,11 +400,13 @@ class TopicChip extends StatelessWidget {
     super.key,
     required this.label,
     this.icon,
+    this.iconSize = 16,
     this.highlight = false,
   });
 
   final String label;
   final IconData? icon;
+  final double iconSize;
   final bool highlight;
 
   @override
@@ -420,7 +424,7 @@ class TopicChip extends StatelessWidget {
           if (icon != null) ...[
             Icon(
               icon,
-              size: 16,
+              size: iconSize,
               color: highlight ? Colors.white : AppColors.clay,
             ),
             const SizedBox(width: 8),

@@ -305,6 +305,16 @@ class RoomEditorController extends ChangeNotifier {
   String? _selectedItemId;
 
   int get likesBalance => _likesBalance;
+  bool shopPurchaseLocked = false;
+
+  /// Restores the shared local shop wallet, including keyboard purchases.
+  void restoreLikesBalance(int value) {
+    if (value < 0) throw ArgumentError.value(value, 'value');
+    if (_likesBalance == value) return;
+    _likesBalance = value;
+    notifyListeners();
+  }
+
   String? get selectedItemId => _selectedItemId;
 
   UnmodifiableListView<RoomItemDefinition> get catalog =>
@@ -505,6 +515,8 @@ class RoomEditorController extends ChangeNotifier {
   }
 
   RoomActionResult purchaseItem(String definitionId) {
+    if (shopPurchaseLocked)
+      return RoomActionResult.failure('Another purchase is being saved.');
     final definition = definitionFor(definitionId);
     if (_likesBalance < definition.price) {
       return RoomActionResult.failure(
@@ -570,6 +582,8 @@ class RoomEditorController extends ChangeNotifier {
   }
 
   RoomActionResult buyAndAddItem(String definitionId) {
+    if (shopPurchaseLocked)
+      return RoomActionResult.failure('Another purchase is being saved.');
     final definition = definitionFor(definitionId);
     if (_likesBalance < definition.price) {
       return RoomActionResult.failure(

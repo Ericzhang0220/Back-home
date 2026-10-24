@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../notifications/notifications_repository.dart';
+import '../profile/hall_profile_navigation.dart';
 import '../widgets/app_ui.dart';
 import '../widgets/profile_avatar.dart';
 import 'hall_post.dart';
@@ -14,6 +15,7 @@ class HallPostThreadScreen extends StatefulWidget {
     this.authorName = 'You',
     this.authorUid,
     this.authorPhotoUrl,
+    this.onOwnProfileTap,
     super.key,
   });
 
@@ -21,12 +23,15 @@ class HallPostThreadScreen extends StatefulWidget {
   final String authorName;
   final String? authorUid;
   final String? authorPhotoUrl;
+  final VoidCallback? onOwnProfileTap;
 
   @override
   State<HallPostThreadScreen> createState() => _HallPostThreadScreenState();
 }
 
 class _HallPostThreadScreenState extends State<HallPostThreadScreen> {
+  static const _cardHorizontalInset = 20.0;
+
   late HallPost _post;
   late final TextEditingController _commentController;
   late final FocusNode _commentFocusNode;
@@ -84,11 +89,26 @@ class _HallPostThreadScreenState extends State<HallPostThreadScreen> {
                       ScrollViewKeyboardDismissBehavior.onDrag,
                   slivers: [
                     SliverToBoxAdapter(
-                      child: _ThreadHeader(post: _post, onBack: _close),
+                      child: _ThreadHeader(
+                        post: _post,
+                        onBack: _close,
+                        onAuthorTap: () => _openUserProfile(
+                          displayName: _post.author,
+                          uid: _post.authorUid,
+                          photoUrl: _post.authorPhotoUrl,
+                          mood: _post.mood,
+                          isMe: _post.canEdit,
+                        ),
+                      ),
                     ),
                     SliverToBoxAdapter(
                       child: Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 10),
+                        padding: const EdgeInsets.fromLTRB(
+                          _cardHorizontalInset,
+                          8,
+                          _cardHorizontalInset,
+                          10,
+                        ),
                         child: _ThreadPostSummary(
                           post: _post,
                           onLikeTap: _toggleLike,
@@ -98,7 +118,12 @@ class _HallPostThreadScreenState extends State<HallPostThreadScreen> {
                     ),
                     SliverToBoxAdapter(
                       child: Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+                        padding: const EdgeInsets.fromLTRB(
+                          _cardHorizontalInset,
+                          4,
+                          _cardHorizontalInset,
+                          20,
+                        ),
                         child: _CommentsPanel(
                           minHeight: commentsPanelMinHeight,
                           child: Padding(
@@ -128,6 +153,12 @@ class _HallPostThreadScreenState extends State<HallPostThreadScreen> {
                                             onLikeTap: () =>
                                                 _toggleCommentLike(index),
                                             onTap: _focusComposer,
+                                            onAuthorTap: () => _openUserProfile(
+                                              displayName: comment.author,
+                                              uid: comment.authorUid,
+                                              photoUrl: comment.authorPhotoUrl,
+                                              isMe: comment.isMe,
+                                            ),
                                           ),
                                         );
                                       },
@@ -144,8 +175,8 @@ class _HallPostThreadScreenState extends State<HallPostThreadScreen> {
               ),
             ),
             Positioned(
-              left: 38,
-              right: 38,
+              left: _cardHorizontalInset,
+              right: _cardHorizontalInset,
               bottom: composerBottomInset,
               child: _CommentComposer(
                 controller: _commentController,
@@ -159,6 +190,26 @@ class _HallPostThreadScreenState extends State<HallPostThreadScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  void _openUserProfile({
+    required String displayName,
+    String? uid,
+    String? photoUrl,
+    String? mood,
+    bool isMe = false,
+  }) {
+    _dismissKeyboard();
+    openHallProfile(
+      context,
+      displayName: displayName,
+      uid: uid,
+      currentUid: widget.authorUid,
+      photoUrl: photoUrl,
+      mood: mood,
+      isMe: isMe,
+      onOwnProfileTap: widget.onOwnProfileTap,
     );
   }
 
@@ -412,10 +463,15 @@ class _EmptyThread extends StatelessWidget {
 }
 
 class _ThreadHeader extends StatelessWidget {
-  const _ThreadHeader({required this.post, required this.onBack});
+  const _ThreadHeader({
+    required this.post,
+    required this.onBack,
+    required this.onAuthorTap,
+  });
 
   final HallPost post;
   final VoidCallback onBack;
+  final VoidCallback onAuthorTap;
 
   @override
   Widget build(BuildContext context) {
@@ -432,6 +488,7 @@ class _ThreadHeader extends StatelessWidget {
             displayName: post.author,
             photoUrl: post.authorPhotoUrl,
             radius: 22,
+            onTap: onAuthorTap,
             heroTag: 'hall-avatar-${post.authorUid ?? post.author}',
           ),
           const SizedBox(width: 12),
@@ -532,7 +589,7 @@ class _ThreadPostSummary extends StatelessWidget {
         children: [
           Row(
             children: [
-              TopicChip(label: post.topic, icon: Icons.sell_rounded),
+              TopicChip(label: post.topic, icon: Icons.circle, iconSize: 6),
               const Spacer(),
               Text(
                 (post.relativeTime).toString(),
@@ -622,12 +679,14 @@ class _CommentListItem extends StatelessWidget {
   const _CommentListItem({
     required this.comment,
     required this.onLikeTap,
+    required this.onAuthorTap,
     this.controller,
     this.onTap,
   });
 
   final HallComment comment;
   final VoidCallback onLikeTap;
+  final VoidCallback onAuthorTap;
   final TextEditingController? controller;
   final VoidCallback? onTap;
 
@@ -657,6 +716,7 @@ class _CommentListItem extends StatelessWidget {
                   displayName: comment.author,
                   photoUrl: comment.authorPhotoUrl,
                   radius: 18,
+                  onTap: onAuthorTap,
                 ),
                 const SizedBox(width: 12),
                 Expanded(

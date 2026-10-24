@@ -162,8 +162,11 @@ class _DiscoveryComposer extends StatelessWidget {
     final hint = isReplying ? 'Waiting for reply' : 'Send a message';
     final decoration = InputDecoration(
       hintText: hint,
+      hintStyle: Theme.of(context).textTheme.bodyLarge?.copyWith(
+        color: AppColors.ink.withValues(alpha: 0.76),
+      ),
       filled: true,
-      fillColor: Colors.white.withValues(alpha: 0.60),
+      fillColor: Colors.white.withValues(alpha: 0.36),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(20),
@@ -178,9 +181,9 @@ class _DiscoveryComposer extends StatelessWidget {
           child: isInteractive
               ? TextField(
                   controller: controller,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodyLarge?.copyWith(color: AppColors.ink),
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    color: AppColors.ink.withValues(alpha: 0.90),
+                  ),
                   enabled: !isReplying,
                   minLines: 1,
                   maxLines: 5,
@@ -193,7 +196,7 @@ class _DiscoveryComposer extends StatelessWidget {
                   child: Text(
                     hint,
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: Theme.of(context).hintColor,
+                      color: AppColors.ink.withValues(alpha: 0.76),
                     ),
                   ),
                 ),
