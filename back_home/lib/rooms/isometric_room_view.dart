@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:three_js/three_js.dart' as three;
 
 import 'furniture_models.dart';
+import 'outdoor_landscape.dart';
 import 'ios_room_gesture_policy.dart';
 import 'room_camera_focus.dart';
 import 'room_state.dart';
@@ -114,6 +115,10 @@ class IsometricRoomView extends StatefulWidget {
   /// Allows widget tests to exercise the room UI without opening a GL context.
   static bool rendererEnabled = true;
 
+  /// Preview tooling only: overrides the heading the outside view opens at.
+  @visibleForTesting
+  static ({double yaw, double pitch})? debugOutsideLook;
+
   final RoomEditorController controller;
   final bool isActive;
   final bool deskFocused;
@@ -195,6 +200,8 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   final three.Vector3 _dragOffset = three.Vector3.zero();
   final List<three.Object3D> _roomTapTargets = [];
   three.Group? _skyGroup;
+  // Built once and relit in place; only the sky group rebuilds on refresh.
+  OutdoorLandscape? _landscape;
   three.Group? _skySun;
   three.Group? _skyMoon;
   _SkyLook? _activeSkyLook;
@@ -621,7 +628,16 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         pose.position.z,
       );
       _cameraYaw = normalizeRoomCameraYaw(pose.yaw);
-      _cameraPitch = pose.pitch;
+      // The island lies below the house; open the outside view looking down
+      // over the valley rather than level into the sky.
+      _cameraPitch = widget.outsideView
+          ? math.max(pose.pitch - 0.2, _minLookPitch)
+          : pose.pitch;
+      final debugLook = IsometricRoomView.debugOutsideLook;
+      if (widget.outsideView && debugLook != null) {
+        _cameraYaw = normalizeRoomCameraYaw(debugLook.yaw);
+        _cameraPitch = debugLook.pitch;
+      }
       if (!_cameraPosed) {
         _currentCameraYaw = _cameraYaw;
         _currentCameraPitch = _cameraPitch;
@@ -1408,7 +1424,8 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _activeSkyLook = null;
     _skyCloudGroups.clear();
     _skyRainDrops.clear();
-    final group = _buildSky(_resolveTimeOfDay(), widget.skyWeather);
+    final time = _resolveTimeOfDay();
+    final group = _buildSky(time, widget.skyWeather);
     final reusableClouds = math.min(
       previousCloudXs.length,
       _skyCloudGroups.length,
@@ -1427,6 +1444,15 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     }
     _skyGroup = group;
     threeJs.scene.add(group);
+
+    final landscape = _landscape ??= OutdoorLandscape(
+      wallZ:
+          -RoomEditorController.roomDepth * RoomEditorController.cellSize / 2,
+    );
+    if (landscape.group.parent == null) {
+      threeJs.scene.add(landscape.group);
+    }
+    landscape.relight(_outdoorLight(time, _activeSkyLook!, widget.skyWeather));
   }
 
   // Auto mode rebuilds atmospheric colours periodically while the animation
@@ -1487,9 +1513,6 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     final wallZ = -roomDepth / 2;
     final backdropZ = wallZ - 46;
     final celestialZ = wallZ - 44.5;
-    final farHillZ = wallZ - 25;
-    final nearHillZ = wallZ - 16;
-    final treeZ = wallZ - 10;
     final look = _skyLook(time, weather);
     _activeSkyLook = look;
 
@@ -1499,20 +1522,10 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         horizon: look.horizon,
         zenith: look.zenith,
         center: three.Vector3(1.0, 2.32, wallZ - 1.35),
-      ),
-    );
-
-    // A broad low-altitude glow makes dawn and dusk legible even when the
-    // actual disc is partially hidden by the hills.
-    group.add(
-      _skyPanel(
-        width: 180,
-        height: 6.5,
-        color: look.horizonGlow,
-        x: backdropCenterX,
-        y: 2.1,
-        z: backdropZ + 0.2,
-        opacity: 0.08 + look.twilightStrength * 0.3,
+        // A broad low-altitude glow makes dawn and dusk legible even when
+        // the actual disc is partially hidden by the hills.
+        glow: look.horizonGlow,
+        glowStrength: look.twilightStrength * 0.55,
       ),
     );
 
@@ -1574,8 +1587,6 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       group.add(cloud);
       _skyCloudGroups.add(cloud);
     }
-
-    _addLandscape(group, wallZ, farHillZ, nearHillZ, treeZ, look);
 
     if (look.rain) {
       final rainZ = wallZ - 2.2;
@@ -1672,427 +1683,15 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     required int shadowColor,
     required double opacity,
   }) {
-    final cloud = three.Group();
-    final random = math.Random(0xC10D5 + variant * 977);
-    final midtone = _lerpColor(shadowColor, color, 0.58);
-    final highlight = _lerpColor(color, 0xFFFFFF, 0.38);
-    // Ellipsoids overlap in all three axes. Bright, taller lobes sit above a
-    // broad shaded base, producing the cumulus mass and underbelly in the
-    // reference instead of a row of uniformly lit circular puffs.
-    for (final lobe in const [
-      (dx: -1.55, dy: -0.12, dz: 0.00, w: 2.15, h: 0.72, d: 1.15, tone: -1),
-      (dx: -0.35, dy: -0.22, dz: 0.18, w: 2.55, h: 0.82, d: 1.28, tone: -1),
-      (dx: 1.15, dy: -0.10, dz: -0.08, w: 2.05, h: 0.68, d: 1.05, tone: -1),
-      (dx: -1.55, dy: 0.28, dz: 0.12, w: 1.42, h: 1.02, d: 1.18, tone: 0),
-      (dx: -0.55, dy: 0.42, dz: -0.20, w: 1.72, h: 1.35, d: 1.42, tone: 0),
-      (dx: 0.55, dy: 0.36, dz: 0.18, w: 1.82, h: 1.18, d: 1.32, tone: 0),
-      (dx: 1.55, dy: 0.24, dz: -0.04, w: 1.35, h: 0.94, d: 1.02, tone: 0),
-      (dx: -0.55, dy: 1.12, dz: 0.08, w: 1.18, h: 1.56, d: 1.18, tone: 1),
-      (dx: 0.35, dy: 1.32, dz: -0.12, w: 1.30, h: 1.72, d: 1.25, tone: 1),
-      (dx: 1.05, dy: 0.95, dz: 0.22, w: 1.05, h: 1.30, d: 1.02, tone: 1),
-      (dx: -2.35, dy: 0.02, dz: -0.10, w: 1.30, h: 0.52, d: 0.72, tone: 0),
-      (dx: 2.25, dy: 0.00, dz: 0.08, w: 1.22, h: 0.48, d: 0.68, tone: 0),
-    ]) {
-      final lobeColor = switch (lobe.tone) {
-        -1 => shadowColor,
-        1 => highlight,
-        _ => midtone,
-      };
-      final jitterX = (random.nextDouble() - 0.5) * 0.24;
-      final jitterY = (random.nextDouble() - 0.5) * 0.16;
-      final jitterZ = (random.nextDouble() - 0.5) * 0.48;
-      final sizeJitter = 0.9 + random.nextDouble() * 0.2;
-      final mesh =
-          _cloudVolume(
-              width: lobe.w * scale * sizeJitter,
-              height: lobe.h * scale * sizeJitter,
-              depth: lobe.d * scale * sizeJitter,
-              color: lobeColor,
-              opacity: lobe.tone < 0 ? opacity * 0.94 : opacity,
-            )
-            ..position.setValues(
-              (lobe.dx + jitterX) * scale,
-              (lobe.dy + jitterY) * scale,
-              (lobe.dz + jitterZ) * scale,
-            )
-            ..rotation.z = (random.nextDouble() - 0.5) * 0.22
-            ..rotation.y = (random.nextDouble() - 0.5) * 0.32;
-      cloud.add(mesh);
-    }
-    return cloud;
-  }
-
-  three.Mesh _cloudVolume({
-    required double width,
-    required double height,
-    required double depth,
-    required int color,
-    required double opacity,
-  }) {
-    return three.Mesh(
-        three.SphereGeometry(1, 18, 13),
-        three.MeshLambertMaterial.fromMap({
-          'color': color & 0x00ffffff,
-          'emissive': _scaledHexColor(color, 0.12),
-          'emissiveIntensity': 0.7,
-          if (opacity < 1.0) 'transparent': true,
-          if (opacity < 1.0) 'opacity': opacity,
-          if (opacity < 1.0) 'depthWrite': false,
-        }),
-      )
-      ..scale.setValues(width / 2, height / 2, depth / 2)
-      ..castShadow = false
-      ..receiveShadow = false;
-  }
-
-  void _addLandscape(
-    three.Group group,
-    double wallZ,
-    double farHillZ,
-    double nearHillZ,
-    double treeZ,
-    _SkyLook look,
-  ) {
-    final mountainZ = farHillZ - 6.5;
-    _addMountains(group, wallZ, mountainZ, look);
-
-    // A real horizontal ground plane becomes important when the camera is
-    // outside the window; it carries the river and prevents the layered hills
-    // from feeling like scenery floating over empty space.
-    final groundCenterX = _windowProjectionCenterX(nearHillZ, wallZ);
-    group.add(
-      _landscapeBox(
-        width: 120,
-        height: 0.12,
-        depth: 120,
-        color: look.nearHills,
-        x: groundCenterX,
-        y: -0.38,
-        z: wallZ,
-      ),
-    );
-    _addRiver(group, look);
-
-    final farCenterX = _windowProjectionCenterX(farHillZ, wallZ);
-    for (final hill in const [
-      (dx: -54.0, y: -1.5, w: 22.0, h: 8.6),
-      (dx: -39.0, y: -1.1, w: 24.0, h: 9.2),
-      (dx: -20.0, y: -1.8, w: 18.0, h: 8.0),
-      (dx: -9.5, y: -1.2, w: 21.0, h: 9.5),
-      (dx: 2.0, y: -1.6, w: 18.0, h: 8.2),
-      (dx: 13.0, y: -1.0, w: 22.0, h: 9.2),
-      (dx: 25.0, y: -1.7, w: 18.0, h: 7.8),
-      (dx: 40.0, y: -1.2, w: 23.0, h: 9.0),
-      (dx: 55.0, y: -1.7, w: 21.0, h: 8.1),
-    ]) {
-      group.add(
-        _skyOval(
-          width: hill.w,
-          height: hill.h,
-          color: look.farHills,
-          x: farCenterX + hill.dx,
-          y: hill.y,
-          z: farHillZ,
-        ),
-      );
-    }
-
-    final nearCenterX = _windowProjectionCenterX(nearHillZ, wallZ);
-    for (final hill in const [
-      (dx: -43.0, y: -1.7, w: 19.0, h: 7.8),
-      (dx: -29.0, y: -1.3, w: 20.0, h: 8.2),
-      (dx: -16.0, y: -2.0, w: 15.0, h: 7.4),
-      (dx: -6.0, y: -1.55, w: 18.0, h: 8.0),
-      (dx: 5.0, y: -2.0, w: 16.0, h: 7.2),
-      (dx: 15.0, y: -1.4, w: 18.0, h: 8.4),
-      (dx: 29.0, y: -1.7, w: 20.0, h: 7.9),
-      (dx: 43.0, y: -1.35, w: 19.0, h: 8.3),
-    ]) {
-      group.add(
-        _skyOval(
-          width: hill.w,
-          height: hill.h,
-          color: look.nearHills,
-          x: nearCenterX + hill.dx,
-          y: hill.y,
-          z: nearHillZ,
-        ),
-      );
-    }
-    group.add(
-      _skyPanel(
-        width: 120,
-        height: 12,
-        color: look.nearHills,
-        x: nearCenterX,
-        y: -7.0,
-        z: nearHillZ + 0.15,
-      ),
-    );
-
-    _addCottage(group, look);
-
-    final treeCenterX = _windowProjectionCenterX(treeZ, wallZ);
-    for (var treeIndex = 0; treeIndex < 32; treeIndex += 1) {
-      final scale = 0.72 + ((treeIndex * 17) % 7) * 0.08;
-      _addTree(
-        group,
-        x: treeCenterX + (((treeIndex * 43) % 101) / 101.0 - 0.5) * 52,
-        baseY: -0.35 + (treeIndex % 3) * 0.12,
-        z: treeZ - (treeIndex % 4) * 0.42,
+    return three.Group()..add(
+      buildOutdoorCloud(
+        variant: variant,
         scale: scale,
-        trunkColor: look.treeTrunk,
-        canopyColor: look.trees,
-      );
-    }
-  }
-
-  void _addMountains(
-    three.Group group,
-    double wallZ,
-    double mountainZ,
-    _SkyLook look,
-  ) {
-    final centerX = _windowProjectionCenterX(mountainZ, wallZ);
-    final mountainColor = _lerpColor(look.farHills, look.horizon, 0.24);
-    final mountainShadow = _lerpColor(mountainColor, 0x111827, 0.28);
-    final snowColor = look.isNight
-        ? _lerpColor(look.moon, 0xBAC6D8, 0.48)
-        : _lerpColor(look.horizon, 0xFFFDF5, 0.78);
-    for (final peak in const [
-      (dx: -61.0, base: -2.4, radius: 9.5, height: 15.0, squash: 0.45),
-      (dx: -43.0, base: -2.2, radius: 11.0, height: 18.0, squash: 0.52),
-      (dx: -23.0, base: -2.5, radius: 8.0, height: 13.0, squash: 0.48),
-      (dx: -7.0, base: -2.1, radius: 10.5, height: 17.0, squash: 0.50),
-      (dx: 12.0, base: -2.3, radius: 8.8, height: 14.5, squash: 0.46),
-      (dx: 29.0, base: -2.0, radius: 11.5, height: 18.5, squash: 0.54),
-      (dx: 50.0, base: -2.4, radius: 9.5, height: 15.5, squash: 0.48),
-      (dx: 67.0, base: -2.2, radius: 8.0, height: 13.0, squash: 0.45),
-    ]) {
-      final material = three.MeshLambertMaterial.fromMap({
-        'color': mountainColor,
-        'emissive': _scaledHexColor(mountainShadow, 0.22),
-        'emissiveIntensity': 0.55,
-      });
-      final mountain =
-          three.Mesh(three.ConeGeometry(peak.radius, peak.height, 5), material)
-            ..position.setValues(
-              centerX + peak.dx,
-              peak.base + peak.height / 2,
-              mountainZ,
-            )
-            ..scale.z = peak.squash
-            ..rotation.y = math.pi / 5 + peak.dx * 0.008
-            ..castShadow = false
-            ..receiveShadow = false;
-      group.add(mountain);
-
-      final snowHeight = peak.height * 0.28;
-      final snow =
-          three.Mesh(
-              three.ConeGeometry(peak.radius * 0.34, snowHeight, 5),
-              three.MeshLambertMaterial.fromMap({
-                'color': snowColor,
-                'emissive': _scaledHexColor(
-                  snowColor,
-                  look.isNight ? 0.22 : 0.1,
-                ),
-                'emissiveIntensity': 0.65,
-              }),
-            )
-            ..position.setValues(
-              centerX + peak.dx,
-              peak.base + peak.height - snowHeight / 2 + 0.04,
-              mountainZ + 0.12,
-            )
-            ..scale.z = peak.squash
-            ..rotation.y = mountain.rotation.y
-            ..castShadow = false
-            ..receiveShadow = false;
-      group.add(snow);
-    }
-  }
-
-  void _addRiver(three.Group group, _SkyLook look) {
-    final waterColor = look.isNight ? 0x203A55 : 0x4F91AD;
-    final highlightColor = look.isNight ? 0x6E8FAF : 0xB9E2EA;
-    for (final segment in const [
-      (x: -0.6, z: -29.0, width: 1.45, length: 10.0, angle: -0.12),
-      (x: 0.15, z: -21.4, width: 2.15, length: 8.2, angle: 0.12),
-      (x: 0.55, z: -14.7, width: 3.15, length: 7.4, angle: -0.09),
-    ]) {
-      final water =
-          three.Mesh(
-              three.BoxGeometry(segment.width, 0.055, segment.length),
-              three.MeshPhongMaterial.fromMap({
-                'color': waterColor,
-                'emissive': _scaledHexColor(waterColor, 0.16),
-                'emissiveIntensity': 0.5,
-                'specular': highlightColor,
-                'shininess': 72,
-              }),
-            )
-            ..position.setValues(segment.x, -0.27, segment.z)
-            ..rotation.y = segment.angle
-            ..castShadow = false
-            ..receiveShadow = false;
-      group.add(water);
-
-      final glint = _landscapeBox(
-        width: segment.width * 0.14,
-        height: 0.018,
-        depth: segment.length * 0.84,
-        color: highlightColor,
-        x: segment.x - segment.width * 0.12,
-        y: -0.232,
-        z: segment.z,
-        opacity: look.isNight ? 0.28 : 0.46,
-      )..rotation.y = segment.angle;
-      group.add(glint);
-    }
-  }
-
-  void _addCottage(three.Group group, _SkyLook look) {
-    final cottage = three.Group()..position.setValues(7.0, -0.3, -19.4);
-    final wallColor = look.isNight ? 0x6A5144 : 0xB68E70;
-    final roofColor = look.isNight ? 0x332B2C : 0x68443B;
-    final trimColor = look.isNight ? 0xBFAE96 : 0xE5D4B8;
-    final windowColor = look.isNight ? 0xFFD487 : 0xA9D6E4;
-
-    cottage.add(
-      _landscapeBox(
-        width: 3.0,
-        height: 1.75,
-        depth: 2.05,
-        color: wallColor,
-        y: 0.88,
+        color: color,
+        shadowColor: shadowColor,
+        opacity: opacity,
       ),
     );
-    cottage.add(
-      three.Mesh(
-          three.ConeGeometry(2.2, 1.35, 4),
-          three.MeshLambertMaterial.fromMap({
-            'color': roofColor,
-            'emissive': _scaledHexColor(roofColor, 0.12),
-            'emissiveIntensity': 0.45,
-          }),
-        )
-        ..position.setValues(0, 2.18, 0)
-        ..scale.z = 0.72
-        ..rotation.y = math.pi / 4
-        ..castShadow = false,
-    );
-    cottage.add(
-      _landscapeBox(
-        width: 0.58,
-        height: 1.2,
-        depth: 0.09,
-        color: roofColor,
-        x: 0.28,
-        y: 0.6,
-        z: 1.07,
-      ),
-    );
-    for (final windowX in const [-0.82, 0.92]) {
-      cottage.add(
-        _landscapeBox(
-          width: 0.52,
-          height: 0.58,
-          depth: 0.08,
-          color: trimColor,
-          x: windowX,
-          y: 1.03,
-          z: 1.075,
-        ),
-      );
-      cottage.add(
-        _landscapeBox(
-          width: 0.39,
-          height: 0.45,
-          depth: 0.045,
-          color: windowColor,
-          x: windowX,
-          y: 1.03,
-          z: 1.14,
-        ),
-      );
-    }
-    cottage.add(
-      _landscapeBox(
-        width: 0.42,
-        height: 1.35,
-        depth: 0.48,
-        color: roofColor,
-        x: -0.78,
-        y: 2.55,
-        z: -0.28,
-      ),
-    );
-    group.add(cottage);
-  }
-
-  three.Mesh _landscapeBox({
-    required double width,
-    required double height,
-    required double depth,
-    required int color,
-    double x = 0,
-    double y = 0,
-    double z = 0,
-    double opacity = 1,
-  }) {
-    return three.Mesh(
-        three.BoxGeometry(width, height, depth),
-        three.MeshLambertMaterial.fromMap({
-          'color': color & 0x00ffffff,
-          'emissive': _scaledHexColor(color, 0.1),
-          'emissiveIntensity': 0.5,
-          if (opacity < 1) 'transparent': true,
-          if (opacity < 1) 'opacity': opacity,
-          if (opacity < 1) 'depthWrite': false,
-        }),
-      )
-      ..position.setValues(x, y, z)
-      ..castShadow = false
-      ..receiveShadow = false;
-  }
-
-  void _addTree(
-    three.Group group, {
-    required double x,
-    required double baseY,
-    required double z,
-    required double scale,
-    required int trunkColor,
-    required int canopyColor,
-  }) {
-    group.add(
-      _skyPanel(
-        width: 0.34 * scale,
-        height: 2.25 * scale,
-        depth: 0.24,
-        color: trunkColor,
-        x: x,
-        y: baseY + 1.1 * scale,
-        z: z,
-      ),
-    );
-    for (final canopy in const [
-      (dx: -0.65, dy: 2.35, size: 1.45),
-      (dx: 0.58, dy: 2.45, size: 1.35),
-      (dx: 0.0, dy: 3.25, size: 1.65),
-    ]) {
-      group.add(
-        _skyOval(
-          width: canopy.size * 1.55 * scale,
-          height: canopy.size * 1.35 * scale,
-          color: canopyColor,
-          x: x + canopy.dx * scale,
-          y: baseY + canopy.dy * scale,
-          z: z + 0.1,
-        ),
-      );
-    }
   }
 
   _SkyLook _skyLook(double time, SkyWeather weather) {
@@ -2137,10 +1736,6 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       (1 - cyclicDistance(time, 0.75) / 0.085).clamp(0.0, 1.0),
     );
     var horizonGlow = _lerpColor(0x718DAD, sun, twilightStrength);
-    var farHills = _lerpColor(0x17243A, 0x6F8792, daylight);
-    var nearHills = _lerpColor(0x111B2B, 0x3F6157, daylight);
-    var trees = _lerpColor(0x0A1220, 0x29483E, daylight);
-    var treeTrunk = _lerpColor(0x080D17, 0x302E28, daylight);
 
     var clouds = 2;
     var rain = false;
@@ -2169,8 +1764,6 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         zenith = _lerpColor(zenith, 0x8C9298, 0.6);
         horizon = _lerpColor(horizon, 0xA2A7AD, 0.6);
         horizonGlow = _lerpColor(horizonGlow, 0xA7ACB2, 0.72);
-        farHills = _lerpColor(farHills, 0x68737B, 0.5);
-        nearHills = _lerpColor(nearHills, 0x47545A, 0.45);
       case SkyWeather.rain:
         clouds = 9;
         rain = true;
@@ -2181,10 +1774,6 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         zenith = _lerpColor(zenith, 0x5C6066, 0.65);
         horizon = _lerpColor(horizon, 0x6E7378, 0.65);
         horizonGlow = _lerpColor(horizonGlow, 0x737A82, 0.8);
-        farHills = _lerpColor(farHills, 0x48545B, 0.65);
-        nearHills = _lerpColor(nearHills, 0x313F43, 0.62);
-        trees = _lerpColor(trees, 0x1F2D2F, 0.58);
-        treeTrunk = _lerpColor(treeTrunk, 0x1D2425, 0.58);
     }
 
     return _SkyLook(
@@ -2201,10 +1790,49 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       cloudShadow: cloudShadow,
       cloudOpacity: cloudOpacity,
       rain: rain,
-      farHills: farHills,
-      nearHills: nearHills,
-      trees: trees,
-      treeTrunk: treeTrunk,
+      daylight: daylight,
+    );
+  }
+
+  /// Maps the sky palette onto the baked landscape lighting. The key light is
+  /// biased toward the house so the sunlit sides of trees face the window,
+  /// rather than the backlit silhouettes a sun in the view would give.
+  OutdoorLight _outdoorLight(double time, _SkyLook look, SkyWeather weather) {
+    final day = look.daylight;
+    final arc = skyCelestialArc(time, moon: look.isNight);
+    var kx = arc.horizontal * 0.8;
+    var ky = math.max(arc.altitude, 0.16);
+    var kz = 0.62;
+    final length = math.sqrt(kx * kx + ky * ky + kz * kz);
+    kx /= length;
+    ky /= length;
+    kz /= length;
+    final (sunWeather, ambientBoost, fogAmount, saturation) = switch (weather) {
+      SkyWeather.clear => (1.0, 0.0, 0.72, 1.0),
+      SkyWeather.cloudy => (0.72, 0.06, 0.8, 0.92),
+      SkyWeather.overcast => (0.28, 0.16, 0.92, 0.68),
+      SkyWeather.rain => (0.14, 0.14, 1.0, 0.52),
+    };
+    final night = 1 - day;
+    return OutdoorLight(
+      sunX: kx,
+      sunY: ky,
+      sunZ: kz,
+      sun: look.isNight ? 0x9FB4E2 : look.sun,
+      sunStrength:
+          (0.3 + 0.48 * day + look.twilightStrength * 0.3) * sunWeather,
+      sky: _lerpColor(
+        _lerpColor(0x34467A, 0xC4DCF4, day),
+        look.horizonGlow,
+        look.twilightStrength * 0.45,
+      ),
+      ground: _lerpColor(0x202232, 0xC79C5A, day),
+      ambientStrength: 0.28 + 0.26 * day + ambientBoost,
+      fog: look.horizon,
+      fogAmount: fogAmount,
+      shadowStrength: (0.2 + 0.5 * day) * sunWeather,
+      saturation: saturation * (1 - night * 0.3),
+      windowGlow: ((0.5 - day) / 0.35).clamp(0.0, 1.0) * 0.9,
     );
   }
 
@@ -2255,27 +1883,6 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         if (opacity < 1.0) 'opacity': opacity,
       }),
     )..position.setValues(x, y, z);
-  }
-
-  three.Mesh _skyOval({
-    required double width,
-    required double height,
-    required int color,
-    double x = 0,
-    double y = 0,
-    double z = 0,
-    double opacity = 1.0,
-  }) {
-    return three.Mesh(
-        three.SphereGeometry(1, 24, 16),
-        three.MeshBasicMaterial.fromMap({
-          'color': color & 0x00ffffff,
-          if (opacity < 1.0) 'transparent': true,
-          if (opacity < 1.0) 'opacity': opacity,
-        }),
-      )
-      ..scale.setValues(width / 2, height / 2, 0.35)
-      ..position.setValues(x, y, z);
   }
 
   void _addDeskAccessories(three.Scene scene, double roomDepth) {
@@ -3475,10 +3082,7 @@ class _SkyLook {
     required this.cloudShadow,
     required this.cloudOpacity,
     required this.rain,
-    required this.farHills,
-    required this.nearHills,
-    required this.trees,
-    required this.treeTrunk,
+    required this.daylight,
   });
 
   final int zenith;
@@ -3494,10 +3098,7 @@ class _SkyLook {
   final int cloudShadow;
   final double cloudOpacity;
   final bool rain;
-  final int farHills;
-  final int nearHills;
-  final int trees;
-  final int treeTrunk;
+  final double daylight;
 }
 
 class _SceneFurniture {
