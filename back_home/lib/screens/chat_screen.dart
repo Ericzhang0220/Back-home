@@ -310,6 +310,12 @@ class _ChatScreenState extends State<ChatScreen> {
         humanFriends != null &&
         currentUid != null;
     final isDiscovery = isAiDiscovery || isHumanDiscovery;
+    // The deck and the list live in separate layers (the deck paints behind
+    // the tabs, the list below them), so each layer fades on its own clock and
+    // together they dissolve into one another. The tutor still swaps instantly.
+    final pageDissolve = _selectedPage == _ChatPage.tutor
+        ? Duration.zero
+        : const Duration(milliseconds: 300);
 
     return DiscoveryControls(
       autoHide: isDiscovery,
@@ -317,40 +323,49 @@ class _ChatScreenState extends State<ChatScreen> {
       isActive: widget.isActive,
       child: Stack(
         children: [
-          if (isAiDiscovery)
-            Positioned.fill(
-              child: _AiDiscoveryPage(
-                repository: repository,
-                recommendationDeck: _aiDiscoveryDeck,
-                inbox: _inbox,
-                isActive: widget.isActive,
-                keyboardOpen: widget.keyboardOpen,
-                navVisible: widget.navVisible,
-                onToggleFriend: _toggleAiFriend,
-                messageController: _aiDiscoveryMessageController,
-                characterId: _discoveryCharacterId,
-                onCharacterChanged: (id) {
-                  setState(() => _discoveryCharacterId = id);
-                },
+          Positioned.fill(
+            child: AnimatedSwitcher(
+              duration: pageDissolve,
+              transitionBuilder: _crossDissolve,
+              layoutBuilder: (current, previous) => Stack(
+                fit: StackFit.expand,
+                children: [...previous, ?current],
               ),
+              child: isAiDiscovery
+                  ? _AiDiscoveryPage(
+                      key: const ValueKey('ai-discovery'),
+                      repository: repository,
+                      recommendationDeck: _aiDiscoveryDeck,
+                      inbox: _inbox,
+                      isActive: widget.isActive,
+                      keyboardOpen: widget.keyboardOpen,
+                      navVisible: widget.navVisible,
+                      onToggleFriend: _toggleAiFriend,
+                      messageController: _aiDiscoveryMessageController,
+                      characterId: _discoveryCharacterId,
+                      onCharacterChanged: (id) {
+                        setState(() => _discoveryCharacterId = id);
+                      },
+                    )
+                  : isHumanDiscovery
+                  ? _HumanDiscoveryPage(
+                      key: const ValueKey('human-discovery'),
+                      friendsRepository: humanFriends,
+                      history: _humanDiscoveryHistory,
+                      inbox: _inbox,
+                      isActive: widget.isActive,
+                      keyboardOpen: widget.keyboardOpen,
+                      navVisible: widget.navVisible,
+                      currentUid: currentUid,
+                      messageController: _humanDiscoveryMessageController,
+                      contactUid: _discoveryContactUid,
+                      onContactChanged: (uid) {
+                        setState(() => _discoveryContactUid = uid);
+                      },
+                    )
+                  : const SizedBox.shrink(key: ValueKey('no-discovery')),
             ),
-          if (isHumanDiscovery)
-            Positioned.fill(
-              child: _HumanDiscoveryPage(
-                friendsRepository: humanFriends,
-                history: _humanDiscoveryHistory,
-                inbox: _inbox,
-                isActive: widget.isActive,
-                keyboardOpen: widget.keyboardOpen,
-                navVisible: widget.navVisible,
-                currentUid: currentUid,
-                messageController: _humanDiscoveryMessageController,
-                contactUid: _discoveryContactUid,
-                onContactChanged: (uid) {
-                  setState(() => _discoveryContactUid = uid);
-                },
-              ),
-            ),
+          ),
           SafeArea(
             bottom: false,
             child: Column(
@@ -366,68 +381,73 @@ class _ChatScreenState extends State<ChatScreen> {
                     onChanged: _selectPage,
                   ),
                 ),
-                if (!isDiscovery)
-                  Expanded(
-                    child: AnimatedSwitcher(
-                      duration: _selectedPage == _ChatPage.tutor
-                          ? Duration.zero
-                          : const Duration(milliseconds: 180),
-                      // Only the AI and Tutor pages need an account — the human
-                      // directory still renders signed out, as it always has.
-                      child: switch (_selectedPage) {
-                        _ChatPage.ai =>
-                          repository == null
-                              ? const _SignedOutNotice(
-                                  key: ValueKey(_ChatPage.ai),
-                                  text:
-                                      'Sign in to use the AI chats and tutor.',
-                                )
-                              : _AiContactsPage(
-                                  key: const ValueKey(_ChatPage.ai),
-                                  repository: repository,
-                                  unreadCounts: _inbox?.aiCounts ?? const {},
-                                  searchController: _aiSearchController,
-                                  onSearchChanged: (_) => setState(() {}),
-                                  onOpenCharacter: _openAiConversation,
-                                  onCreateCharacter: _showAddAiCharacterDialog,
-                                ),
-                        _ChatPage.human => _HumanContactsPage(
-                          key: const ValueKey(_ChatPage.human),
-                          searchController: _humanSearchController,
-                          onSearchChanged: (_) => setState(() {}),
-                          currentUid: currentUid,
-                          friendsRepository: humanFriends,
-                          unreadCounts: _inbox?.humanCounts ?? const {},
-                          onOpenContact: _openHumanConversation,
-                        ),
-                        _ChatPage.tutor =>
-                          repository == null
-                              ? const _SignedOutNotice(
-                                  key: ValueKey(_ChatPage.tutor),
-                                  text:
-                                      'Sign in to use the AI chats and tutor.',
-                                )
-                              : _TutorChatPage(
-                                  key: const ValueKey(_ChatPage.tutor),
-                                  navVisible: widget.navVisible,
-                                  keyboardOpen: widget.keyboardOpen,
-                                  repository: repository,
-                                  messageController: _messageController,
-                                  selectedSessionId: _selectedTutorSessionId,
-                                  isReplying: _isTutorReplying,
-                                  onSessionResolved: _rememberTutorSession,
-                                  onSessionNeeded: _ensureTutorSession,
-                                  onSendMessage: _sendTutorMessage,
-                                  onOpenHistory: () => setState(
-                                    () => _isTutorSidebarOpen = true,
-                                  ),
-                                  onCloseHistory: () => setState(
-                                    () => _isTutorSidebarOpen = false,
-                                  ),
-                                ),
-                      },
-                    ),
+                Expanded(
+                  child: AnimatedSwitcher(
+                    duration: pageDissolve,
+                    transitionBuilder: _crossDissolve,
+                    // Only the AI and Tutor pages need an account — the human
+                    // directory still renders signed out, as it always has.
+                    // While a deck is up this layer is empty so touches reach
+                    // the portrait behind it.
+                    child: isDiscovery
+                        ? const SizedBox.shrink(key: ValueKey('no-list'))
+                        : switch (_selectedPage) {
+                            _ChatPage.ai =>
+                              repository == null
+                                  ? const _SignedOutNotice(
+                                      key: ValueKey(_ChatPage.ai),
+                                      text:
+                                          'Sign in to use the AI chats and tutor.',
+                                    )
+                                  : _AiContactsPage(
+                                      key: const ValueKey(_ChatPage.ai),
+                                      repository: repository,
+                                      unreadCounts:
+                                          _inbox?.aiCounts ?? const {},
+                                      searchController: _aiSearchController,
+                                      onSearchChanged: (_) => setState(() {}),
+                                      onOpenCharacter: _openAiConversation,
+                                      onCreateCharacter:
+                                          _showAddAiCharacterDialog,
+                                    ),
+                            _ChatPage.human => _HumanContactsPage(
+                              key: const ValueKey(_ChatPage.human),
+                              searchController: _humanSearchController,
+                              onSearchChanged: (_) => setState(() {}),
+                              currentUid: currentUid,
+                              friendsRepository: humanFriends,
+                              unreadCounts: _inbox?.humanCounts ?? const {},
+                              onOpenContact: _openHumanConversation,
+                            ),
+                            _ChatPage.tutor =>
+                              repository == null
+                                  ? const _SignedOutNotice(
+                                      key: ValueKey(_ChatPage.tutor),
+                                      text:
+                                          'Sign in to use the AI chats and tutor.',
+                                    )
+                                  : _TutorChatPage(
+                                      key: const ValueKey(_ChatPage.tutor),
+                                      navVisible: widget.navVisible,
+                                      keyboardOpen: widget.keyboardOpen,
+                                      repository: repository,
+                                      messageController: _messageController,
+                                      selectedSessionId:
+                                          _selectedTutorSessionId,
+                                      isReplying: _isTutorReplying,
+                                      onSessionResolved: _rememberTutorSession,
+                                      onSessionNeeded: _ensureTutorSession,
+                                      onSendMessage: _sendTutorMessage,
+                                      onOpenHistory: () => setState(
+                                        () => _isTutorSidebarOpen = true,
+                                      ),
+                                      onCloseHistory: () => setState(
+                                        () => _isTutorSidebarOpen = false,
+                                      ),
+                                    ),
+                          },
                   ),
+                ),
               ],
             ),
           ),
@@ -456,6 +476,22 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ),
         ],
+      ),
+    );
+  }
+
+  /// Fades a chat page in or out. The leaving page stops taking touches as
+  /// soon as it starts to fade, so taps land on the page that is arriving.
+  static Widget _crossDissolve(Widget child, Animation<double> animation) {
+    return FadeTransition(
+      opacity: animation,
+      child: AnimatedBuilder(
+        animation: animation,
+        builder: (context, child) => IgnorePointer(
+          ignoring: animation.status == AnimationStatus.reverse,
+          child: child,
+        ),
+        child: child,
       ),
     );
   }
@@ -1099,6 +1135,7 @@ class _AiContactsPage extends StatelessWidget {
 /// Full-screen AI friend discovery with bundled artwork for every preset.
 class _AiDiscoveryPage extends StatefulWidget {
   const _AiDiscoveryPage({
+    super.key,
     required this.repository,
     required this.recommendationDeck,
     required this.keyboardOpen,
@@ -2002,6 +2039,7 @@ class _SignedOutNotice extends StatelessWidget {
 /// swipe left for the next, heart to save them to your people.
 class _HumanDiscoveryPage extends StatefulWidget {
   const _HumanDiscoveryPage({
+    super.key,
     required this.friendsRepository,
     required this.history,
     required this.keyboardOpen,
@@ -2483,7 +2521,10 @@ double _tutorBottomInset(
 }) {
   if (keyboardOpen) return 12;
   final safeBottom = MediaQuery.viewPaddingOf(context).bottom;
-  return navVisible ? math.max(100.0, safeBottom + 84) : safeBottom + 12;
+  if (navVisible) return math.max(100.0, safeBottom + 84);
+  // With the dock away the card may dip into the home-indicator inset; the
+  // indicator itself only occupies its lowest few points.
+  return math.max(12.0, safeBottom - 14);
 }
 
 class _TutorChatPage extends StatelessWidget {

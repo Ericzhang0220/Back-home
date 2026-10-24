@@ -151,15 +151,19 @@ void main() {
     );
     await tester.tap(find.text('Tutor'));
     await tester.pump();
-    final page = tester.widget<AnimatedSwitcher>(find.byType(AnimatedSwitcher));
+    // The list layer's switcher — the one holding the (signed-out) Tutor page.
+    final pageSwitcher = find
+        .ancestor(
+          of: find.text('Sign in to use the AI chats and tutor.'),
+          matching: find.byType(AnimatedSwitcher),
+        )
+        .first;
+    final page = tester.widget<AnimatedSwitcher>(pageSwitcher);
     expect(page.duration, Duration.zero);
     for (var i = 0; i < 3; i++) {
       await tester.tap(find.text('Tutor'));
       await tester.pump(const Duration(milliseconds: 100));
-      expect(
-        tester.widget<AnimatedSwitcher>(find.byType(AnimatedSwitcher)),
-        same(page),
-      );
+      expect(tester.widget<AnimatedSwitcher>(pageSwitcher), same(page));
     }
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());

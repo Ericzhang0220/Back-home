@@ -26,14 +26,25 @@ class _DiscoveryControlsState extends State<DiscoveryControls> {
   bool _temporarilyVisible = false;
   bool _dismissed = false;
 
+  /// Fingers currently down on the controls. While any are, nothing hides them.
+  int _touches = 0;
+
   @override
   void didUpdateWidget(covariant DiscoveryControls oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.navVisible != widget.navVisible ||
-        oldWidget.isActive != widget.isActive) {
+    if (oldWidget.isActive != widget.isActive) {
       _revealTimer?.cancel();
+      _touches = 0;
       _temporarilyVisible = false;
       _dismissed = false;
+    } else if (oldWidget.navVisible != widget.navVisible) {
+      _dismissed = false;
+      // The nav bar runs its own idle timer that knows nothing about the tabs.
+      // If the person is touching the controls, or touched them recently, let
+      // the tabs outlive the nav bar rather than vanish mid-use.
+      if (_touches == 0 && !(_revealTimer?.isActive ?? false)) {
+        _temporarilyVisible = false;
+      }
     }
     if (oldWidget.autoHide != widget.autoHide) {
       _dismissed = false;
@@ -72,6 +83,21 @@ class _DiscoveryControlsState extends State<DiscoveryControls> {
     });
   }
 
+  /// Any touch on a visible control holds the controls up, and lifting the
+  /// finger restarts the full reveal window from that moment.
+  void _touchStarted() {
+    if (!widget.autoHide || !widget.isActive) return;
+    _touches++;
+    _revealTimer?.cancel();
+    if (!_temporarilyVisible) setState(() => _temporarilyVisible = true);
+  }
+
+  void _touchEnded() {
+    if (_touches == 0) return;
+    _touches--;
+    if (_touches == 0) _scheduleRevealEnd();
+  }
+
   void _dismiss() {
     if (!widget.autoHide || !widget.isActive) return;
     _revealTimer?.cancel();
@@ -92,6 +118,8 @@ class _DiscoveryControlsState extends State<DiscoveryControls> {
       canDismiss: widget.autoHide && visible && widget.isActive,
       onReveal: _reveal,
       onDismiss: _dismiss,
+      onTouchStarted: _touchStarted,
+      onTouchEnded: _touchEnded,
       child: widget.child,
     );
   }
@@ -104,6 +132,8 @@ class _DiscoveryControlsScope extends InheritedWidget {
     required this.canDismiss,
     required this.onReveal,
     required this.onDismiss,
+    required this.onTouchStarted,
+    required this.onTouchEnded,
     required super.child,
   });
 
@@ -112,6 +142,8 @@ class _DiscoveryControlsScope extends InheritedWidget {
   final bool canDismiss;
   final VoidCallback onReveal;
   final VoidCallback onDismiss;
+  final VoidCallback onTouchStarted;
+  final VoidCallback onTouchEnded;
 
   static _DiscoveryControlsScope? of(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<_DiscoveryControlsScope>();
@@ -131,18 +163,31 @@ class DiscoveryControlVisibility extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final visible = _DiscoveryControlsScope.of(context)?.visible ?? true;
+    final controls = _DiscoveryControlsScope.of(context);
+    final visible = controls?.visible ?? true;
     return IgnorePointer(
       ignoring: !visible,
-      child: ExcludeFocus(
-        excluding: !visible,
-        child: ExcludeSemantics(
+      // A Listener sees every pointer without joining the gesture arena, so the
+      // buttons underneath still get their taps.
+      child: Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: controls == null
+            ? null
+            : (_) => controls.onTouchStarted(),
+        onPointerUp: controls == null ? null : (_) => controls.onTouchEnded(),
+        onPointerCancel: controls == null
+            ? null
+            : (_) => controls.onTouchEnded(),
+        child: ExcludeFocus(
           excluding: !visible,
-          child: AnimatedOpacity(
-            opacity: visible ? 1 : 0,
-            duration: Duration(milliseconds: visible ? 260 : 180),
-            curve: Curves.easeInOutCubic,
-            child: child,
+          child: ExcludeSemantics(
+            excluding: !visible,
+            child: AnimatedOpacity(
+              opacity: visible ? 1 : 0,
+              duration: Duration(milliseconds: visible ? 260 : 180),
+              curve: Curves.easeInOutCubic,
+              child: child,
+            ),
           ),
         ),
       ),

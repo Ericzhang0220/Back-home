@@ -95,15 +95,7 @@ class _AppKeyboardHostState extends State<AppKeyboardHost> {
       if (_installed) {
         _installed = false;
         _control.hide();
-        TextInput.restorePlatformInputControl();
-        if (field != null) {
-          unawaited(
-            SystemChannels.textInput.invokeMethod<void>(
-              'TextInput.updateConfig',
-              field.textInputConfiguration.toJson(),
-            ),
-          );
-        }
+        _swapControl(TextInput.restorePlatformInputControl, field);
       }
       if (node != _systemForFocus) _systemForFocus = null;
       return;
@@ -111,22 +103,39 @@ class _AppKeyboardHostState extends State<AppKeyboardHost> {
     _artwork = target?.artworkAsset;
     if (!_installed) {
       _installed = true;
-      TextInput.setInputControl(_control);
+      _swapControl(() => TextInput.setInputControl(_control), field);
     }
     _control.attach(field, field.textInputConfiguration);
     _control.setEditingState(field.widget.controller.value);
-    // Refresh an already-open native connection as well as future connections.
-    // TextInputControl makes Flutter use type=none for new native clients.
-    final config = field.textInputConfiguration.toJson();
-    config['inputType'] = TextInputType.none.toJson();
-    unawaited(
-      SystemChannels.textInput.invokeMethod<void>(
-        'TextInput.updateConfig',
-        config,
-      ),
-    );
     _control.show();
     _redraw();
+  }
+
+  /// Swaps the input control under a focused field without closing the field's
+  /// input connection.
+  ///
+  /// By the time focus listeners run, the field has already attached. Swapping
+  /// controls then makes the framework hide the outgoing one, and on iOS hiding
+  /// the platform keyboard resigns the native text view, which reports the
+  /// connection closed and unfocuses the field: the keyboard blinks open and
+  /// shut. Parking the connection on a placeholder first leaves the swap no
+  /// field to hide; the field then reattaches under the new control, which
+  /// reconfigures the native side with or without a system keyboard. The
+  /// native view being replaced still reports closing, but with a stale client
+  /// id that the framework ignores.
+  void _swapControl(VoidCallback swap, EditableTextState? field) {
+    // Read-only fields never attach, so there is no connection to protect.
+    if (field == null || field.widget.readOnly) {
+      swap();
+      return;
+    }
+    final parked = TextInput.attach(
+      _ParkedClient(field.widget.controller.value),
+      field.textInputConfiguration,
+    );
+    swap();
+    field.requestKeyboard();
+    if (parked.attached) parked.close();
   }
 
   void _useSystem() {
@@ -252,9 +261,11 @@ class _CharacterInputControl extends ChangeNotifier with TextInputControl {
   @override
   void updateConfig(TextInputConfiguration configuration) =>
       this.configuration = configuration;
+  // Never hide the platform keyboard from here: on iOS that closes the field's
+  // input connection. The native side is configured without a system keyboard
+  // whenever this control is installed (see `_swapControl`).
   @override
   void show() {
-    unawaited(SystemChannels.textInput.invokeMethod<void>('TextInput.hide'));
     if (!visible) {
       visible = true;
       notifyListeners();
@@ -278,4 +289,28 @@ class _CharacterInputControl extends ChangeNotifier with TextInputControl {
     editing.dispose();
     super.dispose();
   }
+}
+
+/// Holds the input connection for the instant the input control is swapped.
+class _ParkedClient with TextInputClient {
+  _ParkedClient(this.value);
+
+  final TextEditingValue value;
+
+  @override
+  TextEditingValue? get currentTextEditingValue => value;
+  @override
+  AutofillScope? get currentAutofillScope => null;
+  @override
+  void updateEditingValue(TextEditingValue value) {}
+  @override
+  void performAction(TextInputAction action) {}
+  @override
+  void performPrivateCommand(String action, Map<String, dynamic> data) {}
+  @override
+  void updateFloatingCursor(RawFloatingCursorPoint point) {}
+  @override
+  void showAutocorrectionPromptRect(int start, int end) {}
+  @override
+  void connectionClosed() {}
 }

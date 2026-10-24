@@ -294,6 +294,68 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('touching the controls restarts the reveal window', (
+    tester,
+  ) async {
+    final settings = ValueNotifier<_Settings>((
+      portrait: true,
+      navVisible: false,
+      active: true,
+    ));
+    addTearDown(settings.dispose);
+    final pressed = <String>[];
+    await _pumpTabs(tester, settings, pressed.add);
+    await _doubleTap(tester, tester.getCenter(find.text('AI')));
+    await tester.pump(const Duration(milliseconds: 1200));
+    await tester.tap(find.byTooltip('Like'));
+    await tester.pump(const Duration(milliseconds: 1200));
+    await tester.tap(find.text('Human'));
+    expect(pressed, ['Like', 'Human']);
+    await tester.pump(const Duration(milliseconds: 1499));
+    expect(_opacity(tester), 1);
+    expect(_likeOpacity(tester), 1);
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(_opacity(tester), 0);
+    expect(_likeOpacity(tester), 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a finger on the tabs keeps them up after the dock hides', (
+    tester,
+  ) async {
+    final settings = ValueNotifier<_Settings>((
+      portrait: true,
+      navVisible: true,
+      active: true,
+    ));
+    addTearDown(settings.dispose);
+    await _pumpTabs(tester, settings, (_) {});
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.text('Tutor')),
+    );
+    await tester.pump();
+    settings.value = (portrait: true, navVisible: false, active: true);
+    await tester.pump(const Duration(seconds: 3));
+    expect(_opacity(tester), 1);
+    await gesture.up();
+    await tester.pump(const Duration(milliseconds: 1499));
+    expect(_opacity(tester), 1);
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(_opacity(tester), 0);
+
+    // A touch shortly before the dock hides also carries the tabs past it.
+    settings.value = (portrait: true, navVisible: true, active: true);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('AI'));
+    await tester.pump(const Duration(milliseconds: 1000));
+    settings.value = (portrait: true, navVisible: false, active: true);
+    await tester.pump();
+    expect(_opacity(tester), 1);
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(_opacity(tester), 0);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'upward swipe dismisses portrait controls even with dock visible',
     (tester) async {
