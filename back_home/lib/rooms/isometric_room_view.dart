@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:three_js/three_js.dart' as three;
 
 import 'furniture_models.dart';
+import 'ios_room_gesture_policy.dart';
 import 'room_camera_focus.dart';
 import 'room_state.dart';
 import 'sky_dome.dart';
@@ -312,6 +313,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   @override
   void initState() {
     super.initState();
+    IosRoomGesturePolicy.setActive(this, widget.isActive);
     widget.controller.addListener(_handleControllerChanged);
     if (widget.isActive) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -326,6 +328,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   @override
   void didUpdateWidget(covariant IsometricRoomView oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.isActive != oldWidget.isActive) {
+      IosRoomGesturePolicy.setActive(this, widget.isActive);
+    }
 
     final focusChanged =
         widget.deskFocused != oldWidget.deskFocused ||
@@ -427,6 +432,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
 
   @override
   void dispose() {
+    IosRoomGesturePolicy.setActive(this, false);
     _sceneStartTimer?.cancel();
     _skyClockTimer?.cancel();
     _pendingRoomTapTimer?.cancel();

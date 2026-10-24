@@ -441,7 +441,7 @@ class _AppShellState extends State<AppShell> {
   }
 
   void _openOwnProfile() {
-    Navigator.of(context).push<void>(
+    _pageNavigator.currentState!.push<void>(
       SwipeBackPageRoute(
         builder: (_) => Scaffold(
           body: Stack(

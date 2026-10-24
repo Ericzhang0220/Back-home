@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 
 import 'keyboard_catalog.dart';
 import 'keyboard_editing.dart';
+import 'keyboard_licenses.dart';
 import 'keyboard_panel.dart';
 import 'keyboard_store.dart';
 
@@ -54,6 +55,7 @@ class _AppKeyboardHostState extends State<AppKeyboardHost> {
   @override
   void initState() {
     super.initState();
+    registerCharacterKeyboardLicenses();
     _control = _CharacterInputControl()..addListener(_redraw);
     widget.store.addListener(_focusChanged);
     FocusManager.instance.addListener(_focusChanged);

@@ -212,7 +212,8 @@ void main() {
       const Offset(0, 65),
       const Duration(seconds: 1),
     );
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
     expect(
       tester
           .widget<BottomNavigationReveal>(find.byType(BottomNavigationReveal))
@@ -309,6 +310,12 @@ void main() {
       await tester.tap(find.byTooltip('Profile settings'));
       await tester.pumpAndSettle();
       expect(find.text('Settings'), findsOneWidget);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.text('Settings'), findsNothing);
+      expect(find.byTooltip('Profile settings'), findsOneWidget);
+      await tester.tap(find.byTooltip('Profile settings'));
+      await tester.pumpAndSettle();
       // Hide it while the detail route remains open, then reveal from that page.
       await tester.drag(find.byType(NavigationBar), const Offset(0, 65));
       await tester.pumpAndSettle();
@@ -328,6 +335,118 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     },
   );
+
+  testWidgets(
+    'a page opened from Room can double tap without changing Room gestures',
+    (tester) async {
+      await tester.pumpWidget(const BackHomeApp());
+      final size = tester.view.physicalSize / tester.view.devicePixelRatio;
+      final bottom = Offset(size.width / 2, size.height - 50);
+      await tester.dragFrom(bottom, const Offset(0, -90));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: find.byType(NavigationBar),
+          matching: find.text('Room'),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      final pageNavigator = Navigator.of(
+        tester.element(find.byType(IsometricRoomView)),
+      );
+      pageNavigator.push<void>(
+        MaterialPageRoute(
+          builder: (_) =>
+              const Scaffold(body: Center(child: Text('Room detail'))),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.drag(find.byType(NavigationBar), const Offset(0, 65));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(
+        tester
+            .widget<BottomNavigationReveal>(find.byType(BottomNavigationReveal))
+            .allowDoubleTap,
+        isTrue,
+      );
+      await tester.tap(find.text('Room detail'));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(find.text('Room detail'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(
+        tester
+            .widget<BottomNavigationReveal>(find.byType(BottomNavigationReveal))
+            .enabled,
+        isFalse,
+      );
+      pageNavigator.pop();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.drag(find.byType(NavigationBar), const Offset(0, 65));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(
+        tester
+            .widget<BottomNavigationReveal>(find.byType(BottomNavigationReveal))
+            .allowDoubleTap,
+        isFalse,
+      );
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets('typing on a pushed page resizes once and keeps selection', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const BackHomeApp());
+    addTearDown(tester.view.resetViewInsets);
+    final controller = TextEditingController(text: 'Hello wonderful world');
+    addTearDown(controller.dispose);
+    final pageContext = tester.element(find.text('Welcome Back'));
+    Navigator.of(pageContext).push<void>(
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          body: Align(
+            alignment: Alignment.bottomCenter,
+            child: TextField(controller: controller),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(TextField));
+    controller.selection = const TextSelection.collapsed(offset: 9);
+    await tester.pump();
+    final state = tester.state<EditableTextState>(find.byType(EditableText));
+    tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+    await tester.pumpAndSettle();
+    final size = tester.view.physicalSize / tester.view.devicePixelRatio;
+    expect(
+      tester.getBottomRight(find.byType(TextField)).dy,
+      closeTo(size.height - 100, 1),
+    );
+    final gestures = tester.widget<BottomNavigationReveal>(
+      find.byType(BottomNavigationReveal),
+    );
+    expect(gestures.enabled, isFalse);
+    expect(gestures.allowDoubleTap, isFalse);
+    expect(controller.selection.baseOffset, 9);
+    expect(
+      tester.state<EditableTextState>(find.byType(EditableText)),
+      same(state),
+    );
+    tester.view.resetViewInsets();
+    await tester.pumpAndSettle();
+    expect(controller.selection.baseOffset, 9);
+    expect(state.widget.focusNode.hasFocus, isTrue);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
 
   testWidgets('room and Weather sheet lay out cleanly in landscape', (
     WidgetTester tester,

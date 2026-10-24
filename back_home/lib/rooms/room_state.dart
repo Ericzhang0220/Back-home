@@ -515,8 +515,9 @@ class RoomEditorController extends ChangeNotifier {
   }
 
   RoomActionResult purchaseItem(String definitionId) {
-    if (shopPurchaseLocked)
+    if (shopPurchaseLocked) {
       return RoomActionResult.failure('Another purchase is being saved.');
+    }
     final definition = definitionFor(definitionId);
     if (_likesBalance < definition.price) {
       return RoomActionResult.failure(
@@ -582,8 +583,9 @@ class RoomEditorController extends ChangeNotifier {
   }
 
   RoomActionResult buyAndAddItem(String definitionId) {
-    if (shopPurchaseLocked)
+    if (shopPurchaseLocked) {
       return RoomActionResult.failure('Another purchase is being saved.');
+    }
     final definition = definitionFor(definitionId);
     if (_likesBalance < definition.price) {
       return RoomActionResult.failure(

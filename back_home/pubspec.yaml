@@ -74,12 +74,20 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+  fonts:
+    - family: ChetCJK
+      fonts:
+        - asset: assets/keyboard/NotoSansSC-Regular.otf
 
   # To add assets to your application, add an assets section, like this:
   assets:
     - assets/
     - assets/ai_characters/
     - assets/keyboard/
+    - third_party/rime-pinyin-simp/LICENSE
+    - third_party/rime-pinyin-simp/NOTICE
+    - third_party/noto-cjk/LICENSE
+    - third_party/noto-cjk/NOTICE
   #   - images/a_dot_ham.jpeg
 
   # An image asset can refer to one or more resolution-specific "variants", see

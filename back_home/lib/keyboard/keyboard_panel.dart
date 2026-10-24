@@ -111,6 +111,7 @@ class CharacterKeyboard extends StatelessWidget {
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
+                                  fontFamilyFallback: ['ChetCJK'],
                                   color: skin.ink.withValues(alpha: 0.88),
                                   fontSize: 11,
                                   letterSpacing: 0.5,
@@ -118,29 +119,37 @@ class CharacterKeyboard extends StatelessWidget {
                               ),
                             ),
                             if (onSystem != null)
-                              IconButton(
-                                onPressed: onSystem,
-                                padding: EdgeInsets.zero,
-                                constraints: const BoxConstraints.tightFor(
-                                  width: 36,
-                                ),
-                                icon: Icon(
-                                  Icons.keyboard_outlined,
-                                  color: skin.ink,
-                                  size: 19,
+                              Semantics(
+                                label: 'System keyboard',
+                                button: true,
+                                child: IconButton(
+                                  onPressed: onSystem,
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints.tightFor(
+                                    width: 36,
+                                  ),
+                                  icon: Icon(
+                                    Icons.keyboard_outlined,
+                                    color: skin.ink,
+                                    size: 19,
+                                  ),
                                 ),
                               ),
                             if (onHide != null)
-                              IconButton(
-                                onPressed: onHide,
-                                padding: EdgeInsets.zero,
-                                constraints: const BoxConstraints.tightFor(
-                                  width: 36,
-                                ),
-                                icon: Icon(
-                                  Icons.keyboard_arrow_down_rounded,
-                                  color: skin.ink,
-                                  size: 23,
+                              Semantics(
+                                label: 'Hide keyboard',
+                                button: true,
+                                child: IconButton(
+                                  onPressed: onHide,
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints.tightFor(
+                                    width: 36,
+                                  ),
+                                  icon: Icon(
+                                    Icons.keyboard_arrow_down_rounded,
+                                    color: skin.ink,
+                                    size: 23,
+                                  ),
                                 ),
                               ),
                           ],
@@ -155,6 +164,7 @@ class CharacterKeyboard extends StatelessWidget {
                                   Text(
                                     editing.chinese ? '拼音' : 'English',
                                     style: TextStyle(
+                                      fontFamilyFallback: ['ChetCJK'],
                                       color: skin.accent,
                                       fontSize: 12,
                                     ),
@@ -166,6 +176,7 @@ class CharacterKeyboard extends StatelessWidget {
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
+                                        fontFamilyFallback: ['ChetCJK'],
                                         color: skin.ink.withValues(alpha: 0.65),
                                         fontSize: 11,
                                       ),
@@ -187,6 +198,7 @@ class CharacterKeyboard extends StatelessWidget {
                                         editing.pinyin,
                                         overflow: TextOverflow.ellipsis,
                                         style: TextStyle(
+                                          fontFamilyFallback: ['ChetCJK'],
                                           color: skin.accent,
                                           fontSize: 13,
                                         ),
@@ -212,6 +224,7 @@ class CharacterKeyboard extends StatelessWidget {
                                             child: Text(
                                               candidate.text,
                                               style: const TextStyle(
+                                                fontFamilyFallback: ['ChetCJK'],
                                                 fontSize: 17,
                                               ),
                                             ),
@@ -445,6 +458,7 @@ class _GlassKeyState extends State<_GlassKey> {
                   widget.label,
                   maxLines: 1,
                   style: TextStyle(
+                    fontFamilyFallback: ['ChetCJK'],
                     color: ink,
                     fontSize: widget.label.characters.length == 1 ? 22 : 11,
                     fontWeight: FontWeight.w500,

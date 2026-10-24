@@ -9,8 +9,9 @@ typedef _Settings = ({bool portrait, bool navVisible, bool active});
 Future<void> _pumpTabs(
   WidgetTester tester,
   ValueNotifier<_Settings> settings,
-  ValueChanged<String> onPressed,
-) => tester.pumpWidget(
+  ValueChanged<String> onPressed, {
+  String? friendsTab,
+}) => tester.pumpWidget(
   MaterialApp(
     home: Scaffold(
       body: SafeArea(
@@ -31,7 +32,11 @@ Future<void> _pumpTabs(
                           Expanded(
                             child: TextButton(
                               onPressed: () => onPressed(label),
-                              child: Text(label),
+                              child: Text(
+                                label == friendsTab && !value.portrait
+                                    ? 'Friend'
+                                    : label,
+                              ),
                             ),
                           ),
                       ],
@@ -141,7 +146,129 @@ void main() {
     },
   );
 
-  testWidgets('revealed tabs work and stay visible on leaving a portrait page', (
+  testWidgets(
+    'revealed tabs work and stay visible on leaving a portrait page',
+    (tester) async {
+      final settings = ValueNotifier<_Settings>((
+        portrait: true,
+        navVisible: false,
+        active: true,
+      ));
+      addTearDown(settings.dispose);
+      final pressed = <String>[];
+      await _pumpTabs(tester, settings, (label) {
+        pressed.add(label);
+        if (label != 'Like') {
+          settings.value = (portrait: false, navVisible: false, active: true);
+        }
+      });
+      await _doubleTap(tester, tester.getCenter(find.text('Tutor')));
+      await tester.pump(const Duration(milliseconds: 260));
+      await tester.tap(find.byTooltip('Like'));
+      expect(pressed, ['Like']);
+      expect(_opacity(tester), 1);
+      expect(_likeOpacity(tester), 1);
+      await tester.tap(find.text('Tutor'));
+      await tester.pump();
+      expect(pressed, ['Like', 'Tutor']);
+      await tester.pump(const Duration(seconds: 2));
+      expect(_opacity(tester), 1);
+      expect(find.text('Tutor').hitTestable(), findsOneWidget);
+
+      // Returning to the portrait grants a reveal window instead of hiding the
+      // controls immediately under the person's finger.
+      settings.value = (portrait: true, navVisible: false, active: true);
+      await tester.pump();
+      expect(_opacity(tester), 1);
+      expect(find.text('Tutor').hitTestable(), findsOneWidget);
+      await tester.pump(const Duration(milliseconds: 1500));
+      expect(_opacity(tester), 0);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  for (final tab in ['AI', 'Human']) {
+    testWidgets(
+      '$tab Friend to portrait keeps tabs and Like for the reveal window',
+      (tester) async {
+        final settings = ValueNotifier<_Settings>((
+          portrait: false,
+          navVisible: false,
+          active: true,
+        ));
+        addTearDown(settings.dispose);
+        final pressed = <String>[];
+        await _pumpTabs(tester, settings, (label) {
+          pressed.add(label);
+          settings.value = (portrait: true, navVisible: false, active: true);
+        }, friendsTab: tab);
+        expect(find.text('Friend').hitTestable(), findsOneWidget);
+        await tester.tap(find.text('Friend'));
+        await tester.pump();
+        expect(pressed, [tab]);
+        expect(_opacity(tester), 1);
+        expect(_likeOpacity(tester), 1);
+        for (final label in ['AI', 'Human', 'Tutor']) {
+          expect(find.text(label).hitTestable(), findsOneWidget);
+        }
+        await tester.pump(const Duration(milliseconds: 1499));
+        expect(_opacity(tester), 1);
+        await tester.pump(const Duration(milliseconds: 1));
+        expect(_opacity(tester), 0);
+        expect(_likeOpacity(tester), 0);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets(
+    'Human and Friend toggles retain controls and allow upward dismissal',
+    (tester) async {
+      final settings = ValueNotifier<_Settings>((
+        portrait: true,
+        navVisible: false,
+        active: true,
+      ));
+      addTearDown(settings.dispose);
+      final pressed = <String>[];
+      await _pumpTabs(tester, settings, (label) {
+        pressed.add(label);
+        if (label == 'Human') {
+          settings.value = (
+            portrait: !settings.value.portrait,
+            navVisible: false,
+            active: true,
+          );
+        }
+      }, friendsTab: 'Human');
+      await _doubleTap(tester, tester.getCenter(find.text('Human')));
+      await tester.pump(const Duration(milliseconds: 260));
+      await tester.tap(find.text('Human'));
+      await tester.pump();
+      expect(find.text('Friend').hitTestable(), findsOneWidget);
+      expect(_opacity(tester), 1);
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.text('Friend'));
+      await tester.pump();
+      expect(pressed, ['Human', 'Human']);
+      expect(find.text('Human').hitTestable(), findsOneWidget);
+      expect(_opacity(tester), 1);
+      expect(_likeOpacity(tester), 1);
+      await tester.drag(find.byType(DiscoveryTopTabs), const Offset(0, -90));
+      await tester.pumpAndSettle();
+      expect(_opacity(tester), 0);
+      expect(_likeOpacity(tester), 0);
+      await _doubleTap(tester, tester.getCenter(find.text('Human')));
+      await tester.pump(const Duration(milliseconds: 260));
+      expect(_opacity(tester), 1);
+      expect(find.text('Human').hitTestable(), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('switching through Friend retains an existing reveal deadline', (
     tester,
   ) async {
     final settings = ValueNotifier<_Settings>((
@@ -150,30 +277,71 @@ void main() {
       active: true,
     ));
     addTearDown(settings.dispose);
-    final pressed = <String>[];
-    await _pumpTabs(tester, settings, (label) {
-      pressed.add(label);
-      if (label != 'Like') {
-        settings.value = (portrait: false, navVisible: false, active: true);
-      }
-    });
-    await _doubleTap(tester, tester.getCenter(find.text('Tutor')));
-    await tester.pump(const Duration(milliseconds: 260));
-    await tester.tap(find.byTooltip('Like'));
-    expect(pressed, ['Like']);
-    expect(_opacity(tester), 1);
-    expect(_likeOpacity(tester), 1);
-    await tester.tap(find.text('Tutor'));
+    await _pumpTabs(tester, settings, (_) {});
+    await _doubleTap(tester, tester.getCenter(find.text('AI')));
+    await tester.pump(const Duration(milliseconds: 300));
+    settings.value = (portrait: false, navVisible: false, active: true);
     await tester.pump();
-    expect(pressed, ['Like', 'Tutor']);
-    await tester.pump(const Duration(seconds: 2));
-    expect(_opacity(tester), 1);
-    expect(find.text('Tutor').hitTestable(), findsOneWidget);
-
-    // Switching back to the portrait with the dock hidden hides the tabs again.
+    await tester.pump(const Duration(milliseconds: 400));
     settings.value = (portrait: true, navVisible: false, active: true);
-    await tester.pumpAndSettle();
+    await tester.pump();
+    expect(_opacity(tester), 1);
+    await tester.pump(const Duration(milliseconds: 799));
+    expect(_opacity(tester), 1);
+    await tester.pump(const Duration(milliseconds: 1));
     expect(_opacity(tester), 0);
+    expect(_likeOpacity(tester), 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'upward swipe dismisses portrait controls even with dock visible',
+    (tester) async {
+      final settings = ValueNotifier<_Settings>((
+        portrait: true,
+        navVisible: true,
+        active: true,
+      ));
+      addTearDown(settings.dispose);
+      final pressed = <String>[];
+      await _pumpTabs(tester, settings, pressed.add);
+      await tester.drag(find.byType(DiscoveryTopTabs), const Offset(0, -90));
+      await tester.pumpAndSettle();
+      expect(_opacity(tester), 0);
+      expect(_likeOpacity(tester), 0);
+      expect(pressed, isEmpty);
+      expect(settings.value.navVisible, isTrue);
+      await _doubleTap(tester, tester.getCenter(find.text('AI')));
+      await tester.pump(const Duration(milliseconds: 260));
+      expect(_opacity(tester), 1);
+      await tester.tap(find.text('Human'));
+      expect(pressed, ['Human']);
+      await tester.pumpWidget(const SizedBox.shrink());
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('horizontal and downward drags do not dismiss the tabs', (
+    tester,
+  ) async {
+    final settings = ValueNotifier<_Settings>((
+      portrait: true,
+      navVisible: true,
+      active: true,
+    ));
+    addTearDown(settings.dispose);
+    await _pumpTabs(tester, settings, (_) {});
+    await tester.drag(find.byType(DiscoveryTopTabs), const Offset(80, 0));
+    await tester.pumpAndSettle();
+    expect(_opacity(tester), 1);
+    await tester.drag(find.byType(DiscoveryTopTabs), const Offset(0, 80));
+    await tester.pumpAndSettle();
+    expect(_opacity(tester), 1);
+    settings.value = (portrait: false, navVisible: false, active: true);
+    await tester.pump();
+    await tester.drag(find.byType(DiscoveryTopTabs), const Offset(0, -90));
+    await tester.pumpAndSettle();
+    expect(_opacity(tester), 1);
     expect(tester.takeException(), isNull);
   });
 

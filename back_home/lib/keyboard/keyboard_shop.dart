@@ -33,7 +33,10 @@ class KeyboardShopSection extends StatelessWidget {
                           ? 'Applied to AI chats only'
                           : 'Applied across Chet')
                     : 'Your device keyboard is active',
-                style: const TextStyle(color: AppColors.muted),
+                style: const TextStyle(
+                  fontFamilyFallback: ['ChetCJK'],
+                  color: AppColors.muted,
+                ),
               ),
               if (store.enabled)
                 Align(
@@ -143,6 +146,7 @@ class _SkinShopCard extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
+                      fontFamilyFallback: ['ChetCJK'],
                       fontSize: 11,
                       color: AppColors.muted,
                     ),
@@ -151,6 +155,7 @@ class _SkinShopCard extends StatelessWidget {
                   Text(
                     skin.name,
                     style: const TextStyle(
+                      fontFamilyFallback: ['ChetCJK'],
                       fontSize: 15,
                       fontWeight: FontWeight.w700,
                     ),
@@ -169,7 +174,10 @@ class _SkinShopCard extends StatelessWidget {
                       Expanded(
                         child: Text(
                           owned ? 'Owned' : '${skin.price} Likes',
-                          style: const TextStyle(fontSize: 12),
+                          style: const TextStyle(
+                            fontFamilyFallback: ['ChetCJK'],
+                            fontSize: 12,
+                          ),
                         ),
                       ),
                       const Icon(
@@ -302,7 +310,11 @@ class _KeyboardPreviewScreenState extends State<KeyboardPreviewScreen> {
                 const SizedBox(height: 12),
                 const Text(
                   'You can change the scope later without paying again.',
-                  style: TextStyle(fontSize: 12, color: AppColors.muted),
+                  style: TextStyle(
+                    fontFamilyFallback: ['ChetCJK'],
+                    fontSize: 12,
+                    color: AppColors.muted,
+                  ),
                 ),
               ],
             ),
@@ -395,6 +407,7 @@ class _KeyboardPreviewScreenState extends State<KeyboardPreviewScreen> {
                               Text(
                                 widget.skin.characterName,
                                 style: TextStyle(
+                                  fontFamilyFallback: ['ChetCJK'],
                                   color: widget.skin.ink.withValues(alpha: 0.8),
                                   fontSize: 12,
                                 ),
@@ -403,6 +416,7 @@ class _KeyboardPreviewScreenState extends State<KeyboardPreviewScreen> {
                               Text(
                                 widget.skin.name,
                                 style: TextStyle(
+                                  fontFamilyFallback: ['ChetCJK'],
                                   color: widget.skin.ink,
                                   fontSize: 23,
                                   fontWeight: FontWeight.w700,
@@ -429,6 +443,7 @@ class _KeyboardPreviewScreenState extends State<KeyboardPreviewScreen> {
                                     maxLines: 3,
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
+                                      fontFamilyFallback: ['ChetCJK'],
                                       color: widget.skin.ink,
                                       fontSize: 16,
                                     ),

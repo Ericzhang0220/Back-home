@@ -134,7 +134,7 @@ class KeyboardStore extends ChangeNotifier {
       activeId = oldActive;
       scope = oldScope;
       enabled = oldEnabled;
-      room.restoreLikesBalance(room.likesBalance + cost);
+      if (!_disposed) room.restoreLikesBalance(room.likesBalance + cost);
       return 'Could not save. Your Likes were returned. Please try again.';
     } finally {
       busy = false;
@@ -157,7 +157,7 @@ class KeyboardStore extends ChangeNotifier {
       await _save();
     } catch (_) {
       enabled = previous;
-      notifyListeners();
+      if (!_disposed) notifyListeners();
       rethrow;
     } finally {
       busy = false;

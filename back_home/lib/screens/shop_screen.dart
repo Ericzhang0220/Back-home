@@ -82,21 +82,23 @@ class _ShopScreenState extends State<ShopScreen> {
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            FilledButton.icon(
-                              onPressed: () => _openEditor(context),
-                              icon: const Icon(Icons.edit_rounded),
-                              label: const Text(
-                                'Edit',
-                                style: TextStyle(fontSize: 13),
-                              ),
-                              style: FilledButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 8,
+                            if (!_showKeyboards) ...[
+                              FilledButton.icon(
+                                onPressed: () => _openEditor(context),
+                                icon: const Icon(Icons.edit_rounded),
+                                label: const Text(
+                                  'Edit',
+                                  style: TextStyle(fontSize: 13),
+                                ),
+                                style: FilledButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 8,
+                                  ),
                                 ),
                               ),
-                            ),
-                            const SizedBox(width: 8),
+                              const SizedBox(width: 8),
+                            ],
                             IconButton.filledTonal(
                               onPressed: () => Navigator.of(context).pop(),
                               icon: const Icon(Icons.close_rounded),
@@ -159,9 +161,11 @@ class _ShopScreenState extends State<ShopScreen> {
                                     ),
                                   ),
                                   const SizedBox(height: 6),
-                                  const Text(
-                                    'Purchases add to your inventory for later placement.',
-                                    style: TextStyle(
+                                  Text(
+                                    _showKeyboards
+                                        ? 'Unlock once. Change where you use it any time.'
+                                        : 'Purchases add to your inventory for later placement.',
+                                    style: const TextStyle(
                                       fontSize: 14,
                                       color: AppColors.muted,
                                     ),
@@ -169,14 +173,16 @@ class _ShopScreenState extends State<ShopScreen> {
                                 ],
                               ),
                             ),
-                            const SizedBox(width: 14),
-                            InfoPill(
-                              icon: Icons.aspect_ratio_rounded,
-                              label: 'Room size',
-                              value:
-                                  '${RoomEditorController.roomWidth} x ${RoomEditorController.roomDepth}',
-                              tint: const Color(0xFFF6E2C3),
-                            ),
+                            if (!_showKeyboards) ...[
+                              const SizedBox(width: 14),
+                              InfoPill(
+                                icon: Icons.aspect_ratio_rounded,
+                                label: 'Room size',
+                                value:
+                                    '${RoomEditorController.roomWidth} x ${RoomEditorController.roomDepth}',
+                                tint: const Color(0xFFF6E2C3),
+                              ),
+                            ],
                           ],
                         ),
                       ),

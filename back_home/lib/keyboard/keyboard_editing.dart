@@ -135,7 +135,7 @@ class KeyboardEditing extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    commitComposition();
+    commitBestCandidate();
     _replace(shifted ? key.toUpperCase() : key);
     if (!capsLock) shifted = false;
     notifyListeners();
@@ -213,14 +213,14 @@ class KeyboardEditing extends ChangeNotifier {
   }
 
   void toggleSymbols() {
-    commitComposition();
+    commitBestCandidate();
     symbols = !symbols;
     emoji = false;
     notifyListeners();
   }
 
   void toggleEmoji() {
-    commitComposition();
+    commitBestCandidate();
     emoji = !emoji;
     symbols = false;
     notifyListeners();
