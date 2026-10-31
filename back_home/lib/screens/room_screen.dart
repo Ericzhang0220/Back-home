@@ -686,10 +686,10 @@ class _SettingsPanel extends StatelessWidget {
                 const SizedBox(height: 8),
                 _CameraSlider(
                   label: 'Zoom',
-                  valueLabel: '${(cameraZoom * 100).round()}%',
+                  valueLabel: '${cameraZoom.toStringAsFixed(1)}x',
                   value: cameraZoom,
-                  min: 0.75,
-                  max: 1.4,
+                  min: 0.5,
+                  max: 1.8,
                   divisions: 13,
                   onChanged: onCameraZoom,
                 ),

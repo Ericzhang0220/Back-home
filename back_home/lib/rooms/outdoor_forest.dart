@@ -24,6 +24,9 @@ class _ForestScene extends OutdoorScene {
   double get _groundVSpan => 72;
 
   @override
+  double get _hazeScale => 0.5;
+
+  @override
   double get _groundUMin => -58;
 
   @override
@@ -124,8 +127,8 @@ class _ForestScene extends OutdoorScene {
         x: _worldX(u),
         y: _riverLevel,
         z: _worldZ(v),
-        // Flows toward the house.
-        along: v,
+        // Flows toward the house (foam travels toward increasing along).
+        along: -v,
         across: u,
         base: _Rgb.lerp(
           const _Rgb.hex(0x6F98AC),
@@ -182,7 +185,8 @@ class _ForestScene extends OutdoorScene {
           }
           continue;
         }
-        if (tv < 5 && tu.abs() < 12) {
+        // Keep the near foreground open down to the river and meadow.
+        if (tv < 16 && tu.abs() < 9 + tv * 0.5) {
           continue;
         }
         if (accept > 0.35 + forest * 0.6) {
@@ -256,24 +260,23 @@ class _ForestScene extends OutdoorScene {
     final random = math.Random(0x5EA4);
     for (var i = 0; i < 12; i += 1) {
       final side = i.isEven ? -1 : 1;
-      final u = side * (9 + random.nextDouble() * 18);
-      final v = 14 + random.nextDouble() * 16;
+      final u = side * (5 + random.nextDouble() * 16);
+      final v = 11 + random.nextDouble() * 14;
       _beamSpots.add((
         u,
         v,
-        0.7 + random.nextDouble() * 1.3,
-        9 + random.nextDouble() * 6,
+        1.4 + random.nextDouble() * 2.2,
+        11 + random.nextDouble() * 6,
       ));
-      // Placeholder positions; oriented on every relight.
+      // Two halves per beam, bright along the centre and dark at the
+      // edges and the top, so each shaft has soft sides. Placeholder
+      // positions; the beams are oriented on every relight.
       const zero = (0.0, 0.0, 0.0);
-      _beams.quad(
-        zero,
-        zero,
-        zero,
-        zero,
-        near: const _Rgb.hex(0xFFE2A0),
-        far: const _Rgb(0, 0, 0),
-      );
+      const glow = _Rgb.hex(0xFFE2A0);
+      const dark = _Rgb(0, 0, 0);
+      _beams
+        ..quadColors(zero, zero, zero, zero, dark, glow, dark, dark)
+        ..quadColors(zero, zero, zero, zero, glow, dark, dark, dark);
     }
     group.add(_beams.createMesh());
   }
@@ -284,10 +287,11 @@ class _ForestScene extends OutdoorScene {
       final gx = _worldX(u);
       final gz = _worldZ(v);
       final gy = height(u, v);
-      // Beam axis runs from the ground up toward the sun.
-      final dx = light.sunX;
-      final dy = math.max(light.sunY, 0.25);
-      final dz = light.sunZ;
+      // Beam axis runs from the ground up toward the sun, kept steep so the
+      // shafts fall from above even when the sun is low.
+      final dx = light.sunX * 0.6;
+      final dy = math.max(light.sunY, 0.6);
+      final dz = light.sunZ * 0.6;
       final dl = math.sqrt(dx * dx + dy * dy + dz * dz);
       final ax = dx / dl;
       final ay = dy / dl;
@@ -305,17 +309,26 @@ class _ForestScene extends OutdoorScene {
       final tx = gx + ax * length;
       final ty = gy + ay * length;
       final tz = gz + az * length;
-      // near edge (bright) on the ground, far edge fades toward the sun.
-      final quad = [
-        (gx - wx, gy - wy, gz - wz),
-        (gx + wx, gy + wy, gz + wz),
-        (tx + wx * 2.2, ty + wy * 2.2, tz + wz * 2.2),
-        (gx - wx, gy - wy, gz - wz),
-        (tx + wx * 2.2, ty + wy * 2.2, tz + wz * 2.2),
-        (tx - wx * 2.2, ty - wy * 2.2, tz - wz * 2.2),
-      ];
-      for (final p in quad) {
-        positions.addAll([p.$1, p.$2, p.$3]);
+      // The shaft widens toward the canopy above.
+      (double, double, double) ground(double side) =>
+          (gx + wx * side, gy + wy * side, gz + wz * side);
+      (double, double, double) top(double side) =>
+          (tx + wx * side * 1.8, ty + wy * side * 1.8, tz + wz * side * 1.8);
+      // Left half: (left edge, centre) on the ground, then up; right half.
+      for (final quad in [
+        [ground(-1), ground(0), top(0), top(-1)],
+        [ground(0), ground(1), top(1), top(0)],
+      ]) {
+        for (final p in [
+          quad[0],
+          quad[1],
+          quad[2],
+          quad[0],
+          quad[2],
+          quad[3],
+        ]) {
+          positions.addAll([p.$1, p.$2, p.$3]);
+        }
       }
     }
     _beams.setPositions(positions);
@@ -340,7 +353,7 @@ class _ForestScene extends OutdoorScene {
         ], 3),
       );
     for (var i = 0; i < 7; i += 1) {
-      final body = three.Group();
+      final body = three.Group()..scale.setValues(1.5, 1.5, 1.5);
       final left = three.Mesh(wing, material);
       final right = three.Mesh(wing, material)..scale.z = -1;
       body
@@ -369,7 +382,7 @@ class _ForestScene extends OutdoorScene {
     _orientBeams(light);
     // Beams are strongest when the sun is low and the sky is clear.
     _beams.intensity =
-        light.clearness * light.daylight * (0.22 + light.twilight * 0.55);
+        light.clearness * light.daylight * (0.18 + light.twilight * 0.4);
     _birdVisibility = _smoothstep(0.1, 0.35, light.daylight);
     final material = _birdMaterial;
     if (material != null) {
@@ -396,7 +409,7 @@ class _ForestScene extends OutdoorScene {
     final progress = (_flockClock / pass).clamp(0.0, 1.0);
     final leadU = (-46 + progress * 92) * _flockDirection;
     final leadV = 24 + math.sin(progress * math.pi) * 6;
-    final leadY = 9 + math.sin(_time * 0.4) * 1.2 + progress * 2;
+    final leadY = 14 + math.sin(_time * 0.4) * 1.2 + progress * 2;
     for (final bird in _birds) {
       bird.body.visible = active && _birdVisibility > 0.5;
       if (!bird.body.visible) {

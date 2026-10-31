@@ -171,6 +171,11 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   // >>> Tweak these to change the feel of the centered camera <<<
   static const double _cameraTiltStartThreshold =
       10; // px dead-zone before a drag becomes a turn
+  static const double _cameraTiltHeldThreshold =
+      22; // px dead-zone once the finger has been held still
+  static const double _tiltLiftJitter =
+      9; // px a lifting finger may roll without turning the camera
+  static const Duration _tiltRestDuration = Duration(milliseconds: 140);
   static const double _yawSensitivity =
       0.008; // radians turned per pixel dragged
   static const double _pitchSensitivity =
@@ -184,9 +189,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   static const double _focusFov =
       42; // field of view in the desk/night focus views
   static const double _minFov =
-      26; // pinch-zoom field-of-view clamp (zoomed in)
+      20; // pinch-zoom field-of-view clamp (zoomed in)
   static const double _maxFov =
-      84; // pinch-zoom field-of-view clamp (zoomed out)
+      112; // pinch-zoom field-of-view clamp (0.5x ultra-wide)
   static const double _wallCornerSealSize = 0.08;
   static const double _wallCornerSealInset = 0.22;
 
@@ -249,6 +254,14 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   _CameraViewState? _preDeskCameraState;
   _CameraViewState? _preOutsideCameraState;
   double _yawAtDragStart = 0;
+  // Where the finger last came to rest during a camera drag, and the heading
+  // at that moment. Lifting a finger rolls the contact point a few pixels;
+  // that roll is undone on release instead of turning the camera.
+  Offset _tiltRestPosition = Offset.zero;
+  Duration _tiltRestTime = Duration.zero;
+  double _tiltRestYaw = 0;
+  double _tiltRestPitch = 0;
+  final Stopwatch _tiltClock = Stopwatch()..start();
   double _pitchAtDragStart = _lookPitch;
   double _cameraTiltPointerStartX = 0;
   double _cameraTiltPointerStartY = 0;
@@ -289,8 +302,10 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   _sofaColliders = [];
   final List<three.Mesh> _sofaColliderMeshes = [];
 
-  static const double _minZoom = 0.62;
-  static const double _maxZoom = 2.4;
+  // Zoom works like a camera lens: 1x is the normal view, 0.5x is the
+  // ultra-wide (half the focal length, as in the iPhone camera app).
+  static const double _minZoom = 0.5;
+  static const double _maxZoom = 1.8;
   static const double _zoomInStep = 1.06;
   static const double _zoomOutStep = 0.94;
   static const double _cameraPanUnitsPerPixel = 0.0075;
@@ -747,7 +762,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   double get _outsideOpeningTilt => switch (widget.outdoorEnvironment) {
     OutdoorEnvironment.island => 0.2,
     OutdoorEnvironment.forest => 0.16,
-    OutdoorEnvironment.city => 0.06,
+    OutdoorEnvironment.city => 0.16,
     OutdoorEnvironment.waterfall => 0.04,
   };
 
@@ -762,9 +777,11 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       _viewportAspect,
       maxHorizontalFov: widget.outsideView ? 60 : 82,
     );
-    _camera.fov = (aspectAdjustedFov / effectiveZoom)
-        .clamp(_minFov, _maxFov)
-        .toDouble();
+    // Scale the focal length, not the angle, so 0.5x is a true ultra-wide.
+    final halfAngle = aspectAdjustedFov * math.pi / 360;
+    final zoomedFov =
+        2 * math.atan(math.tan(halfAngle) / effectiveZoom) * 180 / math.pi;
+    _camera.fov = zoomedFov.clamp(_minFov, _maxFov).toDouble();
     _camera.updateProjectionMatrix();
   }
 
@@ -1444,6 +1461,21 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _activeSkyLook = null;
     _skyCloudGroups.clear();
     _skyRainDrops.clear();
+    // The scenery comes first: clouds are placed clear of its terrain.
+    var landscape = _landscape;
+    if (landscape != null &&
+        _landscapeEnvironment != widget.outdoorEnvironment) {
+      threeJs.scene.remove(landscape.group);
+      landscape.group.dispose();
+      landscape = null;
+    }
+    landscape ??= OutdoorScene.build(
+      widget.outdoorEnvironment,
+      wallZ:
+          -RoomEditorController.roomDepth * RoomEditorController.cellSize / 2,
+    );
+    _landscape = landscape;
+    _landscapeEnvironment = widget.outdoorEnvironment;
     final time = _resolveTimeOfDay();
     final group = _buildSky(time, widget.skyWeather);
     final reusableClouds = math.min(
@@ -1465,20 +1497,6 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _skyGroup = group;
     threeJs.scene.add(group);
 
-    var landscape = _landscape;
-    if (landscape != null &&
-        _landscapeEnvironment != widget.outdoorEnvironment) {
-      threeJs.scene.remove(landscape.group);
-      landscape.group.dispose();
-      landscape = null;
-    }
-    landscape ??= OutdoorScene.build(
-      widget.outdoorEnvironment,
-      wallZ:
-          -RoomEditorController.roomDepth * RoomEditorController.cellSize / 2,
-    );
-    _landscape = landscape;
-    _landscapeEnvironment = widget.outdoorEnvironment;
     if (landscape.group.parent == null) {
       threeJs.scene.add(landscape.group);
     }
@@ -1604,17 +1622,25 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       final cloudZ = wallZ - (farLayer ? 33.0 : 28.0);
       final cloudCenterX = _windowProjectionCenterX(cloudZ, wallZ);
       final spread = farLayer ? 112.0 : 92.0;
+      final cloudScale = (farLayer ? 2.1 : 1.7) + (cloudIndex % 3) * 0.2;
+      // Keep the flat cloud base above any cliff, ridge or tower it drifts
+      // past at this depth.
+      final cloudFloor =
+          (_landscape?.cloudFloor(wallZ - cloudZ) ?? -10) +
+          0.35 * cloudScale +
+          1.0;
       final cloud =
           _buildCloud(
               variant: cloudIndex,
-              scale: (farLayer ? 2.1 : 1.7) + (cloudIndex % 3) * 0.2,
+              scale: cloudScale,
               color: look.cloudColor,
               shadowColor: look.cloudShadow,
               opacity: look.cloudOpacity,
             )
             ..position.setValues(
               cloudCenterX + (((cloudIndex * 37) % 101) / 101.0 - 0.5) * spread,
-              5.5 + (((cloudIndex * 61) % 97) / 97.0) * 8.5,
+              math.max(5.5, cloudFloor) +
+                  (((cloudIndex * 61) % 97) / 97.0) * 8.5,
               cloudZ,
             );
       group.add(cloud);
@@ -2332,6 +2358,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       _pendingTapTarget = null;
       _pendingFurnitureTapItemId = null;
       if (wasTilting) {
+        _settleTiltOnRelease(event);
         return;
       }
       if (furnitureTapItemId != null) {
@@ -2369,6 +2396,29 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _pitchAtDragStart = _currentCameraPitch;
     _cameraTiltPointerStartX = _eventClientX(event);
     _cameraTiltPointerStartY = _eventClientY(event);
+    _markTiltRest(Offset(_cameraTiltPointerStartX, _cameraTiltPointerStartY));
+  }
+
+  void _markTiltRest(Offset position) {
+    _tiltRestPosition = position;
+    _tiltRestTime = _tiltClock.elapsed;
+    _tiltRestYaw = _cameraYaw;
+    _tiltRestPitch = _cameraPitch;
+  }
+
+  void _settleTiltOnRelease(dynamic event) {
+    if (event == null) {
+      return;
+    }
+    final release = Offset(_eventClientX(event), _eventClientY(event));
+    final restedFor = _tiltClock.elapsed - _tiltRestTime;
+    // The finger had come to rest and only rolled slightly while lifting.
+    if (restedFor > _tiltRestDuration &&
+        (release - _tiltRestPosition).distance < _tiltLiftJitter) {
+      _cameraYaw = _tiltRestYaw;
+      _cameraPitch = _tiltRestPitch;
+      _refreshCamera();
+    }
   }
 
   void _updateCameraTilt(dynamic event) {
@@ -2377,12 +2427,28 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       return;
     }
 
-    final deltaX = _eventClientX(event) - _cameraTiltPointerStartX;
-    final deltaY = _eventClientY(event) - _cameraTiltPointerStartY;
-    final travel = math.sqrt(deltaX * deltaX + deltaY * deltaY);
-    if (!_cameraTiltActive && travel < _cameraTiltStartThreshold) {
-      return;
+    final position = Offset(_eventClientX(event), _eventClientY(event));
+    if (!_cameraTiltActive) {
+      final travel =
+          (position -
+                  Offset(_cameraTiltPointerStartX, _cameraTiltPointerStartY))
+              .distance;
+      // A finger held still for a moment needs a deliberate move to turn.
+      final heldStill = _tiltClock.elapsed - _tiltRestTime > _tiltRestDuration;
+      final threshold = heldStill
+          ? _cameraTiltHeldThreshold
+          : _cameraTiltStartThreshold;
+      if (travel < threshold) {
+        return;
+      }
+      // Turn from here, so crossing the dead zone doesn't jump the view.
+      _cameraTiltPointerStartX = position.dx;
+      _cameraTiltPointerStartY = position.dy;
+      _yawAtDragStart = _cameraYaw;
+      _pitchAtDragStart = _cameraPitch;
     }
+    final deltaX = position.dx - _cameraTiltPointerStartX;
+    final deltaY = position.dy - _cameraTiltPointerStartY;
 
     _cameraTiltActive = true;
     _pendingTapTarget = null;
@@ -2398,6 +2464,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
             .clamp(_minLookPitch, _maxLookPitch)
             .toDouble();
     _refreshCamera();
+    if ((position - _tiltRestPosition).distance >= _tiltLiftJitter) {
+      _markTiltRest(position);
+    }
   }
 
   void _updateCameraPan() {

@@ -167,7 +167,7 @@ class _LitMesh {
 
 // --- Flowing water -------------------------------------------------------------
 
-/// Water whose foam streaks travel along a flow coordinate every frame: the
+/// Water whose foam streaks travel toward increasing `along` every frame: the
 /// waterfall curtain, rivers and streams. Lighting is baked into a calm and a
 /// foam colour per vertex on relight; [animate] only blends between the two.
 class _FlowMesh {
@@ -379,13 +379,28 @@ class _GlowMesh {
     required _Rgb far,
   }) {
     // a-b is the "near" edge, c-d the "far" edge.
+    quadColors(a, b, c, d, near, near, far, far);
+  }
+
+  /// A quad with its own colour at each corner, emitted as triangles
+  /// (a, b, c) and (a, c, d).
+  void quadColors(
+    (double, double, double) a,
+    (double, double, double) b,
+    (double, double, double) c,
+    (double, double, double) d,
+    _Rgb ca,
+    _Rgb cb,
+    _Rgb cc,
+    _Rgb cd,
+  ) {
     for (final (p, color) in [
-      (a, near),
-      (b, near),
-      (c, far),
-      (a, near),
-      (c, far),
-      (d, far),
+      (a, ca),
+      (b, cb),
+      (c, cc),
+      (a, ca),
+      (c, cc),
+      (d, cd),
     ]) {
       _positions.addAll([p.$1, p.$2, p.$3]);
       _colors.addAll([

@@ -70,6 +70,25 @@ class OutdoorLight {
 
   /// 1 under a clear sky, falling toward 0 in overcast and rain.
   final double clearness;
+
+  OutdoorLight withFogAmount(double amount) => OutdoorLight(
+    sunX: sunX,
+    sunY: sunY,
+    sunZ: sunZ,
+    sun: sun,
+    sunStrength: sunStrength,
+    sky: sky,
+    ground: ground,
+    ambientStrength: ambientStrength,
+    fog: fog,
+    fogAmount: amount,
+    shadowStrength: shadowStrength,
+    saturation: saturation,
+    windowGlow: windowGlow,
+    daylight: daylight,
+    twilight: twilight,
+    clearness: clearness,
+  );
 }
 
 /// The scenery beyond the room's window. Each environment builds its geometry
@@ -141,8 +160,14 @@ abstract class OutdoorScene {
     _populate();
   }
 
-  void relight(OutdoorLight light) {
+  /// Scales the aerial haze; dense, close scenery reads better with less.
+  double get _hazeScale => 1;
+
+  void relight(OutdoorLight sceneLight) {
     _ensureBuilt();
+    final light = _hazeScale == 1
+        ? sceneLight
+        : sceneLight.withFogAmount(sceneLight.fogAmount * _hazeScale);
     _updateGroundShadows(light);
     for (final mesh in _meshes) {
       mesh.relight(
@@ -160,6 +185,29 @@ abstract class OutdoorScene {
   }
 
   void _onRelight(OutdoorLight light) {}
+
+  final Map<int, double> _cloudFloors = {};
+
+  /// Highest point of the scenery anywhere across the view at depth [v]
+  /// (window-centred, ±5 for the cloud's own depth), so a cloud drifting
+  /// across at that depth never cuts into a cliff or tower.
+  double cloudFloor(double v) {
+    _ensureBuilt();
+    return _cloudFloors.putIfAbsent(v.round(), () {
+      var highest = -10.0;
+      for (var dv = -5.0; dv <= 5; dv += 1) {
+        for (var u = -80.0; u <= 80; u += 1.5) {
+          highest = math.max(highest, height(u, v + dv));
+        }
+        highest = math.max(highest, _obstacleTop(v + dv));
+      }
+      // Tree canopy stands above the terrain itself.
+      return highest + 6.5;
+    });
+  }
+
+  /// Tallest built structure at depth [v]; scenery without buildings has none.
+  double _obstacleTop(double v) => -10;
 
   /// Advances moving scenery by [dt] seconds.
   void animate(double dt) {

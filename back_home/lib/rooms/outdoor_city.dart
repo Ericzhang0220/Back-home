@@ -22,22 +22,34 @@ class _CityScene extends OutdoorScene {
 
   // Road centreline in (u, v): near-bank viaduct, the bridge, far-bank road.
   static const List<(double, double)> _route = [
-    (-46, 6.5),
-    (-32, 7.2),
-    (-22, 8.6),
-    (-16, 10.0),
-    (14, 26.0),
-    (24, 27.6),
-    (46, 28.2),
+    (-50, 6.0),
+    (-42, 7.2),
+    (-36, 8.6),
+    (-31, 10.0),
+    (-12, 31.0),
+    (2, 32.6),
+    (48, 33.2),
   ];
   static const int _bridgeStart = 3;
   static const int _bridgeEnd = 4;
 
   final _GlowMesh _reflections = _GlowMesh();
+  final List<(double, double)> _towerTops = []; // (v, top y)
   final List<_Car> _cars = [];
   late final List<double> _routeLengths = _cumulativeLengths();
   double _time = 0;
   double _night = 0;
+
+  @override
+  double _obstacleTop(double v) {
+    var top = -10.0;
+    for (final (tv, y) in _towerTops) {
+      if ((tv - v).abs() < 2.5) {
+        top = math.max(top, y);
+      }
+    }
+    return top;
+  }
 
   List<double> _cumulativeLengths() {
     final lengths = <double>[0];
@@ -69,7 +81,7 @@ class _CityScene extends OutdoorScene {
   }
 
   double _riverMask(double u, double v) =>
-      _smoothstep(10.5, 12.5, v) * (1 - _smoothstep(23.5, 25.5, v));
+      _smoothstep(10.5, 12.5, v) * (1 - _smoothstep(29.5, 31.5, v));
 
   @override
   double height(double u, double v) {
@@ -79,7 +91,7 @@ class _CityScene extends OutdoorScene {
         -0.4 - 3.2 * _smoothstep(2, 9, v) + detail * 0.8 * _smoothstep(3, 9, v);
     h += (_water - 1.6 - h) * _riverMask(u, v);
     // Far bank: flat embankment, rising gently into the city.
-    final far = _smoothstep(24.5, 26, v);
+    final far = _smoothstep(30.5, 32, v);
     h += (_bank + _smoothstep(30, 56, v) * 1.2 - h) * far;
     // Hills behind the city close the horizon at the sides.
     h += _smoothstep(26, 50, u.abs()) * _smoothstep(30, 55, v) * 6;
@@ -90,7 +102,7 @@ class _CityScene extends OutdoorScene {
   _Rgb _groundColor(double u, double v, double h, double ny) {
     final fine = _hash2((u * 1.6).round(), (v * 1.6).round() + 59);
     // Paved city blocks on the far bank, green bluff on the near one.
-    if (v > 25) {
+    if (v > 31) {
       return _Rgb.lerp(
         const _Rgb.hex(0x6E6C69),
         const _Rgb.hex(0x857F78),
@@ -143,7 +155,7 @@ class _CityScene extends OutdoorScene {
     );
     river.ribbon(18, 60, (s, t) {
       final u = -60 + t * 120;
-      final v = 10.5 + s * 15.5;
+      final v = 10.5 + s * 21.5;
       return (
         x: _worldX(u),
         y: _water,
@@ -163,24 +175,27 @@ class _CityScene extends OutdoorScene {
   void _buildSkyline(_LitMesh glass) {
     final random = math.Random(0xC17E);
     const step = 3.4;
-    for (var v = 28.0; v < 56; v += step) {
-      for (var u = -50.0; u < 50; u += step) {
+    for (var v = 34.5; v < 57; v += step) {
+      for (var u = -46.0; u < 46; u += step) {
         if (random.nextDouble() < 0.12) {
           continue;
         }
         final bu = u + (random.nextDouble() - 0.5) * 1.2;
         final bv = v + (random.nextDouble() - 0.5) * 1.2;
         // Keep the far-bank road clear.
-        if ((bv - 27.4).abs() < 1.6) {
+        if ((bv - 32.6).abs() < 1.8) {
           continue;
         }
-        final cluster = math.exp(-math.pow((bu - 3) / 17, 2).toDouble());
+        // The tallest towers stand farthest back, behind a lower front row.
+        final cluster =
+            math.exp(-math.pow((bu - 4) / 16, 2).toDouble()) *
+            (0.35 + 0.65 * _smoothstep(36, 48, bv));
         final noise = _fbm(bu * 0.11 + 7, bv * 0.11 - 3);
         final tall =
             4 +
             cluster * (10 + noise * 16) +
             random.nextDouble() * 5 +
-            _smoothstep(30, 50, bv) * 3;
+            _smoothstep(36, 52, bv) * 3;
         _addTower(
           glass,
           random,
@@ -206,15 +221,23 @@ class _CityScene extends OutdoorScene {
     final x = _worldX(u);
     final z = _worldZ(v);
     final base = this.height(u, v) - 0.2;
-    final wall = [
-      const _Rgb.hex(0xC9C3B8),
-      const _Rgb.hex(0xB59E7E),
-      const _Rgb.hex(0x5A616C),
-      const _Rgb.hex(0x8E949C),
-    ][random.nextInt(4)];
-    final glassTint = _Rgb.lerp(
-      const _Rgb.hex(0x6F8DA8),
-      const _Rgb.hex(0xA7BED0),
+    // Office towers are curtain walls; lower blocks have punched windows.
+    final office = height > 12 || random.nextDouble() < 0.35;
+    final wall = office
+        ? [
+            const _Rgb.hex(0x8E949C),
+            const _Rgb.hex(0x5A616C),
+            const _Rgb.hex(0xB9BDC2),
+          ][random.nextInt(3)]
+        : [
+            const _Rgb.hex(0xC9C3B8),
+            const _Rgb.hex(0xB59E7E),
+            const _Rgb.hex(0xA77E62),
+            const _Rgb.hex(0xD8D2C6),
+          ][random.nextInt(4)];
+    final glass = _Rgb.lerp(
+      const _Rgb.hex(0x5F7F9C),
+      const _Rgb.hex(0x9DB6CB),
       random.nextDouble(),
     );
     final neon = random.nextDouble() < 0.35
@@ -240,16 +263,19 @@ class _CityScene extends OutdoorScene {
         d,
         tierHeight,
         wall: wall,
-        glass: glassTint,
+        glass: glass,
+        office: office,
         neon: neon,
         crown: last,
+        storefront: tier == 0,
+        coarse: v > 44,
       );
       tierBase += tierHeight;
       w *= 0.72;
       d *= 0.72;
     }
     if (height > 20 && random.nextDouble() < 0.6) {
-      // Spire.
+      // Spire with a beacon.
       _addPrism(
         mesh,
         x,
@@ -262,14 +288,40 @@ class _CityScene extends OutdoorScene {
         color: const _Rgb.hex(0xC8CCD2),
         emissive: neon ?? const _Rgb.hex(0xFFF2D8),
       );
+    } else {
+      // Rooftop plant: an AC block and, on older blocks, a water tank.
+      _addBox(
+        mesh,
+        x - w * 0.15,
+        tierBase + 0.2,
+        z - d * 0.1,
+        width: w * 0.4,
+        height: 0.4,
+        depth: d * 0.35,
+        color: const _Rgb.hex(0x9A9C9E),
+      );
+      if (!office) {
+        _addPrism(
+          mesh,
+          x + w * 0.22,
+          tierBase,
+          z + d * 0.1,
+          bottomRadius: 0.22,
+          topRadius: 0.22,
+          height: 0.75,
+          sides: 6,
+          color: const _Rgb.hex(0x7A5E48),
+        );
+      }
     }
-    if (u.abs() < 26 && v < 44) {
+    _towerTops.add((v, tierBase + 6));
+    if (u.abs() < 26 && v < 48) {
       _addReflection(x, w, neon ?? const _Rgb.hex(0xFFC27A), height);
     }
   }
 
-  /// Three facades (the back is never seen) as alternating spandrel and
-  /// glass bands; each band of glass lights up, or not, at night.
+  /// The two facades the house can see, each a wall with a grid of windows
+  /// set just proud of it. Every window lights up, or not, on its own.
   void _addFacades(
     _LitMesh mesh,
     math.Random random,
@@ -281,86 +333,137 @@ class _CityScene extends OutdoorScene {
     double height, {
     required _Rgb wall,
     required _Rgb glass,
+    required bool office,
     required _Rgb? neon,
     required bool crown,
+    required bool storefront,
+    required bool coarse,
   }) {
-    const floorHeight = 0.9;
-    final floors = math.max(1, (height / floorHeight).floor());
     final hw = width / 2;
     final hd = depth / 2;
-    final faces = [
-      // (corner a, corner b) at ground level, wound to face outward.
-      ((x - hw, z + hd), (x + hw, z + hd)), // front, toward the house
-      ((x + hw, z + hd), (x + hw, z - hd)), // right
-      ((x - hw, z - hd), (x - hw, z + hd)), // left
+    final top = baseY + height;
+    // Faces as (a, b, outward normal) at ground level, wound outward.
+    final faces = <((double, double), (double, double), (double, double))>[
+      ((x - hw, z + hd), (x + hw, z + hd), (0, 1)), // front, toward the house
+      // Only the side turned toward the window is ever seen.
+      if (x < OutdoorScene._eyeX)
+        ((x + hw, z + hd), (x + hw, z - hd), (1, 0))
+      else
+        ((x - hw, z - hd), (x - hw, z + hd), (-1, 0)),
     ];
+    final floorHeight = coarse ? 1.1 : 0.85;
+    final floors = math.max(1, (height / floorHeight).floor());
     final band = height / floors;
-    for (var f = 0; f < floors; f += 1) {
-      final y0 = baseY + f * band;
-      final yGlass = y0 + band * 0.32;
-      final y1 = y0 + band;
-      final roll = random.nextDouble();
-      // Most floors burn warm, some cool white, some are dark.
-      final lit = roll < 0.62
-          ? _Rgb.lerp(
-              const _Rgb.hex(0xFFD08A),
-              const _Rgb.hex(0xFFE7B8),
-              random.nextDouble(),
-            )
-          : roll < 0.8
-          ? const _Rgb.hex(0xD9E8FF)
-          : null;
-      final isCrown = crown && neon != null && f == floors - 1;
-      for (final (a, b) in faces) {
-        _addQuad(
-          mesh,
-          (a.$1, y0, a.$2),
-          (b.$1, y0, b.$2),
-          (b.$1, yGlass, b.$2),
-          (a.$1, yGlass, a.$2),
-          isCrown ? neon.scale(0.8) : wall,
-          emissive: isCrown ? neon : null,
-        );
-        _addQuad(
-          mesh,
-          (a.$1, yGlass, a.$2),
-          (b.$1, yGlass, b.$2),
-          (b.$1, y1, b.$2),
-          (a.$1, y1, a.$2),
-          isCrown ? neon : glass,
-          emissive: isCrown ? neon : lit,
-        );
+    for (final (a, b, n) in faces) {
+      final faceWidth = math.sqrt(
+        (b.$1 - a.$1) * (b.$1 - a.$1) + (b.$2 - a.$2) * (b.$2 - a.$2),
+      );
+      _addQuad(
+        mesh,
+        (a.$1, baseY, a.$2),
+        (b.$1, baseY, b.$2),
+        (b.$1, top, b.$2),
+        (a.$1, top, a.$2),
+        wall,
+      );
+      (double, double, double) at(double s, double y, double proud) => (
+        a.$1 + (b.$1 - a.$1) * s + n.$1 * proud,
+        y,
+        a.$2 + (b.$2 - a.$2) * s + n.$2 * proud,
+      );
+      final pitch = coarse ? 0.75 : (office ? 0.46 : 0.55);
+      final columns = math.max(1, (faceWidth / pitch).floor());
+      final cell = 1 / columns;
+      // Curtain walls are nearly all glass; punched windows leave more wall.
+      final glassWidth = office ? 0.86 : 0.58;
+      final glassHeight = office ? 0.78 : 0.56;
+      for (var f = 0; f < floors; f += 1) {
+        final y0 = baseY + f * band;
+        final isStore = storefront && f == 0;
+        final isCrown = crown && neon != null && f == floors - 1;
+        if (isStore) {
+          // Shopfronts: one lit band of glass across the ground floor.
+          final shop = _neon[random.nextInt(_neon.length)];
+          _addQuad(
+            mesh,
+            at(0.04, y0 + band * 0.12, 0.02),
+            at(0.96, y0 + band * 0.12, 0.02),
+            at(0.96, y0 + band * 0.86, 0.02),
+            at(0.04, y0 + band * 0.86, 0.02),
+            glass.scale(0.8),
+            emissive: _Rgb.lerp(const _Rgb.hex(0xFFE2B0), shop, 0.35),
+          );
+          continue;
+        }
+        if (isCrown) {
+          _addQuad(
+            mesh,
+            at(0, y0 + band * 0.3, 0.02),
+            at(1, y0 + band * 0.3, 0.02),
+            at(1, y0 + band * 0.7, 0.02),
+            at(0, y0 + band * 0.7, 0.02),
+            neon.scale(0.8),
+            emissive: neon,
+          );
+          continue;
+        }
+        final wy0 = y0 + band * (1 - glassHeight) * 0.55;
+        final wy1 = wy0 + band * glassHeight;
+        for (var c = 0; c < columns; c += 1) {
+          final s0 = (c + (1 - glassWidth) / 2) * cell;
+          final s1 = s0 + glassWidth * cell;
+          final roll = random.nextDouble();
+          // Most windows burn warm, some cool white, the rest stay dark.
+          final lit = roll < 0.34
+              ? _Rgb.lerp(
+                  const _Rgb.hex(0xFFCF85),
+                  const _Rgb.hex(0xFFE9C0),
+                  random.nextDouble(),
+                )
+              : roll < 0.44
+              ? const _Rgb.hex(0xDCE9FF)
+              : null;
+          _addQuad(
+            mesh,
+            at(s0, wy0, 0.015),
+            at(s1, wy0, 0.015),
+            at(s1, wy1, 0.015),
+            at(s0, wy1, 0.015),
+            glass.scale(0.9 + random.nextDouble() * 0.2),
+            emissive: lit,
+          );
+        }
+      }
+      // Neon corner strips run the full height on lit towers.
+      if (neon != null && n.$2 > 0) {
+        for (final s in const [0.0, 1.0]) {
+          _addBeam(
+            mesh,
+            at(s, baseY, 0.04),
+            at(s, top, 0.04),
+            0.09,
+            neon.scale(0.7),
+            emissive: neon,
+          );
+        }
       }
     }
     // Roof.
     _addQuad(
       mesh,
-      (x - hw, baseY + height, z + hd),
-      (x + hw, baseY + height, z + hd),
-      (x + hw, baseY + height, z - hd),
-      (x - hw, baseY + height, z - hd),
+      (x - hw, top, z + hd),
+      (x + hw, top, z + hd),
+      (x + hw, top, z - hd),
+      (x - hw, top, z - hd),
       wall.scale(0.8),
     );
-    // Neon corner strips run the full height on the corners facing the house.
-    if (neon != null) {
-      for (final cx in [x - hw - 0.02, x + hw + 0.02]) {
-        _addBeam(
-          mesh,
-          (cx, baseY, z + hd + 0.02),
-          (cx, baseY + height, z + hd + 0.02),
-          0.09,
-          neon.scale(0.7),
-          emissive: neon,
-        );
-      }
-    }
   }
 
   void _addReflection(double x, double width, _Rgb color, double height) {
     // A soft streak stretching from the far bank toward the viewer.
     final length = 3 + math.min(height, 24) * 0.32;
-    final near = _wallZ - (24.5 - length);
-    final far = _wallZ - 24.5;
+    final near = _wallZ - (30.5 - length);
+    final far = _wallZ - 30.5;
     final hw = width * 0.3;
     _reflections.quad(
       (x - hw, _water + 0.03, far),
@@ -414,17 +517,17 @@ class _CityScene extends OutdoorScene {
       emissive: const _Rgb.hex(0xC9A3FF),
     );
     // Fan of stay cables to both spans.
-    for (var i = 1; i <= 7; i += 1) {
-      final reach = i / 7.5;
+    for (var i = 1; i <= 5; i += 1) {
+      final reach = i / 5.5;
       for (final dir in const [-1.0, 1.0]) {
         final along = mid + dir * reach * mid * 0.95;
-        final cableTop = pylonTop - 0.4 - i * 0.55;
+        final cableTop = pylonTop - 0.4 - i * 0.75;
         for (final side in const [-1.0, 1.0]) {
           _addBeam(
             mesh,
             at(mid, side * 0.35, cableTop),
             at(along, side * 1.2, _deckY + 0.2),
-            0.05,
+            0.03,
             const _Rgb.hex(0xE8E8E4),
             emissive: const _Rgb.hex(0xC8D4FF),
           );
@@ -588,17 +691,27 @@ class _CityScene extends OutdoorScene {
 
   void _buildCars() {
     final random = math.Random(0xCA25);
-    final geometry = three.BoxGeometry(0.8, 0.32, 0.42);
-    const paints = [0xE8E8E4, 0x2E3440, 0xB8302A, 0x2E5E9E, 0x9AA0A6, 0xD9B44A];
+    const paints = [
+      0xE8E8E4,
+      0x2E3440,
+      0xB8302A,
+      0x2E5E9E,
+      0x9AA0A6,
+      0xE8C23A, // taxi
+    ];
     for (var i = 0; i < 18; i += 1) {
-      final material = three.MeshBasicMaterial.fromMap({'color': 0xFFFFFF});
-      final mesh = three.Mesh(geometry, material);
+      final body = _LitMesh(wrap: 0.3);
+      _buildCarModel(
+        body,
+        _Rgb.hex(paints[random.nextInt(paints.length)]),
+        suv: random.nextDouble() < 0.3,
+      );
+      final mesh = body.createMesh();
       group.add(mesh);
       _cars.add(
         _Car(
           mesh: mesh,
-          material: material,
-          paint: _Rgb.hex(paints[random.nextInt(paints.length)]),
+          body: body,
           distance: random.nextDouble() * _routeLengths.last,
           speed: 3.2 + random.nextDouble() * 2.2,
           forward: i.isEven,
@@ -606,6 +719,83 @@ class _CityScene extends OutdoorScene {
       );
     }
     _placeCars();
+  }
+
+  /// A small car facing +x, built around its own origin: body, glass cabin
+  /// and roof, four wheels, headlights and tail lights.
+  void _buildCarModel(_LitMesh mesh, _Rgb paint, {required bool suv}) {
+    const length = 0.92;
+    const width = 0.42;
+    final cabinHeight = suv ? 0.2 : 0.15;
+    _addBox(
+      mesh,
+      0,
+      0.17,
+      0,
+      width: length,
+      height: 0.16,
+      depth: width,
+      color: paint,
+    );
+    // Glass cabin, set back from the bonnet, with a painted roof.
+    _addBox(
+      mesh,
+      -0.06,
+      0.25 + cabinHeight / 2,
+      0,
+      width: suv ? 0.62 : 0.5,
+      height: cabinHeight,
+      depth: width * 0.9,
+      color: const _Rgb.hex(0x2A3440),
+    );
+    _addBox(
+      mesh,
+      -0.06,
+      0.26 + cabinHeight,
+      0,
+      width: suv ? 0.6 : 0.46,
+      height: 0.025,
+      depth: width * 0.86,
+      color: paint,
+    );
+    for (final wx in const [-0.28, 0.28]) {
+      for (final wz in const [-0.2, 0.2]) {
+        _addBox(
+          mesh,
+          wx,
+          0.08,
+          wz,
+          width: 0.17,
+          height: 0.16,
+          depth: 0.07,
+          color: const _Rgb.hex(0x1A1A1C),
+        );
+      }
+    }
+    for (final lz in const [-0.13, 0.13]) {
+      _addBox(
+        mesh,
+        length / 2 + 0.01,
+        0.19,
+        lz,
+        width: 0.03,
+        height: 0.06,
+        depth: 0.1,
+        color: const _Rgb.hex(0xE8E6DC),
+        emissive: const _Rgb.hex(0xFFF4D2),
+      );
+      _addBox(
+        mesh,
+        -length / 2 - 0.01,
+        0.19,
+        lz,
+        width: 0.03,
+        height: 0.06,
+        depth: 0.1,
+        color: const _Rgb.hex(0x9A2228),
+        emissive: const _Rgb.hex(0xFF2A1E),
+      );
+    }
   }
 
   void _placeCars() {
@@ -617,31 +807,20 @@ class _CityScene extends OutdoorScene {
       final lv = v + math.cos(heading) * lane;
       final onViaduct = car.distance <= _routeLengths[_bridgeEnd];
       final y = onViaduct ? _deckY : height(lu, lv) + 0.08;
-      car.mesh.position.setValues(_worldX(lu), y + 0.2, _worldZ(lv));
-      car.mesh.rotation.y = heading;
+      car.mesh.position.setValues(_worldX(lu), y + 0.02, _worldZ(lv));
+      // Cars face the way they drive.
+      car.mesh.rotation.y = car.forward ? heading : heading + math.pi;
     }
   }
 
   @override
   void _onRelight(OutdoorLight light) {
     _night = light.windowGlow;
-    final level = (light.ambientStrength + light.sunStrength * 0.7).clamp(
-      0.0,
-      1.3,
-    );
     for (final car in _cars) {
-      // By night only the lights read: headlights coming, tail lights going.
-      final lights = car.forward
-          ? const _Rgb.hex(0xFF2A1E)
-          : const _Rgb.hex(0xFFF0C4);
-      final color = _Rgb.lerp(car.paint.scale(level), lights, _night);
-      car.material.color.setValues(
-        srgbToLinear(color.r),
-        srgbToLinear(color.g),
-        srgbToLinear(color.b),
-      );
+      // Car models sit at their own origin; light them as if near the house.
+      car.body.relight(light, 0, 1, 6);
     }
-    _reflections.intensity = _night;
+    _reflections.intensity = _night * 0.7;
   }
 
   @override
@@ -652,7 +831,7 @@ class _CityScene extends OutdoorScene {
     }
     _placeCars();
     if (_night > 0) {
-      _reflections.intensity = _night * (0.82 + 0.18 * math.sin(_time * 2.1));
+      _reflections.intensity = _night * (0.58 + 0.12 * math.sin(_time * 2.1));
     }
   }
 }
@@ -660,16 +839,14 @@ class _CityScene extends OutdoorScene {
 class _Car {
   _Car({
     required this.mesh,
-    required this.material,
-    required this.paint,
+    required this.body,
     required this.distance,
     required this.speed,
     required this.forward,
   });
 
   final three.Mesh mesh;
-  final three.MeshBasicMaterial material;
-  final _Rgb paint;
+  final _LitMesh body;
   double distance;
   final double speed;
   final bool forward;

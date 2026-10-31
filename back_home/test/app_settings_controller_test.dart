@@ -5,6 +5,7 @@ import 'package:back_home/settings/app_settings_controller.dart';
 import 'package:back_home/widgets/weather_settings_controls.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   test('Hall moderation rejections are recognized as inbox notifications', () {
@@ -78,6 +79,8 @@ void main() {
             onSkyWeather: (_) {},
             onWeatherAuto: () {},
             onSkyTimeOfDay: (_) {},
+            outdoorEnvironment: OutdoorEnvironment.island,
+            onOutdoorEnvironment: (_) {},
           ),
         ),
       ),
@@ -85,5 +88,46 @@ void main() {
 
     expect(find.text('Auto'), findsOneWidget);
     expect(find.text('Live'), findsNothing);
+  });
+
+  test('scenery choice is independent of weather and persists', () async {
+    SharedPreferences.setMockInitialValues({});
+    final controller = AppSettingsController();
+    await controller.load();
+
+    expect(controller.outdoorEnvironment, OutdoorEnvironment.island);
+    controller.setOutdoorEnvironment(OutdoorEnvironment.city);
+    expect(controller.outdoorEnvironment, OutdoorEnvironment.city);
+    expect(controller.weatherAuto, isTrue);
+
+    final reloaded = AppSettingsController();
+    await reloaded.load();
+    expect(reloaded.outdoorEnvironment, OutdoorEnvironment.city);
+  });
+
+  testWidgets('scenery chips switch the outdoor environment', (tester) async {
+    OutdoorEnvironment? picked;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: WeatherSettingsControls(
+            skyWeather: SkyWeather.clear,
+            weatherAuto: true,
+            skyTimeOfDay: null,
+            onSkyWeather: (_) {},
+            onWeatherAuto: () {},
+            onSkyTimeOfDay: (_) {},
+            outdoorEnvironment: OutdoorEnvironment.island,
+            onOutdoorEnvironment: (value) => picked = value,
+          ),
+        ),
+      ),
+    );
+
+    for (final label in ['Island', 'Waterfall', 'City', 'Forest']) {
+      expect(find.text(label), findsOneWidget);
+    }
+    await tester.tap(find.text('Waterfall'));
+    expect(picked, OutdoorEnvironment.waterfall);
   });
 }

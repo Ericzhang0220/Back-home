@@ -8,10 +8,10 @@ class _WaterfallScene extends OutdoorScene {
 
   static const double _water = -5.6;
   static const double _floor = -6.9;
-  static const double _lipV = 26.2;
+  static const double _lipV = 34.0;
   static const double _plateau = 10.0;
-  static const double _fallLeft = -5.5;
-  static const double _fallRight = 4.5;
+  static const double _fallLeft = -6.5;
+  static const double _fallRight = 5.5;
 
   final List<three.Mesh> _mist = [];
   final List<double> _mistPhase = [];
@@ -113,12 +113,12 @@ class _WaterfallScene extends OutdoorScene {
       foamThreshold: 0.72,
     );
     pool.ribbon(48, 40, (s, t) {
-      final v = 3 + s * 24;
+      final v = 3 + s * (_lipV - 2);
       final u = -16 + t * 32;
       // Churned white water at the foot of the falls.
       final churn =
-          _smoothstep(18, 25, v) *
-          (1 - _smoothstep(1, 5, math.max(0, (u + 0.5).abs() - 5)));
+          _smoothstep(_lipV - 8, _lipV - 1.5, v) *
+          (1 - _smoothstep(1, 5, math.max(0, (u + 0.5).abs() - 6)));
       return (
         x: _worldX(u),
         y: _water,
@@ -138,11 +138,12 @@ class _WaterfallScene extends OutdoorScene {
   }
 
   void _buildFalls() {
+    // Long thin streaks: bright water with shadowed bands, as falls read.
     final falls = _FlowMesh(
-      speed: 3.2,
-      alongFrequency: 0.55,
-      acrossFrequency: 1.5,
-      foamThreshold: 0.42,
+      speed: 2.4,
+      alongFrequency: 0.22,
+      acrossFrequency: 2.8,
+      foamThreshold: 0.36,
     );
     const top = _plateau + 0.12;
     const drop = top - _water;
@@ -150,7 +151,7 @@ class _WaterfallScene extends OutdoorScene {
     // Main curtain: slides across the plateau, bows over the lip and falls,
     // widening slightly toward the pool. The flow coordinate is continuous so
     // streaks pour over the edge.
-    falls.ribbon(46, 34, (s, t) {
+    falls.ribbon(46, 60, (s, t) {
       final double v;
       final double y;
       final double along;
@@ -158,12 +159,12 @@ class _WaterfallScene extends OutdoorScene {
         final k = s / curtainStart;
         v = _lipV + 7 * (1 - k);
         y = top;
-        along = (1 - k) * 7;
+        along = -(1 - k) * 7;
       } else {
         final k = (s - curtainStart) / (1 - curtainStart);
         v = _lipV - 1.3 * _smoothstep(0, 0.45, k) - 0.25 * k;
         y = top - drop * math.pow(k, 1.15);
-        along = -k * drop;
+        along = k * drop;
       }
       final spread = s < curtainStart ? 0.0 : (s - curtainStart) * 1.2;
       final u = _fallLeft - spread + t * (_fallRight - _fallLeft + spread * 2);
@@ -176,11 +177,11 @@ class _WaterfallScene extends OutdoorScene {
         along: along,
         across: u,
         base: _Rgb.lerp(
-          const _Rgb.hex(0x9FC4C8),
-          const _Rgb.hex(0x6E9CA4),
-          1 - _smoothstep(0, 0.12, edge),
+          const _Rgb.hex(0x8FAAB2),
+          const _Rgb.hex(0x5E7E86),
+          1 - _smoothstep(0, 0.1, edge),
         ),
-        foam: const _Rgb.hex(0xF4FAFA),
+        foam: const _Rgb.hex(0xFAFCFC),
         foamBias: s < curtainStart ? 0.0 : 0.25 + 0.5 * _smoothstep(0.8, 1, s),
       );
     });
@@ -197,7 +198,7 @@ class _WaterfallScene extends OutdoorScene {
           x: _worldX(u),
           y: y,
           z: _worldZ(_lipV - 0.2 - k * 0.6),
-          along: -k * drop,
+          along: k * drop,
           across: u,
           base: const _Rgb.hex(0x8EB6BA),
           foam: const _Rgb.hex(0xF0F8F8),
@@ -281,7 +282,7 @@ class _WaterfallScene extends OutdoorScene {
     final unit = _unitIcosahedron(0);
     for (var i = 0; i < 46; i += 1) {
       final u = (random.nextDouble() - 0.5) * 26;
-      final v = 7 + random.nextDouble() * 17;
+      final v = 7 + random.nextDouble() * (_lipV - 9);
       final h = height(u, v);
       if (_cliff(u, v) > 0.4) {
         continue;
@@ -345,7 +346,10 @@ class _WaterfallScene extends OutdoorScene {
         }
         // Gorge floor: occasional bushes by the banks, nothing tall.
         if (cliff < 0.6 && tv > 5) {
-          if (h > _water + 0.6 && accept < 0.25 && tu.abs() > 8) {
+          if (cliff < 0.12 &&
+              h > _water + 0.6 &&
+              accept < 0.25 &&
+              tu.abs() > 8) {
             _addBlob(
               foliage,
               low,
@@ -390,7 +394,9 @@ class _WaterfallScene extends OutdoorScene {
       final u = (random.nextDouble() - 0.5) * 50;
       final v = 6 + random.nextDouble() * 24;
       final cliff = _cliff(u, v);
-      if (cliff < 0.2 || cliff > 0.9 || _inSightline(u, v)) {
+      // Side walls only: the back wall faces the house, so clumps there
+      // would hang in front of the rock.
+      if (cliff < 0.3 || cliff > 0.75 || v > _lipV - 4 || _inSightline(u, v)) {
         continue;
       }
       final h = height(u, v);
@@ -399,8 +405,8 @@ class _WaterfallScene extends OutdoorScene {
         foliage,
         low,
         random,
-        _worldX(u - u.sign * 0.4),
-        h,
+        _worldX(u + u.sign * 0.8),
+        h - size * 0.25,
         _worldZ(v),
         size * 1.2,
         size * 0.7,
