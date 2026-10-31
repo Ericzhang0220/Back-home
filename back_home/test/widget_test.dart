@@ -44,6 +44,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
     await tester.ensureVisible(find.text('Golden Court').last);
+    await tester.pump();
     await tester.tap(find.text('Golden Court').last);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
@@ -581,61 +582,12 @@ void main() {
   testWidgets('renders the shop catalog at phone size', (
     WidgetTester tester,
   ) async {
+    FurniturePreviewStage.rendererEnabled = false;
+    addTearDown(() => FurniturePreviewStage.rendererEnabled = true);
     await tester.binding.setSurfaceSize(const Size(430, 932));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.light(),
-        home: ShopScreen(controller: RoomEditorController()),
-      ),
-    );
-
-    expect(find.text('Comfort shop'), findsOneWidget);
-    expect(find.text('Likes balance'), findsOneWidget);
-    expect(find.text('Categories'), findsOneWidget);
-    expect(find.text('Buy'), findsWidgets);
-    expect(find.text('Edit'), findsWidgets);
-    expect(find.textContaining('You have:'), findsWidgets);
-  });
-
-  testWidgets('tapping a catalog card moves it onto the preview turntable', (
-    WidgetTester tester,
-  ) async {
-    await tester.binding.setSurfaceSize(const Size(430, 932));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.light(),
-        home: ShopScreen(controller: RoomEditorController()),
-      ),
-    );
-
-    // The first catalog piece starts on the turntable, so its name shows twice:
-    // once in the preview panel, once on its own card.
-    expect(find.text('Sunset bed'), findsNWidgets(2));
-    expect(find.text('Soft nightstand'), findsOneWidget);
-
-    final nightstandCard = find.text('Soft nightstand');
-    await tester.ensureVisible(nightstandCard);
-    await tester.pumpAndSettle();
-    await tester.tap(nightstandCard);
-    await tester.pumpAndSettle();
-
-    expect(find.text('Soft nightstand'), findsNWidgets(2));
-    expect(find.text('Sunset bed'), findsOneWidget);
-  });
-
-  testWidgets('shop buy adds inventory without opening the editor', (
-    WidgetTester tester,
-  ) async {
     final controller = RoomEditorController();
-    final initialPlacedCount = controller.placedItems.length;
-
-    await tester.binding.setSurfaceSize(const Size(430, 932));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.light(),
@@ -643,14 +595,71 @@ void main() {
       ),
     );
 
-    final buyButton = find.widgetWithText(FilledButton, 'Buy').first;
-    await tester.ensureVisible(buyButton);
+    expect(find.text('Comfort shop'), findsOneWidget);
+    expect(find.text('${controller.likesBalance} Likes'), findsOneWidget);
+    expect(find.widgetWithText(ChoiceChip, 'All'), findsOneWidget);
+    expect(find.text('Edit room'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, 'Buy'), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
+  Future<void> showBeds(WidgetTester tester, RoomEditorController room) async {
+    FurniturePreviewStage.rendererEnabled = false;
+    addTearDown(() => FurniturePreviewStage.rendererEnabled = true);
+    await tester.binding.setSurfaceSize(const Size(430, 932));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(),
+        home: ShopScreen(controller: room),
+      ),
+    );
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Beds'));
     await tester.pumpAndSettle();
-    await tester.tap(buyButton);
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('product-sunset-bed')),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('tapping a catalog card opens its product sheet', (
+    WidgetTester tester,
+  ) async {
+    await showBeds(tester, RoomEditorController());
+
+    await tester.tap(find.byKey(const ValueKey('product-sunset-bed')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(FurniturePreviewStage), findsOneWidget);
+    expect(
+      tester
+          .widget<FurniturePreviewStage>(find.byType(FurniturePreviewStage))
+          .definition!
+          .id,
+      'sunset-bed',
+    );
+    expect(find.text('More beds'), findsOneWidget);
+  });
+
+  testWidgets('shop buy adds inventory without opening the editor', (
+    WidgetTester tester,
+  ) async {
+    final controller = RoomEditorController();
+    final initialPlacedCount = controller.placedItems.length;
+    await showBeds(tester, controller);
+
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey('product-sunset-bed')),
+        matching: find.widgetWithText(FilledButton, 'Buy'),
+      ),
+    );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
-    expect(find.text('Comfort shop'), findsOneWidget);
+    expect(find.byType(ShopScreen), findsOneWidget);
     expect(find.text('Save'), findsNothing);
     expect(controller.ownedCount('sunset-bed'), 2);
     expect(controller.availableToPlace('sunset-bed'), 1);
