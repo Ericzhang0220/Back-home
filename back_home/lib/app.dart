@@ -276,6 +276,7 @@ class _AppShellState extends State<AppShell> {
 
   Timer? _navHideTimer;
   bool _navVisible = false;
+  bool _shopOpen = false;
 
   /// Guards the welcome prompt so a skipped name is not asked for again until
   /// the next launch.
@@ -330,6 +331,7 @@ class _AppShellState extends State<AppShell> {
   }
 
   void _revealNav() {
+    if (_shopOpen) return;
     if (!_navVisible) {
       setState(() => _navVisible = true);
     }
@@ -427,11 +429,21 @@ class _AppShellState extends State<AppShell> {
   }
 
   Future<void> _openShop() async {
-    await _pageNavigator.currentState!.push(
-      MaterialPageRoute<void>(
+    if (_shopOpen) return;
+    _navHideTimer?.cancel();
+    setState(() {
+      _shopOpen = true;
+      _navVisible = false;
+    });
+    try {
+      final route = MaterialPageRoute<void>(
         builder: (_) => ShopScreen(controller: _roomController),
-      ),
-    );
+      );
+      await _pageNavigator.currentState!.push(route);
+      await route.completed;
+    } finally {
+      if (mounted) setState(() => _shopOpen = false);
+    }
   }
 
   Future<void> _openAchievements() async {
@@ -552,7 +564,7 @@ class _AppShellState extends State<AppShell> {
     final useCompactRoomNav =
         isRoomTab && MediaQuery.orientationOf(context) == Orientation.landscape;
     final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
-    final navShown = _navVisible && !keyboardOpen;
+    final navShown = !_shopOpen && _navVisible && !keyboardOpen;
     final navSlideOut = _currentTab == AppTab.chat
         ? const Duration(milliseconds: 180)
         : _navSlideOut;
@@ -581,9 +593,12 @@ class _AppShellState extends State<AppShell> {
     );
 
     return BottomNavigationReveal(
-      enabled: !navShown && !keyboardOpen,
+      enabled: !_shopOpen && !navShown && !keyboardOpen,
       allowDoubleTap:
-          !navShown && !keyboardOpen && (!isRoomTab || _showingDetail),
+          !_shopOpen &&
+          !navShown &&
+          !keyboardOpen &&
+          (!isRoomTab || _showingDetail),
       bottomGap: revealZoneBottom,
       zoneHeight: _navRevealZoneHeight,
       onReveal: _revealNav,
@@ -612,39 +627,43 @@ class _AppShellState extends State<AppShell> {
                 ),
               ),
             ),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: IgnorePointer(
-                ignoring: !navShown,
-                child: AnimatedSlide(
-                  key: ValueKey(_currentTab == AppTab.home),
-                  duration: navShown ? _navSlideIn : navSlideOut,
-                  curve: navShown ? Curves.easeOutCubic : Curves.easeInCubic,
-                  offset: Offset(0, navShown ? 0 : 1),
-                  child: AnimatedOpacity(
+            if (!_shopOpen)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: IgnorePointer(
+                  ignoring: !navShown,
+                  child: AnimatedSlide(
+                    key: ValueKey(_currentTab == AppTab.home),
                     duration: navShown ? _navSlideIn : navSlideOut,
-                    curve: Curves.easeInOutCubic,
-                    opacity: navShown ? 1 : 0,
-                    child: GestureDetector(
-                      onVerticalDragStart: (_) => _navDragDistance = 0,
-                      onVerticalDragUpdate: (details) =>
-                          _navDragDistance += details.delta.dy,
-                      onVerticalDragEnd: (details) {
-                        if (_navDragDistance > 24 ||
-                            (details.primaryVelocity ?? 0) > 180) {
-                          _hideNav();
-                        }
-                      },
-                      child: Center(
-                        child: ConstrainedBox(
-                          constraints: BoxConstraints(
-                            maxWidth: useCompactRoomNav ? 560 : double.infinity,
-                          ),
-                          child: _FloatingNavBar(
-                            currentTab: _currentTab,
-                            onSelect: _selectTab,
+                    curve: navShown ? Curves.easeOutCubic : Curves.easeInCubic,
+                    offset: Offset(0, navShown ? 0 : 1),
+                    child: AnimatedOpacity(
+                      duration: navShown ? _navSlideIn : navSlideOut,
+                      curve: Curves.easeInOutCubic,
+                      opacity: navShown ? 1 : 0,
+                      child: GestureDetector(
+                        onVerticalDragStart: (_) => _navDragDistance = 0,
+                        onVerticalDragUpdate: (details) =>
+                            _navDragDistance += details.delta.dy,
+                        onVerticalDragEnd: (details) {
+                          if (_navDragDistance > 24 ||
+                              (details.primaryVelocity ?? 0) > 180) {
+                            _hideNav();
+                          }
+                        },
+                        child: Center(
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxWidth: useCompactRoomNav
+                                  ? 560
+                                  : double.infinity,
+                            ),
+                            child: _FloatingNavBar(
+                              currentTab: _currentTab,
+                              onSelect: _selectTab,
+                            ),
                           ),
                         ),
                       ),
@@ -652,7 +671,6 @@ class _AppShellState extends State<AppShell> {
                   ),
                 ),
               ),
-            ),
           ],
         ),
       ),

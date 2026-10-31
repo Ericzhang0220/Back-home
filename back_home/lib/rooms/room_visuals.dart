@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'room_state.dart';
+import 'furniture_thumbnail_painter.dart';
 
 class RoomSpriteSpec {
   const RoomSpriteSpec({
@@ -18,6 +19,23 @@ class RoomSpriteSpec {
 
 RoomSpriteSpec roomSpriteSpecFor(RoomItemVisualKind kind) {
   switch (kind) {
+    case RoomItemVisualKind.table:
+    case RoomItemVisualKind.vanity:
+      return const RoomSpriteSpec(
+        baseName: 'desk',
+        widthUnits: 3.55,
+        aspectRatio: 122 / 117,
+        anchorY: .9,
+      );
+    case RoomItemVisualKind.chair:
+    case RoomItemVisualKind.sofa:
+    case RoomItemVisualKind.ottoman:
+      return const RoomSpriteSpec(
+        baseName: 'stoolBarSquare',
+        widthUnits: 1.08,
+        aspectRatio: 63 / 31,
+        anchorY: .9,
+      );
     case RoomItemVisualKind.bed:
       return const RoomSpriteSpec(
         baseName: 'bedDouble',
@@ -32,26 +50,13 @@ RoomSpriteSpec roomSpriteSpecFor(RoomItemVisualKind kind) {
         aspectRatio: 95 / 78,
         anchorY: 0.89,
       );
+    case RoomItemVisualKind.bookshelf:
     case RoomItemVisualKind.wardrobe:
       return const RoomSpriteSpec(
         baseName: 'bookcaseClosedWide',
         widthUnits: 3.25,
         aspectRatio: 160 / 109,
         anchorY: 0.92,
-      );
-    case RoomItemVisualKind.vanity:
-      return const RoomSpriteSpec(
-        baseName: 'desk',
-        widthUnits: 3.55,
-        aspectRatio: 122 / 117,
-        anchorY: 0.9,
-      );
-    case RoomItemVisualKind.ottoman:
-      return const RoomSpriteSpec(
-        baseName: 'stoolBarSquare',
-        widthUnits: 1.08,
-        aspectRatio: 63 / 31,
-        anchorY: 0.9,
       );
     case RoomItemVisualKind.floorLamp:
       return const RoomSpriteSpec(
@@ -102,6 +107,9 @@ class RoomSpriteThumbnail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (definition.design != null) {
+      return FurnitureMeshThumbnail(definition: definition, size: size);
+    }
     final spec = roomSpriteSpecFor(definition.visualKind);
     final spriteWidth = size * 0.92;
     final spriteHeight = spriteWidth * spec.aspectRatio;

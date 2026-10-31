@@ -73,7 +73,7 @@ class KeyboardEditing extends ChangeNotifier {
   final ValueChanged<TextEditingValue>? onEdit;
   TextEditingValue value;
   PinyinLexicon? lexicon;
-  bool chinese = true;
+  bool chinese = false;
   bool shifted = false;
   bool capsLock = false;
   bool symbols = false;

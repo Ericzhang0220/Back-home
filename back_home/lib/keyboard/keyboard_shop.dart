@@ -437,8 +437,8 @@ class _KeyboardPreviewScreenState extends State<KeyboardPreviewScreen> {
                                   child: Text(
                                     editing.value.text.isEmpty
                                         ? (_loading
-                                              ? 'Loading pinyin…'
-                                              : 'Try typing below · 试试拼音输入')
+                                              ? 'Loading keyboard…'
+                                              : 'Try typing below')
                                         : editing.value.text,
                                     maxLines: 3,
                                     overflow: TextOverflow.ellipsis,

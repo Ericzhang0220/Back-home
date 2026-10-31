@@ -162,7 +162,7 @@ class CharacterKeyboard extends StatelessWidget {
                                 children: [
                                   const SizedBox(width: 9),
                                   Text(
-                                    editing.chinese ? '拼音' : 'English',
+                                    editing.chinese ? 'Pinyin' : 'English',
                                     style: TextStyle(
                                       fontFamilyFallback: ['ChetCJK'],
                                       color: skin.accent,
@@ -286,7 +286,7 @@ class CharacterKeyboard extends StatelessWidget {
                               onTap: editing.toggleSymbols,
                             ),
                             _key(
-                              editing.chinese ? '中' : 'EN',
+                              editing.chinese ? 'ZH' : 'EN',
                               flex: 11,
                               onTap: editing.toggleLanguage,
                             ),
@@ -298,11 +298,7 @@ class CharacterKeyboard extends StatelessWidget {
                               flex: 10,
                               onTap: editing.toggleEmoji,
                             ),
-                            _key(
-                              editing.chinese ? '空格' : 'space',
-                              flex: 42,
-                              onTap: editing.space,
-                            ),
+                            _key('space', flex: 42, onTap: editing.space),
                             _key(
                               editing.chinese ? '，' : ',',
                               flex: 9,

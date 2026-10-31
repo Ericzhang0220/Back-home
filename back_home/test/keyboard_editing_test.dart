@@ -7,7 +7,9 @@ void main() {
   test(
     'offline pinyin resolves phrases and consumes a sentence in parts',
     () async {
-      final editing = KeyboardEditing()..lexicon = await PinyinLexicon.load();
+      final editing = KeyboardEditing()
+        ..chinese = true
+        ..lexicon = await PinyinLexicon.load();
       addTearDown(editing.dispose);
       for (final key in 'nihao'.split('')) {
         editing.key(key);
@@ -66,12 +68,15 @@ void main() {
   test(
     'deleting composition does not remove previously committed Chinese',
     () async {
-      final editing = KeyboardEditing(
-        initial: const TextEditingValue(
-          text: '你好',
-          selection: TextSelection.collapsed(offset: 2),
-        ),
-      )..lexicon = await PinyinLexicon.load();
+      final editing =
+          KeyboardEditing(
+              initial: const TextEditingValue(
+                text: '你好',
+                selection: TextSelection.collapsed(offset: 2),
+              ),
+            )
+            ..chinese = true
+            ..lexicon = await PinyinLexicon.load();
       addTearDown(editing.dispose);
       editing.key('n');
       editing.key('i');

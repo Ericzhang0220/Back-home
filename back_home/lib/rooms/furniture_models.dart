@@ -1,7 +1,11 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:three_js/three_js.dart' as three;
 
 import 'room_state.dart';
+
+part 'furniture_variants.dart';
 
 /// The 3D geometry for every catalog piece, in one place.
 ///
@@ -90,6 +94,34 @@ class FurniturePalette {
 /// Every piece's default colours. Edit here.
 const Map<RoomItemVisualKind, FurniturePalette> kFurniturePalettes = {
   // frame: bed base · surface: headboard · soft: sheets, duvet and pillows
+  RoomItemVisualKind.table: FurniturePalette(
+    frame: Color(0xFFB99062),
+    surface: Color(0xFFD7B487),
+    accent: Color(0xFFE8CEAA),
+    hardware: Color(0xFF604A37),
+    soft: Color(0xFFD7C4AD),
+  ),
+  RoomItemVisualKind.chair: FurniturePalette(
+    frame: Color(0xFFB99062),
+    surface: Color(0xFFD7B487),
+    accent: Color(0xFFE8CEAA),
+    hardware: Color(0xFF604A37),
+    soft: Color(0xFFD7C4AD),
+  ),
+  RoomItemVisualKind.sofa: FurniturePalette(
+    frame: Color(0xFFB99062),
+    surface: Color(0xFFD7B487),
+    accent: Color(0xFFE8CEAA),
+    hardware: Color(0xFF604A37),
+    soft: Color(0xFFD7C4AD),
+  ),
+  RoomItemVisualKind.bookshelf: FurniturePalette(
+    frame: Color(0xFFB99062),
+    surface: Color(0xFFD7B487),
+    accent: Color(0xFFE8CEAA),
+    hardware: Color(0xFF604A37),
+    soft: Color(0xFFD7C4AD),
+  ),
   RoomItemVisualKind.bed: FurniturePalette(
     frame: Color(0xFFD1C8BD),
     surface: Color(0xFFC6C1B8),
@@ -242,6 +274,11 @@ three.Group buildFurnitureVisual(
 }) {
   final colors = palette ?? furniturePaletteFor(kind);
   switch (kind) {
+    case RoomItemVisualKind.table:
+    case RoomItemVisualKind.chair:
+    case RoomItemVisualKind.sofa:
+    case RoomItemVisualKind.bookshelf:
+      return _buildStudioFurniture(kind, const FurnitureDesign(0, 0), colors);
     case RoomItemVisualKind.bed:
       return _buildBed(colors);
     case RoomItemVisualKind.nightstand:
@@ -262,7 +299,33 @@ three.Group buildFurnitureVisual(
 three.Group buildFurnitureVisualFor(
   RoomItemDefinition definition, {
   FurniturePalette? palette,
-}) => buildFurnitureVisual(definition.visualKind, palette: palette);
+}) {
+  final design = definition.design;
+  if (design == null) {
+    return buildFurnitureVisual(definition.visualKind, palette: palette);
+  }
+  final model = _buildStudioFurniture(
+    definition.visualKind,
+    design,
+    palette ?? _studioPalette(definition.visualKind, design.finish),
+  );
+  // Fit the declared placement footprint and put the feet exactly on the floor.
+  final bounds = three.BoundingBox().setFromObject(model);
+  final w = bounds.max.x - bounds.min.x;
+  final d = bounds.max.z - bounds.min.z;
+  final scale = math.min(
+    1.0,
+    math.min((definition.width - .06) / w, (definition.depth - .06) / d),
+  );
+  model.scale.setValues(scale, scale, scale);
+  model.position.setValues(
+    -(bounds.min.x + bounds.max.x) / 2 * scale,
+    -bounds.min.y * scale,
+    -(bounds.min.z + bounds.max.z) / 2 * scale,
+  );
+  final root = three.Group()..add(model);
+  return root;
+}
 
 /// Low frame, stacked duvet layers, headboard and two pillows.
 three.Group _buildBed(FurniturePalette colors) {

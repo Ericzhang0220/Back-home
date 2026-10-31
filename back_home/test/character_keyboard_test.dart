@@ -172,6 +172,8 @@ void main() {
         (tester.testTextInput.setClientArgs!['inputType'] as Map)['name'],
         'TextInputType.none',
       );
+      await tester.tap(find.text('EN'));
+      await tester.pump();
       for (final key in 'nihao'.split('')) {
         await tester.tap(find.text(key));
         await tester.pump();

@@ -9,7 +9,7 @@ import 'package:three_js/three_js.dart' as three;
 import 'furniture_models.dart';
 import 'room_gl_gate.dart';
 import 'room_state.dart';
-import 'room_visuals.dart';
+import 'furniture_thumbnail_painter.dart';
 
 /// Real 3D previews for the shop, built from the same geometry the room places.
 ///
@@ -73,13 +73,13 @@ class FurnitureThumbnail extends StatelessWidget {
     return ValueListenableBuilder<int>(
       valueListenable: FurnitureThumbnails.instance.revision,
       builder: (context, _, _) {
-        final image = FurnitureThumbnails.instance.imageFor(
-          definition.visualKind,
-        );
+        final image = definition.design == null
+            ? FurnitureThumbnails.instance.imageFor(definition.visualKind)
+            : null;
         return AnimatedSwitcher(
           duration: const Duration(milliseconds: 260),
           child: image == null
-              ? RoomSpriteThumbnail(
+              ? FurnitureMeshThumbnail(
                   key: const ValueKey('sprite'),
                   definition: definition,
                   size: size,
@@ -176,7 +176,7 @@ class _FurniturePreviewStageState extends State<FurniturePreviewStage> {
   @override
   void didUpdateWidget(covariant FurniturePreviewStage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.definition?.visualKind != oldWidget.definition?.visualKind) {
+    if (widget.definition?.id != oldWidget.definition?.id) {
       _showSelectedKind();
       // Tapping a card to put a piece on the turntable is the ask.
       _spinning = true;
@@ -392,8 +392,8 @@ class _FurniturePreviewStageState extends State<FurniturePreviewStage> {
   void _showSelectedKind() {
     final pivot = _pivot;
     final camera = _camera;
-    final kind = widget.definition?.visualKind;
-    if (pivot == null || camera == null || kind == null) {
+    final definition = widget.definition;
+    if (pivot == null || camera == null || definition == null) {
       return;
     }
 
@@ -402,7 +402,7 @@ class _FurniturePreviewStageState extends State<FurniturePreviewStage> {
       child.dispose();
     }
 
-    final model = buildFurnitureVisual(kind);
+    final model = buildFurnitureVisualFor(definition);
     _centerOnOrigin(model);
     pivot.add(model);
     camera.aspect = _stageWidth / _stageHeight;

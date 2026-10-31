@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:back_home/app.dart';
 import 'package:back_home/auth/app_auth_controller.dart';
+import 'package:back_home/keyboard/keyboard_shop.dart';
 import 'package:back_home/rooms/furniture_preview.dart';
 import 'package:back_home/rooms/isometric_room_view.dart';
 import 'package:back_home/rooms/room_state.dart';
@@ -13,6 +14,72 @@ import 'package:back_home/widgets/app_ui.dart';
 import 'package:back_home/widgets/bottom_navigation_reveal.dart';
 
 void main() {
+  testWidgets('shop and keyboard previews never reveal the shell navigation', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(430, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(const BackHomeApp());
+    await tester.dragFrom(const Offset(195, 794), const Offset(0, -90));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.tap(
+      find.descendant(
+        of: find.byType(NavigationBar),
+        matching: find.text('Room'),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.tap(find.byIcon(Icons.shopping_bag_rounded));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.byType(ShopScreen), findsOneWidget);
+    expect(find.byType(NavigationBar), findsNothing);
+    await tester.dragFrom(const Offset(195, 794), const Offset(0, -90));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.byType(NavigationBar), findsNothing);
+    await tester.tap(find.text('Keyboards'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.ensureVisible(find.text('Golden Court').last);
+    await tester.tap(find.text('Golden Court').last);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.tapAt(const Offset(180, 350));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tapAt(const Offset(180, 350));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.dragFrom(const Offset(195, 794), const Offset(0, -90));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.byType(NavigationBar), findsNothing);
+    expect(find.byType(KeyboardPreviewScreen), findsOneWidget);
+    final han = RegExp(r'[\u3400-\u9fff]');
+    expect(
+      tester
+          .widgetList<Text>(find.byType(Text))
+          .any((text) => han.hasMatch(text.data ?? '')),
+      isFalse,
+    );
+    await tester.binding.handlePopRoute();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.byType(NavigationBar), findsNothing);
+    await tester.binding.handlePopRoute();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump();
+    expect(find.byType(ShopScreen), findsNothing);
+    await tester.dragFrom(const Offset(195, 794), const Offset(0, -90));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.byType(NavigationBar).hitTestable(), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   // The 3D views would otherwise open real GL contexts, whose platform channels
   // never answer under the test binding.
   setUp(() {

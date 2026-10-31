@@ -2,6 +2,8 @@ import 'dart:collection';
 
 import 'package:flutter/material.dart';
 
+part 'furniture_catalog.dart';
+
 enum RoomItemCategory { statement, storage, seating, decor, lighting }
 
 enum RoomItemVisualKind {
@@ -12,6 +14,10 @@ enum RoomItemVisualKind {
   ottoman,
   floorLamp,
   plant,
+  table,
+  chair,
+  sofa,
+  bookshelf,
 }
 
 /// Weather shown in the sky beyond the window.
@@ -85,6 +91,7 @@ class RoomItemDefinition {
     required this.width,
     required this.depth,
     this.canRotate = true,
+    this.design,
   });
 
   final String id;
@@ -99,6 +106,7 @@ class RoomItemDefinition {
   final int width;
   final int depth;
   final bool canRotate;
+  final FurnitureDesign? design;
 
   GridSize footprintForRotation(int quarterTurns) {
     final normalizedTurns = quarterTurns % 2;
@@ -245,6 +253,7 @@ class RoomEditorController extends ChangeNotifier {
           width: 1,
           depth: 1,
         ),
+        ...expandedFurnitureCatalog,
       ],
       _ownedCounts = {
         'sunset-bed': 1,

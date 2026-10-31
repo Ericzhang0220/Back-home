@@ -636,3 +636,10 @@ function readString(value, maxLength) {
   }
   return value.trim().slice(0, maxLength);
 }
+
+// Furniture browsing uses aggregate purchase reports, never private inventories.
+const { createFurnitureShop } = require("./furniture_shop");
+const furnitureShop = createFurnitureShop({ db, FieldValue, HttpsError });
+const furnitureOptions = { region: "us-central1", timeoutSeconds: 30, maxInstances: 3 };
+exports.recordFurniturePurchase = onCall(furnitureOptions, furnitureShop.record);
+exports.furniturePopularity = onCall(furnitureOptions, furnitureShop.popularity);
