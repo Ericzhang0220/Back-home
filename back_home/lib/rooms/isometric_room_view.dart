@@ -222,7 +222,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   _RoomTapTarget? _pendingTapTarget;
   // Preserve the touched surface point through the delayed tap and camera move.
   three.Vector3? _pendingTapAnchor;
+  String? _pendingFocusIdentity;
   three.Vector3? _focusAnchor;
+  final _focusShortcuts = RoomFocusShortcutTracker();
   String? _pendingFurnitureTapItemId;
   double _pointerDownX = 0;
   double _pointerDownY = 0;
@@ -630,9 +632,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       _cameraYaw = normalizeRoomCameraYaw(pose.yaw);
       // The island lies below the house; open the outside view looking down
       // over the valley rather than level into the sky.
-      _cameraPitch = widget.outsideView
-          ? math.max(pose.pitch - 0.2, _minLookPitch)
-          : pose.pitch;
+      _cameraPitch = (widget.outsideView ? pose.pitch - 0.2 : pose.pitch)
+          .clamp(_minLookPitch, _maxLookPitch)
+          .toDouble();
       final debugLook = IsometricRoomView.debugOutsideLook;
       if (widget.outsideView && debugLook != null) {
         _cameraYaw = normalizeRoomCameraYaw(debugLook.yaw);
@@ -767,6 +769,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     if (delta == 0) {
       return;
     }
+    _focusShortcuts.didNavigateManually();
     // Pinch apart (delta < 0) zooms in; pinch together (delta > 0) zooms out.
     final factor = delta < 0 ? _zoomInStep : _zoomOutStep;
     _zoom = (_zoom * factor).clamp(_minZoom, _maxZoom).toDouble();
@@ -778,6 +781,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _dragPreviewOrigin = null;
     _dragPreviewValid = true;
     _pendingTapTarget = null;
+    _pendingFocusIdentity = null;
     _pendingFurnitureTapItemId = null;
     _activeRotationItemId = null;
     _cameraTiltCandidate = false;
@@ -2120,6 +2124,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _recordPointerPosition(event, isDown: true);
     _pendingTapTarget = null;
     _pendingTapAnchor = null;
+    _pendingFocusIdentity = null;
     _pendingFurnitureTapItemId = null;
     _cameraTiltCandidate = false;
     _cameraTiltActive = false;
@@ -2135,6 +2140,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     if (sceneFurniture == null) {
       _pendingTapTarget = _resolveRoomTapTarget(hit?.object);
       _pendingTapAnchor = hit?.point?.clone();
+      _pendingFocusIdentity = _pendingTapTarget?.name;
       widget.controller.selectItem(null);
       _beginCameraTiltCandidate(event);
       return;
@@ -2146,6 +2152,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         widget.controller.definitionFor(placed.definitionId),
       );
       _pendingTapAnchor = hit?.point?.clone();
+      _pendingFocusIdentity = sceneFurniture.itemId;
     }
 
     if (!widget.canMoveFurniture ||
@@ -2272,6 +2279,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
 
     final tapTarget = _pointerTravel <= 10 ? _pendingTapTarget : null;
     final tapAnchor = _pointerTravel <= 10 ? _pendingTapAnchor : null;
+    final focusIdentity = _pointerTravel <= 10 ? _pendingFocusIdentity : null;
     final furnitureTapItemId = _pointerTravel <= 10
         ? _pendingFurnitureTapItemId
         : null;
@@ -2298,7 +2306,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         widget.controller.selectItem(furnitureTapItemId);
         return;
       }
-      _resolveRoomTapGesture(tapTarget, tapAnchor);
+      _resolveRoomTapGesture(tapTarget, tapAnchor, focusIdentity);
       return;
     }
 
@@ -2317,16 +2325,16 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _cameraTiltCandidate = false;
     _cameraTiltActive = false;
     _syncSceneWithController();
-    _resolveRoomTapGesture(tapTarget, tapAnchor);
+    _resolveRoomTapGesture(tapTarget, tapAnchor, focusIdentity);
   }
 
   void _beginCameraTiltCandidate(dynamic event) {
     _cameraTiltCandidate = true;
     _cameraTiltActive = false;
-    _cameraYaw = _currentCameraYaw;
-    _cameraPitch = _currentCameraPitch;
-    _yawAtDragStart = _cameraYaw;
-    _pitchAtDragStart = _cameraPitch;
+    // A tap must not interrupt an in-flight orientation. Only a real drag
+    // takes over the camera, using the visible heading as its starting point.
+    _yawAtDragStart = _currentCameraYaw;
+    _pitchAtDragStart = _currentCameraPitch;
     _cameraTiltPointerStartX = _eventClientX(event);
     _cameraTiltPointerStartY = _eventClientY(event);
   }
@@ -2346,6 +2354,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
 
     _cameraTiltActive = true;
     _pendingTapTarget = null;
+    _focusShortcuts.didNavigateManually();
 
     final requestedYaw =
         _yawAtDragStart -
@@ -2383,6 +2392,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     final forwardZ = -math.cos(_cameraYaw);
     final panX =
         (-delta.dx * rightX + delta.dy * forwardX) * _cameraPanUnitsPerPixel;
+    _focusShortcuts.didNavigateManually();
     final panZ =
         (-delta.dx * rightZ + delta.dy * forwardZ) * _cameraPanUnitsPerPixel;
     final maxPanX =
@@ -2488,6 +2498,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         targetY > currentY &&
         _isEyeBlocked(_cameraPanOffset.x, currentY, _cameraPanOffset.z);
     if (!targetBlocked || escapingUpward) {
+      _focusShortcuts.didNavigateManually();
       _cameraPanOffset.y = targetOffsetY;
       _refreshCamera();
     }
@@ -2868,9 +2879,13 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     };
   }
 
-  void _resolveRoomTapGesture(_RoomTapTarget? target, [three.Vector3? anchor]) {
+  void _resolveRoomTapGesture(
+    _RoomTapTarget? target, [
+    three.Vector3? anchor,
+    String? focusIdentity,
+  ]) {
     if (!_delaysRoomTapActions) {
-      _handleRoomTapTarget(target, anchor);
+      _handleRoomTapTarget(target, anchor, focusIdentity);
       return;
     }
 
@@ -2885,7 +2900,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       if (!mounted) {
         return;
       }
-      _handleRoomTapTarget(target, anchor);
+      _handleRoomTapTarget(target, anchor, focusIdentity);
     });
   }
 
@@ -2894,9 +2909,27 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _pendingRoomTapTimer = null;
   }
 
-  void _handleRoomTapTarget(_RoomTapTarget? target, [three.Vector3? anchor]) {
+  void _handleRoomTapTarget(
+    _RoomTapTarget? target, [
+    three.Vector3? anchor,
+    String? focusIdentity,
+  ]) {
     if (target == null) {
       return;
+    }
+    if (target != _RoomTapTarget.radio) {
+      final isFocused = switch (target) {
+        _RoomTapTarget.window => widget.outsideView,
+        _RoomTapTarget.desk => widget.deskFocused,
+        _RoomTapTarget.bed => widget.nightMode,
+        _RoomTapTarget.radio => false,
+      };
+      if (!_focusShortcuts.shouldFocus((
+        target,
+        focusIdentity ?? target.name,
+      ), isFocused: isFocused)) {
+        return;
+      }
     }
     _focusAnchor = anchor?.clone();
     switch (target) {

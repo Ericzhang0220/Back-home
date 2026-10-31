@@ -41,6 +41,50 @@ three.Mesh _box(double w, double h, double d, double x, double y, double z) {
 
 void main() {
   test(
+    'taps across an already focused window do not restart camera flights',
+    () {
+      final shortcuts = RoomFocusShortcutTracker();
+      const window = ('window', 'rear-window');
+      final eye = three.Vector3(0, 1.9, 0);
+      final firstPoint = three.Vector3(1, 2.3, -7.72);
+      expect(shortcuts.shouldFocus(window, isFocused: false), isTrue);
+      final first = _focus(eye, firstPoint, distance: 1.1);
+      var current = first;
+      for (final point in [
+        three.Vector3(-1.2, 1.2, -7.72),
+        three.Vector3(3.2, 3.5, -7.72),
+        three.Vector3(1, 2.3, -7.72),
+      ]) {
+        if (shortcuts.shouldFocus(window, isFocused: true)) {
+          current = _focus(current.position, point, distance: 1.1);
+        }
+        expect(current.position.distanceTo(first.position), lessThan(1e-9));
+        expect(current.yaw, first.yaw);
+        expect(current.pitch, first.pitch);
+      }
+    },
+  );
+
+  test('a deliberate camera move allows using the same shortcut again', () {
+    final shortcuts = RoomFocusShortcutTracker();
+    const window = ('window', 'rear-window');
+    expect(shortcuts.shouldFocus(window, isFocused: false), isTrue);
+    expect(shortcuts.shouldFocus(window, isFocused: true), isFalse);
+    shortcuts.didNavigateManually();
+    expect(shortcuts.shouldFocus(window, isFocused: true), isTrue);
+    expect(shortcuts.shouldFocus(window, isFocused: true), isFalse);
+  });
+
+  test('other furniture and re-entering a view remain valid shortcuts', () {
+    final shortcuts = RoomFocusShortcutTracker();
+    expect(shortcuts.shouldFocus(('desk', 'first'), isFocused: false), isTrue);
+    expect(shortcuts.shouldFocus(('desk', 'first'), isFocused: true), isFalse);
+    expect(shortcuts.shouldFocus(('desk', 'second'), isFocused: true), isTrue);
+    expect(shortcuts.shouldFocus(('window', 'rear'), isFocused: false), isTrue);
+    expect(shortcuts.shouldFocus(('window', 'rear'), isFocused: false), isTrue);
+  });
+
+  test(
     'repeated desk focus from an off-centre eye does not orbit or back away',
     () {
       final eye = three.Vector3(-2.2, 1.9, -1.1);

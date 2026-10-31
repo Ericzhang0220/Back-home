@@ -184,27 +184,12 @@ class _RoomScreenState extends State<RoomScreen> {
   }
 
   void _handleDoubleTap() {
-    if (_outsideView) {
-      setState(() {
-        _outsideView = false;
-      });
-      widget.onSubviewChanged(_inSubview);
-      return;
-    }
     if (_nightMode) {
       _brightenNightOverlayBeforeExit();
       return;
     }
-    if (_deskFocused) {
-      // Leave the desk subview for the main room view, keeping the nav hidden —
-      // an upward swipe brings navigation back.
-      setState(() {
-        _deskFocused = false;
-      });
-      widget.onSubviewChanged(_inSubview);
-      return;
-    }
-    // Already in the main room view: reveal its shop controls.
+    // Desk/window are free-camera shortcuts. A double-tap reveals controls
+    // without undoing the flight or restoring an old camera position.
     widget.onRevealChrome();
   }
 

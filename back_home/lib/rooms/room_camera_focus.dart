@@ -4,6 +4,20 @@ import 'package:three_js/three_js.dart' as three;
 
 typedef RoomFocusPose = ({three.Vector3 position, double yaw, double pitch});
 
+/// A shortcut is a destination, not a new camera flight for every tap on its
+/// surface. Deliberate camera navigation makes the shortcut available again.
+class RoomFocusShortcutTracker {
+  Object? _target;
+
+  bool shouldFocus(Object target, {required bool isFocused}) {
+    if (isFocused && _target == target) return false;
+    _target = target;
+    return true;
+  }
+
+  void didNavigateManually() => _target = null;
+}
+
 /// Approaches the touched point from the current side, keeping a stable height.
 /// A second focus never backs away or orbits around the room's origin.
 RoomFocusPose roomFocusPoseForPoint({

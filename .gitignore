@@ -121,3 +121,4 @@ app.*.symbols
 back_home/assets/isometric_rooms.obj
 
 back_home/lib/firebase_options.dart
+/back_home/output
