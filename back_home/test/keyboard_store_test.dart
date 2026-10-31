@@ -13,15 +13,12 @@ class _FailingPreferences extends Fake implements SharedPreferences {
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
-  test(
-    'twenty unique skins reference the existing twenty character portraits',
-    () {
-      expect(keyboardSkins, hasLength(20));
-      expect(keyboardSkins.map((s) => s.id).toSet(), hasLength(20));
-      expect(keyboardSkins.map((s) => s.name).toSet(), hasLength(20));
-      expect(keyboardSkins.map((s) => s.base).toSet(), hasLength(20));
-    },
-  );
+  test('twenty unique abstract themes retain stable purchase IDs', () {
+    expect(keyboardSkins, hasLength(20));
+    expect(keyboardSkins.map((s) => s.id).toSet(), hasLength(20));
+    expect(keyboardSkins.map((s) => s.name).toSet(), hasLength(20));
+    expect(keyboardSkins.map((s) => s.base).toSet(), hasLength(20));
+  });
   test(
     'purchase, wallet, scope and repeat ownership survive a reload',
     () async {

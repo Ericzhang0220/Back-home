@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'keyboard_catalog.dart';
+import 'keyboard_backdrop.dart';
 import 'keyboard_editing.dart';
 
 class CharacterKeyboard extends StatelessWidget {
@@ -27,6 +27,7 @@ class CharacterKeyboard extends StatelessWidget {
   final VoidCallback? onSystem;
   final String actionLabel;
   final bool preview;
+  // Compatibility with chat callers; portrait overrides are not rendered.
   final String? artworkAsset;
 
   @override
@@ -62,30 +63,7 @@ class CharacterKeyboard extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                Opacity(
-                  opacity: skin.isDark ? 0.44 : 0.32,
-                  child: ImageFiltered(
-                    imageFilter: ImageFilter.blur(sigmaX: 9, sigmaY: 9),
-                    child: Image.asset(
-                      artworkAsset ?? skin.asset,
-                      fit: BoxFit.cover,
-                      alignment: const Alignment(0, -0.2),
-                      excludeFromSemantics: true,
-                    ),
-                  ),
-                ),
-                DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        skin.base.withValues(alpha: 0.74),
-                        skin.base.withValues(alpha: 0.90),
-                      ],
-                    ),
-                  ),
-                ),
+                KeyboardBackdrop(skin: skin),
                 CustomPaint(painter: _AtmospherePainter(skin)),
                 Padding(
                   padding: EdgeInsets.fromLTRB(
@@ -471,7 +449,10 @@ class _AtmospherePainter extends CustomPainter {
   final KeyboardSkin skin;
   @override
   void paint(Canvas canvas, Size size) {
-    final seed = keyboardSkins.indexOf(skin);
+    final seed = skin.id.codeUnits.fold<int>(
+      0,
+      (a, b) => (a * 31 + b) & 0x7fffffff,
+    );
     final random = math.Random(seed + 41);
     final paint = Paint()
       ..color = skin.accent.withValues(alpha: 0.14)

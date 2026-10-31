@@ -10,6 +10,8 @@ class WeatherSettingsControls extends StatelessWidget {
     required this.onSkyWeather,
     required this.onWeatherAuto,
     required this.onSkyTimeOfDay,
+    required this.outdoorEnvironment,
+    required this.onOutdoorEnvironment,
     super.key,
   });
 
@@ -19,6 +21,8 @@ class WeatherSettingsControls extends StatelessWidget {
   final ValueChanged<SkyWeather> onSkyWeather;
   final VoidCallback onWeatherAuto;
   final ValueChanged<double> onSkyTimeOfDay;
+  final OutdoorEnvironment outdoorEnvironment;
+  final ValueChanged<OutdoorEnvironment> onOutdoorEnvironment;
 
   static const List<({String label, double value})> _skyTimes = [
     (label: 'Dawn', value: 0.26),
@@ -34,11 +38,36 @@ class WeatherSettingsControls extends StatelessWidget {
     SkyWeather.rain => 'Rain',
   };
 
+  static const Map<OutdoorEnvironment, ({String label, IconData icon})>
+  _environments = {
+    OutdoorEnvironment.island: (label: 'Island', icon: Icons.landscape_rounded),
+    OutdoorEnvironment.waterfall: (
+      label: 'Waterfall',
+      icon: Icons.water_rounded,
+    ),
+    OutdoorEnvironment.city: (label: 'City', icon: Icons.location_city_rounded),
+    OutdoorEnvironment.forest: (label: 'Forest', icon: Icons.forest_rounded),
+  };
+
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 4,
+          children: [
+            for (final entry in _environments.entries)
+              ChoiceChip(
+                avatar: Icon(entry.value.icon, size: 18),
+                label: Text(entry.value.label),
+                selected: outdoorEnvironment == entry.key,
+                onSelected: (_) => onOutdoorEnvironment(entry.key),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
         Wrap(
           spacing: 8,
           runSpacing: 4,

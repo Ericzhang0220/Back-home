@@ -5,9 +5,14 @@ import 'package:flutter/material.dart';
 
 import '../widgets/app_ui.dart';
 import 'keyboard_catalog.dart';
+import 'keyboard_backdrop.dart';
+import 'custom_keyboard_screen.dart';
 import 'keyboard_editing.dart';
 import 'keyboard_panel.dart';
 import 'keyboard_store.dart';
+import 'keyboard_thumbnail.dart';
+
+export 'keyboard_thumbnail.dart';
 
 class KeyboardShopSection extends StatelessWidget {
   const KeyboardShopSection({super.key, required this.store});
@@ -18,6 +23,8 @@ class KeyboardShopSection extends StatelessWidget {
     builder: (context, _) => Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        CustomKeyboardShopCard(store: store),
+        const SizedBox(height: 20),
         SoftCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -67,9 +74,9 @@ class KeyboardShopSection extends StatelessWidget {
         ),
         const SizedBox(height: 24),
         const SectionHeader(
-          title: '20 character keyboards',
+          title: '20 keyboard themes',
           subtitle:
-              'Glass keys, soft light, and a palette borrowed from each portrait. Preview before buying.',
+              'Glass keys, soft light, and abstract backgrounds. Preview before buying.',
         ),
         const SizedBox(height: 16),
         LayoutBuilder(
@@ -142,7 +149,7 @@ class _SkinShopCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '${number.toString().padLeft(2, '0')}  ${skin.characterName}',
+                    '${number.toString().padLeft(2, '0')}  ${skin.category}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -195,41 +202,6 @@ class _SkinShopCard extends StatelessWidget {
       ),
     );
   }
-}
-
-class KeyboardThumbnail extends StatefulWidget {
-  const KeyboardThumbnail({super.key, required this.skin});
-  final KeyboardSkin skin;
-  @override
-  State<KeyboardThumbnail> createState() => _KeyboardThumbnailState();
-}
-
-class _KeyboardThumbnailState extends State<KeyboardThumbnail> {
-  final editing = KeyboardEditing()..chinese = false;
-  @override
-  void dispose() {
-    editing.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => ExcludeSemantics(
-    child: IgnorePointer(
-      child: FittedBox(
-        fit: BoxFit.contain,
-        child: SizedBox(
-          width: 390,
-          height: 250,
-          child: CharacterKeyboard(
-            skin: widget.skin,
-            editing: editing,
-            onAction: () {},
-            preview: true,
-          ),
-        ),
-      ),
-    ),
-  );
 }
 
 class KeyboardPreviewScreen extends StatefulWidget {
@@ -368,11 +340,7 @@ class _KeyboardPreviewScreenState extends State<KeyboardPreviewScreen> {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  Image.asset(
-                    widget.skin.asset,
-                    fit: BoxFit.cover,
-                    alignment: const Alignment(0, -0.55),
-                  ),
+                  KeyboardBackdrop(skin: widget.skin),
                   DecoratedBox(
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
@@ -396,7 +364,7 @@ class _KeyboardPreviewScreenState extends State<KeyboardPreviewScreen> {
                           tooltip: 'Back',
                           onPressed: () => Navigator.pop(context),
                           icon: const Icon(Icons.arrow_back_rounded),
-                          color: Colors.white,
+                          color: widget.skin.ink,
                         ),
                         const Spacer(),
                         Padding(
@@ -405,7 +373,7 @@ class _KeyboardPreviewScreenState extends State<KeyboardPreviewScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                widget.skin.characterName,
+                                widget.skin.category,
                                 style: TextStyle(
                                   fontFamilyFallback: ['ChetCJK'],
                                   color: widget.skin.ink.withValues(alpha: 0.8),

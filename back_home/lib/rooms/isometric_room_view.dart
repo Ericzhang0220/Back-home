@@ -103,6 +103,7 @@ class IsometricRoomView extends StatefulWidget {
     this.onDoubleTapRoom,
     this.skyWeather = SkyWeather.clear,
     this.skyTimeOfDay,
+    this.outdoorEnvironment = OutdoorEnvironment.island,
     this.cameraZoom = 1,
     this.cameraRotateSensitivity = 1,
     this.showFurnitureColliders = false,
@@ -140,6 +141,9 @@ class IsometricRoomView extends StatefulWidget {
   /// Time of day for the sky as a fraction of the day in `[0, 1)` (0 = midnight,
   /// 0.25 = sunrise, 0.5 = noon, 0.75 = sunset). When null the real clock is used.
   final double? skyTimeOfDay;
+
+  /// Scenery beyond the window.
+  final OutdoorEnvironment outdoorEnvironment;
   final double cameraZoom;
   final double cameraRotateSensitivity;
   final bool showFurnitureColliders;
@@ -201,7 +205,8 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   final List<three.Object3D> _roomTapTargets = [];
   three.Group? _skyGroup;
   // Built once and relit in place; only the sky group rebuilds on refresh.
-  OutdoorLandscape? _landscape;
+  OutdoorScene? _landscape;
+  OutdoorEnvironment? _landscapeEnvironment;
   three.Group? _skySun;
   three.Group? _skyMoon;
   _SkyLook? _activeSkyLook;
@@ -382,7 +387,8 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     if (_threeConfigured &&
         _threeJs != null &&
         (widget.skyWeather != oldWidget.skyWeather ||
-            widget.skyTimeOfDay != oldWidget.skyTimeOfDay)) {
+            widget.skyTimeOfDay != oldWidget.skyTimeOfDay ||
+            widget.outdoorEnvironment != oldWidget.outdoorEnvironment)) {
       _rebuildSky();
     }
     if (_threeConfigured &&
@@ -630,11 +636,12 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         pose.position.z,
       );
       _cameraYaw = normalizeRoomCameraYaw(pose.yaw);
-      // The island lies below the house; open the outside view looking down
-      // over the valley rather than level into the sky.
-      _cameraPitch = (widget.outsideView ? pose.pitch - 0.2 : pose.pitch)
-          .clamp(_minLookPitch, _maxLookPitch)
-          .toDouble();
+      // Open the outside view looking down over the scenery rather than
+      // level into the sky.
+      _cameraPitch =
+          (widget.outsideView ? pose.pitch - _outsideOpeningTilt : pose.pitch)
+              .clamp(_minLookPitch, _maxLookPitch)
+              .toDouble();
       final debugLook = IsometricRoomView.debugOutsideLook;
       if (widget.outsideView && debugLook != null) {
         _cameraYaw = normalizeRoomCameraYaw(debugLook.yaw);
@@ -734,6 +741,15 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _updateDebugCenterRay();
     _publishSelectedScreenPosition();
   }
+
+  /// How far below level the outside view opens: down over the island's
+  /// valley, nearly level for the tall waterfall and skyline.
+  double get _outsideOpeningTilt => switch (widget.outdoorEnvironment) {
+    OutdoorEnvironment.island => 0.2,
+    OutdoorEnvironment.forest => 0.16,
+    OutdoorEnvironment.city => 0.06,
+    OutdoorEnvironment.waterfall => 0.04,
+  };
 
   void _applyCameraFov() {
     // FOV easing is a direct exponential blend, not a spring, so it cannot
@@ -1449,10 +1465,20 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _skyGroup = group;
     threeJs.scene.add(group);
 
-    final landscape = _landscape ??= OutdoorLandscape(
+    var landscape = _landscape;
+    if (landscape != null &&
+        _landscapeEnvironment != widget.outdoorEnvironment) {
+      threeJs.scene.remove(landscape.group);
+      landscape.group.dispose();
+      landscape = null;
+    }
+    landscape ??= OutdoorScene.build(
+      widget.outdoorEnvironment,
       wallZ:
           -RoomEditorController.roomDepth * RoomEditorController.cellSize / 2,
     );
+    _landscape = landscape;
+    _landscapeEnvironment = widget.outdoorEnvironment;
     if (landscape.group.parent == null) {
       threeJs.scene.add(landscape.group);
     }
@@ -1482,11 +1508,14 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
 
     for (var index = 0; index < _skyCloudGroups.length; index += 1) {
       final cloud = _skyCloudGroups[index];
-      cloud.position.x += dt * (0.025 + (index % 3) * 0.012);
+      // Slow enough to stay calm, quick enough to see the sky moving.
+      cloud.position.x += dt * (0.16 + (index % 3) * 0.07);
       if (cloud.position.x > 78) {
         cloud.position.x = -68;
       }
     }
+
+    _landscape?.animate(dt);
 
     for (var index = 0; index < _skyRainDrops.length; index += 1) {
       final drop = _skyRainDrops[index];
@@ -1837,6 +1866,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       shadowStrength: (0.2 + 0.5 * day) * sunWeather,
       saturation: saturation * (1 - night * 0.3),
       windowGlow: ((0.5 - day) / 0.35).clamp(0.0, 1.0) * 0.9,
+      daylight: day,
+      twilight: look.twilightStrength,
+      clearness: sunWeather,
     );
   }
 

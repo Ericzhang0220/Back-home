@@ -4,9 +4,9 @@ enum KeyboardUseScope { aiOnly, allPages }
 
 class KeyboardSkin {
   const KeyboardSkin(
-    this.characterId,
+    this.id,
     this.name,
-    this.characterName,
+    this.category,
     this.accent,
     this.base,
     this.ink,
@@ -15,17 +15,16 @@ class KeyboardSkin {
     this.radius,
   );
 
-  final String characterId;
+  // Keep legacy IDs so existing purchases survive the visual refresh.
+  final String id;
   final String name;
-  final String characterName;
+  final String category;
   final Color accent;
   final Color base;
   final Color ink;
   final IconData motif;
   final int price;
   final double radius;
-  String get id => characterId;
-  String get asset => 'assets/ai_characters/$characterId.png';
   bool get isDark => base.computeLuminance() < 0.3;
 }
 
@@ -33,7 +32,7 @@ const keyboardSkins = <KeyboardSkin>[
   KeyboardSkin(
     'ethan-miller',
     'Golden Court',
-    'Ethan Miller',
+    'Sunset',
     Color(0xFFFFB66E),
     Color(0xFF34231F),
     Color(0xFFFFF6E8),
@@ -44,7 +43,7 @@ const keyboardSkins = <KeyboardSkin>[
   KeyboardSkin(
     'noah-carter',
     'Rain on Asphalt',
-    'Noah Carter',
+    'Rain',
     Color(0xFFA7C8BE),
     Color(0xFF172927),
     Color(0xFFEAF6F1),
@@ -55,7 +54,7 @@ const keyboardSkins = <KeyboardSkin>[
   KeyboardSkin(
     'liam-anderson',
     'Midnight Studio',
-    'Liam Anderson',
+    'Midnight',
     Color(0xFFF3CF88),
     Color(0xFF1C2338),
     Color(0xFFFFF3DE),
@@ -66,7 +65,7 @@ const keyboardSkins = <KeyboardSkin>[
   KeyboardSkin(
     'mason-williams',
     'Lakeside Ember',
-    'Mason Williams',
+    'Nature',
     Color(0xFFE6AD78),
     Color(0xFF1E2C2C),
     Color(0xFFFFF3E6),
@@ -77,7 +76,7 @@ const keyboardSkins = <KeyboardSkin>[
   KeyboardSkin(
     'caleb-johnson',
     'Rosewood Melody',
-    'Caleb Johnson',
+    'Music',
     Color(0xFFF3A8B1),
     Color(0xFF352239),
     Color(0xFFFFEDF4),
@@ -88,7 +87,7 @@ const keyboardSkins = <KeyboardSkin>[
   KeyboardSkin(
     'ryan-thompson',
     'Blue Hour Library',
-    'Ryan Thompson',
+    'Library',
     Color(0xFFB6DDFC),
     Color(0xFF192D43),
     Color(0xFFEAF7FF),
@@ -99,7 +98,7 @@ const keyboardSkins = <KeyboardSkin>[
   KeyboardSkin(
     'tyler-brown',
     'Arcade Afterglow',
-    'Tyler Brown',
+    'Arcade',
     Color(0xFFFFAB63),
     Color(0xFF361F2C),
     Color(0xFFFFF0DD),
@@ -110,7 +109,7 @@ const keyboardSkins = <KeyboardSkin>[
   KeyboardSkin(
     'alex-davis',
     'Silver City',
-    'Alex Davis',
+    'City',
     Color(0xFFAFD8E8),
     Color(0xFF182835),
     Color(0xFFEAF5FC),
@@ -121,7 +120,7 @@ const keyboardSkins = <KeyboardSkin>[
   KeyboardSkin(
     'jake-wilson',
     'Courtyard Sun',
-    'Jake Wilson',
+    'Sunshine',
     Color(0xFFB68048),
     Color(0xFFF4E9D2),
     Color(0xFF453727),
@@ -132,7 +131,7 @@ const keyboardSkins = <KeyboardSkin>[
   KeyboardSkin(
     'daniel-martinez',
     'Olive Reverie',
-    'Daniel Martinez',
+    'Botanical',
     Color(0xFFC5D79A),
     Color(0xFF26362B),
     Color(0xFFF1F6DF),
@@ -143,7 +142,7 @@ const keyboardSkins = <KeyboardSkin>[
   KeyboardSkin(
     'emma-wilson',
     'Peach Horizon',
-    'Emma Wilson',
+    'Coast',
     Color(0xFFA95049),
     Color(0xFFF9D9C8),
     Color(0xFF573333),
@@ -154,7 +153,7 @@ const keyboardSkins = <KeyboardSkin>[
   KeyboardSkin(
     'olivia-parker',
     'Moonlit Pages',
-    'Olivia Parker',
+    'Moonlight',
     Color(0xFFCEC7F5),
     Color(0xFF282740),
     Color(0xFFF2EEFF),
@@ -165,7 +164,7 @@ const keyboardSkins = <KeyboardSkin>[
   KeyboardSkin(
     'sophia-martinez',
     'Velvet Skyline',
-    'Sophia Martinez',
+    'Skyline',
     Color(0xFFF8A8C6),
     Color(0xFF3B2445),
     Color(0xFFFFEFF6),
@@ -176,7 +175,7 @@ const keyboardSkins = <KeyboardSkin>[
   KeyboardSkin(
     'ava-thompson',
     'Honey Atelier',
-    'Ava Thompson',
+    'Honey',
     Color(0xFFA76A31),
     Color(0xFFF2DFBA),
     Color(0xFF4A3421),
@@ -187,7 +186,7 @@ const keyboardSkins = <KeyboardSkin>[
   KeyboardSkin(
     'mia-anderson',
     'Glasshouse Whisper',
-    'Mia Anderson',
+    'Glasshouse',
     Color(0xFF456C50),
     Color(0xFFDCE8D2),
     Color(0xFF273E31),
@@ -198,7 +197,7 @@ const keyboardSkins = <KeyboardSkin>[
   KeyboardSkin(
     'chloe-johnson',
     'Neon Courtside',
-    'Chloe Johnson',
+    'Neon',
     Color(0xFFC8A7FF),
     Color(0xFF25203D),
     Color(0xFFF5ECFF),
@@ -209,7 +208,7 @@ const keyboardSkins = <KeyboardSkin>[
   KeyboardSkin(
     'isabella-brown',
     'Champagne Muse',
-    'Isabella Brown',
+    'Art',
     Color(0xFF87603B),
     Color(0xFFF0E4D1),
     Color(0xFF49382C),
@@ -220,7 +219,7 @@ const keyboardSkins = <KeyboardSkin>[
   KeyboardSkin(
     'grace-miller',
     'Sage Bookmark',
-    'Grace Miller',
+    'Garden',
     Color(0xFF57754F),
     Color(0xFFE5ECD8),
     Color(0xFF34432E),
@@ -231,7 +230,7 @@ const keyboardSkins = <KeyboardSkin>[
   KeyboardSkin(
     'lily-davis',
     'Sea of Gold',
-    'Lily Davis',
+    'Golden hour',
     Color(0xFF9E6D26),
     Color(0xFFF6E4BA),
     Color(0xFF4C3B26),
@@ -242,7 +241,7 @@ const keyboardSkins = <KeyboardSkin>[
   KeyboardSkin(
     'hannah-carter',
     'Indigo Nocturne',
-    'Hannah Carter',
+    'Stars',
     Color(0xFFAFC2FF),
     Color(0xFF1D2544),
     Color(0xFFEDF1FF),

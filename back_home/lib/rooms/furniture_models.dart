@@ -357,7 +357,7 @@ three.Group _buildBed(FurniturePalette colors) {
       height: 0.18,
       depth: 3.0,
       color: furnitureShade(colors.soft, -0.06),
-      y: 0.54,
+      y: 0.52,
     ),
   );
   group.add(
@@ -366,7 +366,7 @@ three.Group _buildBed(FurniturePalette colors) {
       height: 0.2,
       depth: 3.0,
       color: colors.soft,
-      y: 0.78,
+      y: 0.7,
     ),
   );
   group.add(
@@ -375,7 +375,7 @@ three.Group _buildBed(FurniturePalette colors) {
       height: 0.16,
       depth: 2.82,
       color: furnitureShade(colors.soft, 0.07),
-      y: 0.91,
+      y: 0.86,
     ),
   );
   for (final x in const [-0.48, 0.48]) {
@@ -385,7 +385,7 @@ three.Group _buildBed(FurniturePalette colors) {
         height: 0.18,
         depth: 0.58,
         color: colors.accent,
-        y: 1.05,
+        y: 0.99,
         x: x,
         z: -1.18,
       ),

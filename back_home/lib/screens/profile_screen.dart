@@ -676,7 +676,7 @@ class _ProfileSettingsScreen extends StatelessWidget {
                     const SectionHeader(
                       title: 'Weather',
                       subtitle:
-                          'Weather and time of day shown through the room window.',
+                          'Scenery, weather and time of day shown through the room window.',
                     ),
                     const SizedBox(height: 12),
                     SoftCard(
@@ -687,6 +687,10 @@ class _ProfileSettingsScreen extends StatelessWidget {
                         onSkyWeather: settingsController.setSkyWeather,
                         onWeatherAuto: settingsController.setWeatherAuto,
                         onSkyTimeOfDay: settingsController.setSkyTimeOfDay,
+                        outdoorEnvironment:
+                            settingsController.outdoorEnvironment,
+                        onOutdoorEnvironment:
+                            settingsController.setOutdoorEnvironment,
                       ),
                     ),
                     const SizedBox(height: 28),

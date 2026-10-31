@@ -35,6 +35,65 @@ class _Face {
   final Color color;
 }
 
+class _Triangle {
+  _Triangle(this.points, this.depths, this.color);
+  final List<Offset> points;
+  final List<double> depths;
+  final Color color;
+
+  void split(double cell, List<_Face> out) {
+    final a = points[0], b = points[1], c = points[2];
+    final area = (b - a).dx * (c - a).dy - (b - a).dy * (c - a).dx;
+    if (area.abs() < 1e-9) return;
+    double depthAt(Offset p) {
+      final u = ((b - p).dx * (c - p).dy - (b - p).dy * (c - p).dx) / area;
+      final v = ((c - p).dx * (a - p).dy - (c - p).dy * (a - p).dx) / area;
+      final depth = u * depths[0] + v * depths[1] + (1 - u - v) * depths[2];
+      return depth;
+    }
+
+    final x0 = (points.map((p) => p.dx).reduce(math.min) / cell).floor();
+    final x1 = (points.map((p) => p.dx).reduce(math.max) / cell).floor();
+    final y0 = (points.map((p) => p.dy).reduce(math.min) / cell).floor();
+    final y1 = (points.map((p) => p.dy).reduce(math.max) / cell).floor();
+    for (var i = x0; i <= x1; i++) {
+      for (var j = y0; j <= y1; j++) {
+        final left = i * cell, top = j * cell;
+        var polygon = points;
+        polygon = _clip(polygon, (p) => p.dx - left);
+        polygon = _clip(polygon, (p) => left + cell - p.dx);
+        polygon = _clip(polygon, (p) => p.dy - top);
+        polygon = _clip(polygon, (p) => top + cell - p.dy);
+        if (polygon.length < 3) continue;
+        var centre = Offset.zero;
+        for (final p in polygon) {
+          centre += p;
+        }
+        out.add(
+          _Face(polygon, depthAt(centre / polygon.length.toDouble()), color),
+        );
+      }
+    }
+  }
+
+  /// Sutherland–Hodgman against one grid line; [inside] is >= 0 inside.
+  static List<Offset> _clip(
+    List<Offset> polygon,
+    double Function(Offset) inside,
+  ) {
+    final result = <Offset>[];
+    for (var k = 0; k < polygon.length; k++) {
+      final p = polygon[k], q = polygon[(k + 1) % polygon.length];
+      final dp = inside(p), dq = inside(q);
+      if (dp >= 0) result.add(p);
+      if ((dp >= 0) != (dq >= 0)) {
+        result.add(Offset.lerp(p, q, dp / (dp - dq))!);
+      }
+    }
+    return result;
+  }
+}
+
 class _MeshPainter extends CustomPainter {
   _MeshPainter(this.definition);
   final RoomItemDefinition definition;
@@ -53,6 +112,7 @@ class _MeshPainter extends CustomPainter {
     final right = three.Vector3(forward.z, 0, -forward.x).normalize();
     final up = three.Vector3().cross2(forward, right).normalize();
     Offset project(three.Vector3 v) => Offset(v.dot(right), -v.dot(up));
+    final triangles = <_Triangle>[];
     final faces = <_Face>[];
     void visit(three.Object3D object) {
       if (object is three.Mesh) {
@@ -89,10 +149,10 @@ class _MeshPainter extends CustomPainter {
               (base.green * 255 * light).round().clamp(0, 255),
               (base.blue * 255 * light).round().clamp(0, 255),
             );
-            faces.add(
-              _Face(
+            triangles.add(
+              _Triangle(
                 [project(a), project(b), project(c)],
-                (a.dot(forward) + b.dot(forward) + c.dot(forward)) / 3,
+                [a.dot(forward), b.dot(forward), c.dot(forward)],
                 color,
               ),
             );
@@ -106,17 +166,26 @@ class _MeshPainter extends CustomPainter {
 
     visit(model);
     model.dispose();
-    faces.sort((a, b) => a.depth.compareTo(b.depth));
     var minX = double.infinity, minY = double.infinity;
     var maxX = double.negativeInfinity, maxY = double.negativeInfinity;
-    for (final face in faces) {
-      for (final p in face.points) {
+    for (final triangle in triangles) {
+      for (final p in triangle.points) {
         minX = math.min(minX, p.dx);
         maxX = math.max(maxX, p.dx);
         minY = math.min(minY, p.dy);
         maxY = math.max(maxY, p.dy);
       }
     }
+    // A painter's sort by whole-triangle centroid lets a long face (a shelf,
+    // a sofa base) paint over the smaller parts in front of it. Instead every
+    // triangle is cut along a screen grid and each piece is ordered by its
+    // own centroid: faces that both fill a cell are compared at the same
+    // point, and pieces in different cells never overlap.
+    final cell = math.max(maxX - minX, maxY - minY) / 32;
+    for (final triangle in triangles) {
+      triangle.split(cell, faces);
+    }
+    faces.sort((a, b) => a.depth.compareTo(b.depth));
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
     if (faces.isNotEmpty) {

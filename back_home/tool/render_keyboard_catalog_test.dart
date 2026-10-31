@@ -28,12 +28,6 @@ void main() {
     });
     final folder = Directory('output/keyboards')..createSync(recursive: true);
     await tester.pumpWidget(const MaterialApp(home: Scaffold()));
-    final imageContext = tester.element(find.byType(Scaffold));
-    await tester.runAsync(() async {
-      for (final skin in keyboardSkins) {
-        await precacheImage(AssetImage(skin.asset), imageContext);
-      }
-    });
     for (var i = 0; i < keyboardSkins.length; i++) {
       final skin = keyboardSkins[i];
       final key = GlobalKey();
@@ -77,7 +71,7 @@ void main() {
                                     ),
                                   ),
                                   Text(
-                                    '${skin.characterName} · ${skin.price == 0 ? 'Starter' : '${skin.price} Likes'}',
+                                    '${skin.category} · ${skin.price == 0 ? 'Starter' : '${skin.price} Likes'}',
                                     style: TextStyle(
                                       color: skin.ink.withValues(alpha: 0.72),
                                       fontSize: 11,

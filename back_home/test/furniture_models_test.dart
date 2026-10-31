@@ -75,6 +75,52 @@ void main() {
     }
   });
 
+  // A table top hovering above its legs or a mirror floating behind a desk
+  // is invisible in the shop's small thumbnails, so check that every part
+  // touches the rest of the piece (bounding boxes within 12mm).
+  test('every piece is one connected solid', () {
+    const gap = .012;
+    bool touching(three.BoundingBox a, three.BoundingBox b) =>
+        a.min.x <= b.max.x + gap &&
+        b.min.x <= a.max.x + gap &&
+        a.min.y <= b.max.y + gap &&
+        b.min.y <= a.max.y + gap &&
+        a.min.z <= b.max.z + gap &&
+        b.min.z <= a.max.z + gap;
+
+    for (final definition in [
+      ...controller.catalog,
+      ...expandedFurnitureCatalog,
+    ]) {
+      final model = buildFurnitureVisualFor(definition)
+        ..updateMatrixWorld(true);
+      final parts = <three.BoundingBox>[];
+      model.traverse((object) {
+        if (object is three.Mesh) {
+          parts.add(three.BoundingBox().setFromObject(object));
+        }
+      });
+      final reached = {0};
+      final frontier = [0];
+      while (frontier.isNotEmpty) {
+        final part = parts[frontier.removeLast()];
+        for (var i = 0; i < parts.length; i++) {
+          if (!reached.contains(i) && touching(part, parts[i])) {
+            reached.add(i);
+            frontier.add(i);
+          }
+        }
+      }
+      expect(
+        reached.length,
+        parts.length,
+        reason:
+            '${definition.id} (${definition.title}) has '
+            '${parts.length - reached.length} floating part(s)',
+      );
+    }
+  });
+
   test('recolouring a piece changes its materials, not its shape', () {
     final defaultBed = measure(buildFurnitureVisual(RoomItemVisualKind.bed));
     final recoloured = measure(

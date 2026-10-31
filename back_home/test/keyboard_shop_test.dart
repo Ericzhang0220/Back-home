@@ -38,6 +38,7 @@ void main() {
       expect(find.byType(KeyboardThumbnail), findsNWidgets(20));
       final item = find.text('Golden Court').last;
       await tester.ensureVisible(item);
+      await tester.pumpAndSettle();
       await tester.tap(item);
       await tester.pumpAndSettle();
       expect(find.byType(KeyboardPreviewScreen), findsOneWidget);

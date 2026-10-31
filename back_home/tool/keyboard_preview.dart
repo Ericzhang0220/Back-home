@@ -1,3 +1,4 @@
+import 'package:back_home/chat/ai_models.dart';
 import 'package:back_home/keyboard/keyboard_host.dart';
 import 'package:back_home/keyboard/keyboard_store.dart';
 import 'package:back_home/rooms/room_state.dart';
@@ -13,7 +14,22 @@ Future<void> main() async {
   // ignore: invalid_use_of_visible_for_testing_member
   SharedPreferences.setMockInitialValues({});
   final room = RoomEditorController();
-  final store = KeyboardStore(room);
+  final store = KeyboardStore(
+    room,
+    characters: (_) => Stream.value(const [
+      AiCharacter(
+        id: 'my-demo-ai',
+        name: 'My stargazer',
+        personality: 'A quiet astronomer who loves moonlit gardens.',
+        introduction: 'There is always another star to discover.',
+        preview: 'A little wonder, every day.',
+        colorValue: 0xFFB6B0E4,
+        iconCodePoint: 'plants',
+        isCustom: true,
+        authorUid: 'keyboard-demo',
+      ),
+    ]),
+  );
   await store.loadForAccount('keyboard-demo');
   runApp(
     MaterialApp(

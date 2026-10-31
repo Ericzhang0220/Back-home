@@ -306,6 +306,8 @@ class _RoomScreenState extends State<RoomScreen> {
                       onDoubleTapRoom: _handleDoubleTap,
                       skyWeather: _effectiveWeather,
                       skyTimeOfDay: widget.settingsController.skyTimeOfDay,
+                      outdoorEnvironment:
+                          widget.settingsController.outdoorEnvironment,
                       cameraZoom: _cameraZoom,
                       cameraRotateSensitivity:
                           widget.settingsController.cameraRotateSensitivity,
@@ -450,6 +452,10 @@ class _RoomScreenState extends State<RoomScreen> {
                             },
                             onSkyTimeOfDay:
                                 widget.settingsController.setSkyTimeOfDay,
+                            outdoorEnvironment:
+                                widget.settingsController.outdoorEnvironment,
+                            onOutdoorEnvironment:
+                                widget.settingsController.setOutdoorEnvironment,
                             onCameraZoom: (value) =>
                                 setState(() => _cameraZoom = value),
                             onCameraRotateSensitivity: widget
@@ -582,6 +588,8 @@ class _SettingsPanel extends StatelessWidget {
     required this.onSkyWeather,
     required this.onWeatherAuto,
     required this.onSkyTimeOfDay,
+    required this.outdoorEnvironment,
+    required this.onOutdoorEnvironment,
     required this.onCameraZoom,
     required this.onCameraRotateSensitivity,
   });
@@ -595,6 +603,8 @@ class _SettingsPanel extends StatelessWidget {
   final ValueChanged<SkyWeather> onSkyWeather;
   final VoidCallback onWeatherAuto;
   final ValueChanged<double> onSkyTimeOfDay;
+  final OutdoorEnvironment outdoorEnvironment;
+  final ValueChanged<OutdoorEnvironment> onOutdoorEnvironment;
   final ValueChanged<double> onCameraZoom;
   final ValueChanged<double> onCameraRotateSensitivity;
 
@@ -650,7 +660,7 @@ class _SettingsPanel extends StatelessWidget {
                 ),
                 const SizedBox(height: 18),
                 const Text(
-                  'Weather and time of day shown through the window.',
+                  'Scenery, weather and time of day shown through the window.',
                   style: TextStyle(fontSize: 13, color: AppColors.muted),
                 ),
                 const SizedBox(height: 10),
@@ -661,6 +671,8 @@ class _SettingsPanel extends StatelessWidget {
                   onSkyWeather: onSkyWeather,
                   onWeatherAuto: onWeatherAuto,
                   onSkyTimeOfDay: onSkyTimeOfDay,
+                  outdoorEnvironment: outdoorEnvironment,
+                  onOutdoorEnvironment: onOutdoorEnvironment,
                 ),
                 const SizedBox(height: 18),
                 const Text(

@@ -36,6 +36,7 @@ class AppSettingsController extends ChangeNotifier {
   static const String _weatherAutoKey = 'weather_auto';
   static const String _skyWeatherKey = 'sky_weather';
   static const String _skyTimeOfDayKey = 'sky_time_of_day';
+  static const String _outdoorEnvironmentKey = 'outdoor_environment';
   static const double _defaultMusicVolume = 0.35;
   static const double _defaultCameraRotateSensitivity = 1.0;
 
@@ -55,6 +56,8 @@ class AppSettingsController extends ChangeNotifier {
   bool _weatherAuto = true;
   SkyWeather _skyWeather = SkyWeather.clear;
   double _skyTimeOfDay = 0.5;
+  OutdoorEnvironment _outdoorEnvironment = OutdoorEnvironment.island;
+  bool _outdoorEnvironmentDirty = false;
   bool _readingComfortDirty = false;
   bool _musicVolumeDirty = false;
   bool _profileVisibilityDirty = false;
@@ -72,6 +75,7 @@ class AppSettingsController extends ChangeNotifier {
   bool get weatherAuto => _weatherAuto;
   SkyWeather get skyWeather => _skyWeather;
   double? get skyTimeOfDay => _weatherAuto ? null : _skyTimeOfDay;
+  OutdoorEnvironment get outdoorEnvironment => _outdoorEnvironment;
 
   Future<void> load() async {
     try {
@@ -177,6 +181,18 @@ class AppSettingsController extends ChangeNotifier {
         }
       }
 
+      if (!_outdoorEnvironmentDirty) {
+        final savedEnvironment = preferences.getString(_outdoorEnvironmentKey);
+        final resolvedEnvironment = OutdoorEnvironment.values.firstWhere(
+          (environment) => environment.name == savedEnvironment,
+          orElse: () => _outdoorEnvironment,
+        );
+        if (resolvedEnvironment != _outdoorEnvironment) {
+          _outdoorEnvironment = resolvedEnvironment;
+          changed = true;
+        }
+      }
+
       if (changed) {
         notifyListeners();
       }
@@ -267,6 +283,18 @@ class AppSettingsController extends ChangeNotifier {
     _cameraRotateSensitivityDirty = true;
     notifyListeners();
     unawaited(_preferences?.setDouble(_cameraRotateSensitivityKey, normalized));
+  }
+
+  /// Scenery shown beyond the room window; independent of weather and time.
+  void setOutdoorEnvironment(OutdoorEnvironment value) {
+    if (_outdoorEnvironment == value) {
+      return;
+    }
+
+    _outdoorEnvironment = value;
+    _outdoorEnvironmentDirty = true;
+    notifyListeners();
+    unawaited(_preferences?.setString(_outdoorEnvironmentKey, value.name));
   }
 
   /// Restores the room sky to the current local weather and device time.

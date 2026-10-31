@@ -188,6 +188,7 @@ class _StudioBuilder {
     double y = 0,
     double x = 0,
     double z = 0,
+    Color? color,
   }) {
     for (final sx in [-1, 1]) {
       for (final sz in [-1, 1]) {
@@ -197,7 +198,7 @@ class _StudioBuilder {
           x + sx * (w / 2 - .09),
           y + h / 2,
           z + sz * (d / 2 - .09),
-          c.hardware,
+          color ?? c.hardware,
           bottom: .032,
           sides: 10,
         );
@@ -252,6 +253,29 @@ class _StudioBuilder {
     }
   }
 
+  /// Front-facing half-ellipse crown of width [w] rising [rise] above [y],
+  /// standing on whatever top board is at [y].
+  void arch(double w, double rise, double d, double y, Color color) {
+    // Rotated about x, theta in [pi/2, 3pi/2] is the upper half.
+    final geometry = three.CylinderGeometry(
+      w / 2,
+      w / 2,
+      d,
+      24,
+      1,
+      false,
+      math.pi / 2,
+      math.pi,
+    );
+    final mesh = three.Mesh(geometry, _material(color))
+      ..position.setValues(0, y, 0)
+      ..castShadow = true
+      ..receiveShadow = true;
+    mesh.rotation.x = math.pi / 2;
+    mesh.scale.z = rise / (w / 2);
+    group.add(mesh);
+  }
+
   void drawer(double w, double h, double x, double y, double z) {
     box(w, h, .045, x, y, z, c.surface);
     box(w * .24, .027, .05, x, y, z + .04, c.hardware);
@@ -297,7 +321,7 @@ three.Group _buildStudioFurniture(
               b.box(.09, .95, .09, x, .43, 0, c.hardware, tilt: .55);
               b.box(.09, .95, .09, x, .43, 0, c.hardware, tilt: -.55);
             } else {
-              b.box(.16, h - .1, .72, x, (h - .1) / 2, 0, c.frame);
+              b.box(.16, h - .05, .72, x, (h - .05) / 2, 0, c.frame);
               b.box(.32, .08, d * .85, x, .04, 0, c.hardware);
             }
           }
@@ -309,7 +333,8 @@ three.Group _buildStudioFurniture(
           for (final x in [-.42, .42]) {
             b.box(.012, .006, d * .94, x, h + .055, 0, c.hardware);
           }
-          b.box(.7, .07, d * .85, 0, .27, 0, c.frame);
+          // Lower shelf spans leg centre to leg centre so it rests on all four.
+          b.box(w - .18, .05, d - .18, 0, .27, 0, c.frame);
         }
       }
     case RoomItemVisualKind.bed:
@@ -460,7 +485,7 @@ three.Group _buildStudioFurniture(
             .84,
             .35,
             -.75 + i * .38,
-            1.75,
+            1.86,
             0,
             i.isEven ? c.soft : c.accent,
           );
@@ -471,33 +496,45 @@ three.Group _buildStudioFurniture(
         final doorW = f == 9 ? .78 : (w - .16) / n;
         for (var i = 0; i < n; i++) {
           final x = -1.17 + doorW * (i + .5);
-          final doorH = f == 5 ? 1.75 : 2.38;
-          final y = f == 5 ? 1.69 : 1.35;
+          // Doors close the opening between plinth (.12) and top (2.605).
+          final doorH = f == 5 ? 1.79 : 2.48;
+          final y = f == 5 ? 1.71 : 1.36;
+          final doorZ = .41 + (f == 2 ? i * .04 : 0);
+          final face = doorZ + .0225;
           b.box(
-            doorW - .035,
+            // Sliding doors overlap where they pass each other.
+            doorW - (f == 2 ? -.03 : .035),
             doorH,
             .045,
             x,
             y,
-            .41 + (f == 2 ? i * .04 : 0),
+            doorZ,
             c.surface,
           );
           if (f == 3) {
-            b.box(doorW - .15, doorH - .2, .025, x, y, .445, c.glass);
+            b.box(doorW - .15, doorH - .2, .025, x, y, face + .0125, c.glass);
           }
           if (f == 6) {
             for (var j = 0; j < 17; j++) {
-              b.box(doorW - .13, .045, .03, x, .26 + j * .13, .45, c.accent);
+              b.box(
+                doorW - .13,
+                .045,
+                .03,
+                x,
+                .3 + j * .14,
+                face + .015,
+                c.accent,
+              );
             }
           }
           if (f == 8 || design.finish == 1) {
-            b.cane(doorW - .18, doorH - .25, x, y, .45);
+            b.cane(doorW - .18, doorH - .25, x, y, face + .007);
           }
-          b.box(.04, .28, .06, x + doorW * .32, y, .48, c.hardware);
+          b.box(.04, .28, .06, x + doorW * .32, y, face + .03, c.hardware);
         }
         if (f == 5) {
           for (var i = 0; i < 3; i++) {
-            b.drawer(2.3, .19, 0, .25 + i * .22, .43);
+            b.drawer(2.3, .19, 0, .25 + i * .22, .41);
           }
         }
         if (f == 9) {
@@ -506,7 +543,7 @@ three.Group _buildStudioFurniture(
           }
         }
         if (f == 7) {
-          b.blob(2.45, .65, .78, 0, 2.58, 0, c.frame);
+          b.arch(w, .32, .8, h + .045, c.frame);
         }
       }
     case RoomItemVisualKind.vanity:
@@ -514,7 +551,7 @@ three.Group _buildStudioFurniture(
       b.top(2.6, .82, h);
       if (f == 2 || f == 4 || f == 7) {
         for (final x in [-.96, .96]) {
-          b.box(.55, h - .08, .7, x, (h - .08) / 2, 0, c.frame);
+          b.box(.55, h - .05, .7, x, (h - .05) / 2, 0, c.frame);
           for (var i = 0; i < 3; i++) {
             b.drawer(.48, .18, x, .18 + i * .21, .38);
           }
@@ -532,14 +569,18 @@ three.Group _buildStudioFurniture(
         b.legs(.8, 1.6, h - .05, x: -.9, z: .5);
       }
       if (f == 1 || f == 8 || f == 9) {
+        // Mirrors stand on the desktop (its upper face is h + .05).
+        final desk = h + .05;
         if (f == 1 || f == 9) {
-          b.blob(1.05, 1.05, .08, 0, 1.48, -.33, c.frame);
-          b.blob(.94, .94, .025, 0, 1.48, -.28, c.glass);
+          b.box(.5, .05, .16, 0, desk + .025, -.33, c.frame);
+          b.blob(1.05, 1.05, .08, 0, desk + .54, -.33, c.frame);
+          b.blob(.94, .94, .025, 0, desk + .54, -.28, c.glass);
         } else {
-          b.box(1.25, .9, .08, 0, 1.42, -.33, c.frame);
-          b.box(1.1, .76, .02, 0, 1.42, -.28, c.glass);
+          b.box(1.25, .9, .08, 0, desk + .45, -.33, c.frame);
+          b.box(1.1, .76, .02, 0, desk + .45, -.28, c.glass);
           for (final x in [-.85, .85]) {
-            b.box(.3, .65, .08, x, 1.4, -.3, c.glass);
+            b.box(.3, .65, .08, x, desk + .325, -.33, c.frame);
+            b.box(.24, .57, .02, x, desk + .325, -.28, c.glass);
           }
         }
       }
@@ -552,13 +593,17 @@ three.Group _buildStudioFurniture(
         }
       }
       if (f == 0) {
-        b.drawer(.85, .14, 0, .68, .42);
+        b.drawer(.85, .14, 0, h - .12, .42);
       }
     case RoomItemVisualKind.ottoman:
       final wide = [2, 3, 4, 9].contains(f);
       final w = wide ? 1.8 : .82;
       if (f == 4) {
         b.legs(w, .65, .45);
+        // Cross rails carry the slats between the leg pairs.
+        for (final x in [-w / 2 + .09, w / 2 - .09]) {
+          b.box(.07, .05, .62, x, .425, 0, c.frame);
+        }
         for (var i = 0; i < 4; i++) {
           b.box(w, .06, .14, 0, .48, -.24 + i * .16, c.surface);
         }
@@ -569,8 +614,14 @@ three.Group _buildStudioFurniture(
         }
         b.top(.72, .72, .5, round: true);
       } else {
-        b.legs(w, .7, .14);
-        if (f == 0 || f == 5 || f == 6) {
+        final round = f == 0 || f == 5 || f == 6;
+        // Round bodies keep their feet tucked inside the drum.
+        if (round) {
+          b.legs(.62, .62, .14);
+        } else {
+          b.legs(w, .7, .14);
+        }
+        if (round) {
           final body = furnitureCylinder(
             radiusTop: .4,
             radiusBottom: f == 6 ? .34 : .4,
@@ -620,21 +671,21 @@ three.Group _buildStudioFurniture(
       }
     case RoomItemVisualKind.floorLamp:
       final h = f == 7 || f == 8 ? .85 : 1.85;
-      b.cyl(.22, .06, 0, .03, 0, c.frame);
       if (f == 1) {
+        // Three splayed legs meet in a collar just inside the shade.
+        final apex = three.Vector3(0, h - .17, 0);
         for (var i = 0; i < 3; i++) {
-          final a = i * 2 * math.pi / 3;
-          b.cyl(
+          final a = i * 2 * math.pi / 3 + math.pi / 2;
+          b.rod(
+            three.Vector3(math.cos(a) * .3, .02, math.sin(a) * .3),
+            apex,
             .025,
-            1.5,
-            math.cos(a) * .15,
-            .75,
-            math.sin(a) * .15,
             c.frame,
-            tilt: math.cos(a) * .14,
           );
         }
+        b.cyl(.05, .1, 0, h - .2, 0, c.hardware);
       } else {
+        b.cyl(.22, .06, 0, .03, 0, c.frame);
         b.cyl(.025, h - .2, 0, h / 2 - .04, 0, c.hardware);
       }
       if (f == 2) {
@@ -652,11 +703,11 @@ three.Group _buildStudioFurniture(
         b.cyl(.18, .18, .82, h - .27, 0, c.accent, bottom: .3);
       } else if (f == 3 || f == 5 || f == 9) {
         if (f == 9) {
-          for (var i = 0; i < 3; i++) {
-            final x = (i - 1) * .25;
-            b.box(.5, .025, .025, 0, 1.3 + i * .2, 0, c.hardware);
-            b.blob(.26, .26, .26, x, 1.43 + i * .2, 0, c.accent);
+          for (final (x, y) in [(-.28, 1.3), (.28, 1.5)]) {
+            b.box(x.abs(), .025, .025, x / 2, y, 0, c.hardware);
+            b.blob(.26, .26, .26, x, y + .12, 0, c.accent);
           }
+          b.blob(.26, .26, .26, 0, h - .02, 0, c.accent);
         } else {
           b.blob(.6, f == 5 ? .8 : .6, .6, 0, h - .2, 0, c.accent);
           if (f == 5) {
@@ -673,17 +724,20 @@ three.Group _buildStudioFurniture(
           }
         }
       } else if (f == 4) {
-        b.box(.65, .035, .035, 0, 1.55, 0, c.hardware);
+        b.box(.65, .035, .035, 0, 1.6, 0, c.hardware);
         for (final x in [-.3, .3]) {
           b.cyl(.1, .24, x, 1.72, 0, c.accent, bottom: .19);
         }
       } else {
-        b.cyl(f == 7 ? .28 : .17, .32, 0, h - .08, 0, c.accent, bottom: .32);
+        if (f == 8) {
+          // Arm reaches out from the stem; the shade hangs off its end.
+          b.box(.42, .035, .035, .21, h - .14, 0, c.hardware);
+          b.cyl(.08, .2, .42, h - .2, 0, c.accent, bottom: .17);
+        } else {
+          b.cyl(f == 7 ? .28 : .17, .32, 0, h - .08, 0, c.accent, bottom: .32);
+        }
         if (f == 7) {
           b.blob(.7, .35, .7, 0, h + .07, 0, c.accent);
-        }
-        if (f == 8) {
-          b.box(.44, .035, .035, .15, .68, 0, c.hardware);
         }
       }
       if (f == 6) {
@@ -692,9 +746,11 @@ three.Group _buildStudioFurniture(
         }
       }
     case RoomItemVisualKind.plant:
-      final potY = f == 9 ? .38 : 0.0;
+      final potY = f == 9 ? .4 : 0.0;
       if (f == 9) {
-        b.legs(.55, .55, .38);
+        // Plant stand: a round tray on four legs, in the pot's own clay.
+        b.legs(.52, .52, .38, color: c.frame);
+        b.cyl(.27, .04, 0, .38, 0, c.frame);
       }
       b.cyl(f == 7 ? .38 : .25, .4, 0, potY + .2, 0, c.frame, bottom: .18);
       b.cyl(f == 7 ? .35 : .23, .025, 0, potY + .405, 0, c.surface);
@@ -747,7 +803,7 @@ three.Group _buildStudioFurniture(
         b.blob(.25, .23, .25, 0, .56, 0, c.hardware);
       } else {
         final h = f == 3 || f == 6 || f == 8 ? 1.55 : 1.15;
-        b.cyl(.035, h - .4, 0, .4 + (h - .4) / 2, 0, c.hardware);
+        b.cyl(.035, h - .4, 0, potY + .4 + (h - .4) / 2, 0, c.hardware);
         if (f == 8) {
           b.blob(.62, .62, .62, 0, h, 0, c.soft);
           b.blob(.42, .42, .42, 0, h + .45, 0, furnitureShade(c.soft, .1));
@@ -765,21 +821,18 @@ three.Group _buildStudioFurniture(
               math.sin(a) * .22,
               furnitureShade(c.soft, (i % 3) * .045),
             );
-            b.cyl(
+            // Each leaf stalk leaves the trunk and reaches into its leaf.
+            b.rod(
+              three.Vector3(0, math.min(y - .2, h + potY - .05), 0),
+              three.Vector3(math.cos(a) * .18, y, math.sin(a) * .18),
               .012,
-              .35,
-              math.cos(a) * .12,
-              y - .13,
-              math.sin(a) * .12,
               c.hardware,
-              tilt: math.cos(a) * .5,
-              sides: 6,
             );
           }
         }
       }
     case RoomItemVisualKind.chair:
-      final seat = f == 5 ? .8 : .48;
+      final seat = f == 5 ? .8 : (f == 9 ? .4 : .48);
       if (f == 3) {
         for (final x in [-.3, .3]) {
           b.box(.035, seat, .035, x, seat / 2, .25, c.hardware);
@@ -832,20 +885,24 @@ three.Group _buildStudioFurniture(
         }
       }
       if (f == 8) {
-        for (final x in [-.31, .31]) {
+        // Rockers run under the leg line (legs sit .09 in from the edge).
+        for (final x in [-.27, .27]) {
           b.blob(.08, .11, .95, x, .055, 0, c.frame);
         }
       }
       if (f == 9) {
-        b.blob(.72, .16, .5, 0, .36, .39, c.soft);
+        // Deep loose seat cushion that spills past the front rail.
+        b.cushion(.7, .16, .78, 0, seat + .11, .05, c.soft);
       }
       if (f == 5) {
         b.box(.58, .035, .035, 0, .3, .28, c.hardware);
       }
     case RoomItemVisualKind.sofa:
       final w = f == 0 ? 2.3 : 3.35;
+      // Box arms run down to the base's underside; the base fills between.
+      final boxArms = f != 6 && f != 7;
       b.legs(w, 1.25, .18);
-      b.box(w, .25, 1.25, 0, .3, 0, c.frame);
+      b.box(boxArms ? w - .4 : w, .25, 1.25, 0, .3, 0, c.frame);
       final n = f == 0 ? 2 : 3;
       for (var i = 0; i < n; i++) {
         final x = -w / 2 + .2 + (i + .5) * (w - .4) / n;
@@ -867,15 +924,8 @@ three.Group _buildStudioFurniture(
           if (f == 6) {
             b.blob(.4, .55, 1.25, x, .7, 0, c.accent);
           } else {
-            b.box(
-              .2,
-              f == 5 ? .85 : .5,
-              1.25,
-              x,
-              f == 5 ? .72 : .55,
-              0,
-              c.soft,
-            );
+            final top = f == 5 ? 1.145 : .8;
+            b.box(.2, top - .175, 1.25, x, (top + .175) / 2, 0, c.soft);
           }
         }
       }
@@ -917,8 +967,11 @@ three.Group _buildStudioFurniture(
       final levels = f == 3 || f == 6 ? 2 : 5;
       for (var i = 0; i <= levels; i++) {
         final y = .15 + i * (h - .1) / levels;
-        final shelfW = f == 8 ? w * (1 - i * .1) : w;
-        b.box(shelfW, .055, f == 1 ? .72 - i * .08 : .74, 0, y, 0, c.surface);
+        // Ladder and tiered shelves get shallower toward the top; tiered ones
+        // stay against the back panel like steps.
+        final shelfD = f == 1 ? .72 - i * .08 : (f == 8 ? .74 - i * .085 : .74);
+        final shelfZ = f == 8 ? (shelfD - .74) / 2 : 0.0;
+        b.box(w, .055, shelfD, 0, y, shelfZ, c.surface);
         if (i < levels) {
           if (f == 2 || f == 4 || f == 9) {
             b.box(
@@ -937,9 +990,9 @@ three.Group _buildStudioFurniture(
                 .09 + j * .025,
                 .21 + j * .03,
                 .22,
-                -shelfW / 2 + .18 + j * .13,
+                -w / 2 + .18 + j * .13,
                 y + .14,
-                .1,
+                shelfZ + shelfD / 2 - .27,
                 [c.accent, c.soft, c.hardware][j],
               );
             }
@@ -960,11 +1013,12 @@ three.Group _buildStudioFurniture(
           if (design.finish == 1 || f == 6) {
             b.cane(1.0, h - .3, x, h / 2 + .1, .43);
           }
-          b.box(.04, .2, .05, x + .4, h / 2, .46, c.hardware);
+          b.box(.04, .2, .05, x + .4, h / 2, .445, c.hardware);
         }
       }
       if (f == 5) {
-        b.blob(w, .6, .74, 0, h + .04, 0, c.frame);
+        b.box(w + .07, .05, .74, 0, h + .145, 0, c.frame);
+        b.arch(w + .07, .32, .74, h + .17, c.frame);
       }
   }
   return b.group;

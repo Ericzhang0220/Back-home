@@ -23,6 +23,9 @@ enum RoomItemVisualKind {
 /// Weather shown in the sky beyond the window.
 enum SkyWeather { clear, cloudy, overcast, rain }
 
+/// Scenery outside the room's window.
+enum OutdoorEnvironment { island, waterfall, city, forest }
+
 class GridPoint {
   const GridPoint(this.x, this.z);
 
