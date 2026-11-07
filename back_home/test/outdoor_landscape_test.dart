@@ -61,6 +61,33 @@ void main() {
     });
   }
 
+  group('city traffic', () {
+    late CityScene city;
+
+    setUp(() {
+      city =
+          OutdoorScene.build(OutdoorEnvironment.city, wallZ: -8) as CityScene;
+      city.relight(noon);
+    });
+
+    tearDown(() => city.dispose());
+
+    test('the road stands clear of the ground along its whole length', () {
+      expect(city.debugLowestRoadClearance, greaterThan(0.3));
+    });
+
+    test('cars in both directions stay on the deck as they drive and wrap', () {
+      // Long enough for every car to lap the road, in both directions.
+      for (var step = 0; step < 400; step += 1) {
+        city.animate(0.5);
+        for (final car in city.debugCarPositions) {
+          final deck = city.debugRoadHeightNear(car.x, car.z);
+          expect(car.y, closeTo(deck, 0.08));
+        }
+      }
+    });
+  });
+
   test('meadow outside the window sits above the sea', () {
     final landscape = IslandScene(wallZ: -8);
     addTearDown(landscape.group.dispose);

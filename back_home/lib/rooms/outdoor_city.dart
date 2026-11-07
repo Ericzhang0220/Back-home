@@ -1,44 +1,69 @@
 part of 'outdoor_landscape.dart';
 
-/// A riverside skyline: glass towers by day that light up floor by floor at
-/// night with neon crowns and edges, a cable-stayed bridge with an A-shaped
-/// pylon, an elevated highway, cars in both directions and neon reflections
-/// shimmering on the river.
-class _CityScene extends OutdoorScene {
-  _CityScene(super.wallZ) : super._();
+/// A riverside skyline at the reference's level of detail: towers whose
+/// facades are painted window by window, near-black after dark with lights
+/// clustered by tenant, stepped deco spires, rooftop signs and plant, blinking
+/// aviation beacons, a distant glitter of far-off city, a cable-stayed bridge
+/// and an expressway with cars in both directions.
+class CityScene extends OutdoorScene {
+  CityScene(super.wallZ) : super._();
 
   static const double _water = -5.2;
-  static const double _deckY = -1.6;
   static const double _bank = -3.6;
 
-  static const _neon = [
-    _Rgb.hex(0xFF3DB8), // magenta
-    _Rgb.hex(0x33E1FF), // cyan
-    _Rgb.hex(0x9B5CFF), // violet
-    _Rgb.hex(0x3DFF8A), // green
-    _Rgb.hex(0xFF4A3D), // red
-    _Rgb.hex(0xFFC03D), // gold
-  ];
-
-  // Road centreline in (u, v): near-bank viaduct, the bridge, far-bank road.
-  static const List<(double, double)> _route = [
-    (-50, 6.0),
-    (-42, 7.2),
-    (-36, 8.6),
-    (-31, 10.0),
-    (-12, 31.0),
-    (2, 32.6),
-    (48, 33.2),
-  ];
-  static const int _bridgeStart = 3;
-  static const int _bridgeEnd = 4;
-
+  final _FacadeMesh _facades = _FacadeMesh();
+  final _CityRoad _road = _CityRoad();
   final _GlowMesh _reflections = _GlowMesh();
+  final _GlowMesh _halos = _GlowMesh();
+  final _GlowMesh _beacons = _GlowMesh();
   final List<(double, double)> _towerTops = []; // (v, top y)
   final List<_Car> _cars = [];
-  late final List<double> _routeLengths = _cumulativeLengths();
   double _time = 0;
   double _night = 0;
+
+  @override
+  double get _groundUMin => -88;
+
+  @override
+  double get _groundUSpan => 176;
+
+  @override
+  double get _groundVSpan => 74;
+
+  // The city's ground is flat and mostly hidden by towers.
+  @override
+  double get _groundStep => 0.8;
+
+  // Keeps the night air clear enough for the towers to stay dark against it.
+  @override
+  double get _hazeScale => 0.55;
+
+  @override
+  void dispose() {
+    _facades.dispose();
+    super.dispose();
+  }
+
+  /// World positions of every car, for tests.
+  @visibleForTesting
+  Iterable<three.Vector3> get debugCarPositions =>
+      _cars.map((car) => car.mesh.position);
+
+  /// Road surface height nearest a world position, for tests.
+  @visibleForTesting
+  double debugRoadHeightNear(double x, double z) =>
+      _road.heightNear(x - 1.0, _wallZ - z);
+
+  /// Lowest clearance between the road deck and the ground, for tests.
+  @visibleForTesting
+  double get debugLowestRoadClearance {
+    var lowest = double.infinity;
+    for (var s = 0.0; s < _road.length; s += 1) {
+      final p = _road.at(s);
+      lowest = math.min(lowest, p.y - height(p.u, p.v));
+    }
+    return lowest;
+  }
 
   @override
   double _obstacleTop(double v) {
@@ -49,35 +74,6 @@ class _CityScene extends OutdoorScene {
       }
     }
     return top;
-  }
-
-  List<double> _cumulativeLengths() {
-    final lengths = <double>[0];
-    for (var i = 1; i < _route.length; i += 1) {
-      final du = _route[i].$1 - _route[i - 1].$1;
-      final dv = _route[i].$2 - _route[i - 1].$2;
-      lengths.add(lengths.last + math.sqrt(du * du + dv * dv));
-    }
-    return lengths;
-  }
-
-  /// Point and heading along the road, [distance] from its start.
-  (double, double, double) _routeAt(double distance) {
-    final total = _routeLengths.last;
-    final d = ((distance % total) + total) % total;
-    var i = 1;
-    while (i < _routeLengths.length - 1 && _routeLengths[i] < d) {
-      i += 1;
-    }
-    final t =
-        (d - _routeLengths[i - 1]) / (_routeLengths[i] - _routeLengths[i - 1]);
-    final a = _route[i - 1];
-    final b = _route[i];
-    return (
-      a.$1 + (b.$1 - a.$1) * t,
-      a.$2 + (b.$2 - a.$2) * t,
-      math.atan2(b.$2 - a.$2, b.$1 - a.$1),
-    );
   }
 
   double _riverMask(double u, double v) =>
@@ -94,7 +90,7 @@ class _CityScene extends OutdoorScene {
     final far = _smoothstep(30.5, 32, v);
     h += (_bank + _smoothstep(30, 56, v) * 1.2 - h) * far;
     // Hills behind the city close the horizon at the sides.
-    h += _smoothstep(26, 50, u.abs()) * _smoothstep(30, 55, v) * 6;
+    h += _smoothstep(26, 50, u.abs()) * _smoothstep(36, 60, v) * 6;
     return h;
   }
 
@@ -104,8 +100,8 @@ class _CityScene extends OutdoorScene {
     // Paved city blocks on the far bank, green bluff on the near one.
     if (v > 31) {
       return _Rgb.lerp(
-        const _Rgb.hex(0x6E6C69),
-        const _Rgb.hex(0x857F78),
+        const _Rgb.hex(0x4E4D4C),
+        const _Rgb.hex(0x62605C),
         fine,
       );
     }
@@ -131,18 +127,19 @@ class _CityScene extends OutdoorScene {
   void _populate() {
     _buildRiver();
     final solids = _LitMesh(wrap: 0.2);
-    final glass = _LitMesh(wrap: 0.35);
     final foliage = _LitMesh(wrap: 0.45);
-    _buildSkyline(glass);
+    _buildSkyline(solids);
+    _buildDistantLights();
     _buildBridge(solids);
-    _buildRoads(solids);
+    _buildRoad(solids);
     _buildTrees(foliage, solids);
-    _addMesh(glass);
+    group.add(_facades.createMesh());
     _addMesh(solids);
     _addMesh(foliage);
-    if (_reflections.count > 0) {
-      group.add(_reflections.createMesh());
-    }
+    group
+      ..add(_reflections.createMesh())
+      ..add(_halos.createMesh())
+      ..add(_beacons.createMesh());
     _buildCars();
   }
 
@@ -153,8 +150,8 @@ class _CityScene extends OutdoorScene {
       acrossFrequency: 1.2,
       foamThreshold: 0.8,
     );
-    river.ribbon(18, 60, (s, t) {
-      final u = -60 + t * 120;
+    river.ribbon(18, 90, (s, t) {
+      final u = -92 + t * 184;
       final v = 10.5 + s * 21.5;
       return (
         x: _worldX(u),
@@ -172,486 +169,853 @@ class _CityScene extends OutdoorScene {
 
   // --- Skyline -----------------------------------------------------------------
 
-  void _buildSkyline(_LitMesh glass) {
+  void _buildSkyline(_LitMesh solids) {
     final random = math.Random(0xC17E);
-    const step = 3.4;
-    for (var v = 34.5; v < 57; v += step) {
-      for (var u = -46.0; u < 46; u += step) {
-        if (random.nextDouble() < 0.12) {
+    // Landmarks sit either side of the window's centre bar, where they frame
+    // the view from the ledge and from inside the room.
+    const landmarks = <_Landmark>[
+      _Landmark(
+        -13.5,
+        49,
+        3.0,
+        2.6,
+        23,
+        _TowerForm.tapered,
+        _FacadeStyle.ribbon,
+        null,
+      ),
+      _Landmark(
+        -8.5,
+        52,
+        3.4,
+        3.0,
+        26,
+        _TowerForm.stepped,
+        _FacadeStyle.curtain,
+        4,
+      ),
+      _Landmark(
+        -4.6,
+        44,
+        3.2,
+        2.8,
+        15,
+        _TowerForm.box,
+        _FacadeStyle.curtain,
+        0,
+      ),
+      _Landmark(3.6, 49, 4.4, 3.8, 20, _TowerForm.box, _FacadeStyle.punched, 1),
+      _Landmark(
+        7.6,
+        53,
+        2.2,
+        2.2,
+        25,
+        _TowerForm.round,
+        _FacadeStyle.ribbon,
+        3,
+      ),
+      _Landmark(
+        7.2,
+        43.5,
+        4.0,
+        3.2,
+        13,
+        _TowerForm.box,
+        _FacadeStyle.ribbon,
+        2,
+      ),
+      _Landmark(
+        13.5,
+        51,
+        5.2,
+        4.6,
+        19,
+        _TowerForm.deco,
+        _FacadeStyle.deco,
+        null,
+      ),
+      _Landmark(
+        19.5,
+        46,
+        4.6,
+        4.0,
+        18,
+        _TowerForm.box,
+        _FacadeStyle.punched,
+        null,
+      ),
+      _Landmark(
+        -20,
+        53,
+        4.2,
+        3.6,
+        22,
+        _TowerForm.stepped,
+        _FacadeStyle.curtain,
+        5,
+      ),
+      _Landmark(
+        -27,
+        48,
+        3.6,
+        3.2,
+        17,
+        _TowerForm.box,
+        _FacadeStyle.ribbon,
+        null,
+      ),
+      _Landmark(
+        27,
+        55,
+        3.8,
+        3.4,
+        22,
+        _TowerForm.tapered,
+        _FacadeStyle.curtain,
+        null,
+      ),
+      _Landmark(
+        -37,
+        54,
+        3.8,
+        3.4,
+        20,
+        _TowerForm.stepped,
+        _FacadeStyle.punched,
+        null,
+      ),
+      _Landmark(
+        36,
+        50,
+        4.0,
+        3.6,
+        17,
+        _TowerForm.box,
+        _FacadeStyle.curtain,
+        null,
+      ),
+    ];
+    for (final landmark in landmarks) {
+      _addBuilding(solids, random, landmark, tint: const _Rgb(1, 1, 1));
+    }
+    const tints = [
+      _Rgb(1, 1, 1),
+      _Rgb(0.82, 0.8, 0.78),
+      _Rgb(0.62, 0.62, 0.66),
+      _Rgb(0.9, 0.78, 0.66),
+      _Rgb(0.78, 0.6, 0.5),
+    ];
+    const step = 3.7;
+    for (var v = 37.5; v < 70; v += step) {
+      for (var u = -74.0; u < 74; u += step) {
+        if (random.nextDouble() < 0.1) {
           continue;
         }
-        final bu = u + (random.nextDouble() - 0.5) * 1.2;
-        final bv = v + (random.nextDouble() - 0.5) * 1.2;
-        // Keep the far-bank road clear.
-        if ((bv - 32.6).abs() < 1.8) {
+        final bu = u + (random.nextDouble() - 0.5) * 1.1;
+        final bv = v + (random.nextDouble() - 0.5) * 1.1;
+        final width = 2.0 + random.nextDouble() * 1.5;
+        final depth = 2.0 + random.nextDouble() * 1.3;
+        if (_hitsLandmark(landmarks, bu, bv, width, depth)) {
           continue;
         }
-        // The tallest towers stand farthest back, behind a lower front row.
-        final cluster =
-            math.exp(-math.pow((bu - 4) / 16, 2).toDouble()) *
-            (0.35 + 0.65 * _smoothstep(36, 48, bv));
-        final noise = _fbm(bu * 0.11 + 7, bv * 0.11 - 3);
+        final dx = bu;
+        final dv = bv + 0.6;
+        // Past the far plane is never drawn.
+        if (dx * dx + dv * dv > 76 * 76) {
+          continue;
+        }
+        // Low blocks up front, rising toward the centre of town.
+        final centre = math.exp(-math.pow(bu / 24, 2).toDouble());
+        final depthRise = _smoothstep(37, 56, bv);
         final tall =
-            4 +
-            cluster * (10 + noise * 16) +
-            random.nextDouble() * 5 +
-            _smoothstep(36, 52, bv) * 3;
-        _addTower(
-          glass,
+            3.2 +
+            random.nextDouble() * 4 +
+            depthRise * (2 + centre * 7) * (0.5 + random.nextDouble());
+        final pick = random.nextDouble();
+        _addBuilding(
+          solids,
           random,
-          bu,
-          bv,
-          width: 1.9 + random.nextDouble() * 1.4,
-          depth: 1.9 + random.nextDouble() * 1.2,
-          height: tall,
+          _Landmark(
+            bu,
+            bv,
+            width,
+            depth,
+            tall,
+            tall > 11 && pick < 0.3 ? _TowerForm.stepped : _TowerForm.box,
+            pick < 0.42
+                ? _FacadeStyle.punched
+                : pick < 0.74
+                ? _FacadeStyle.curtain
+                : pick < 0.88
+                ? _FacadeStyle.ribbon
+                : _FacadeStyle.deco,
+            null,
+          ),
+          tint: tints[random.nextInt(tints.length)],
         );
       }
     }
   }
 
-  void _addTower(
-    _LitMesh mesh,
-    math.Random random,
+  bool _hitsLandmark(
+    List<_Landmark> landmarks,
     double u,
-    double v, {
-    required double width,
-    required double depth,
-    required double height,
+    double v,
+    double width,
+    double depth,
+  ) {
+    for (final l in landmarks) {
+      if ((l.u - u).abs() < (l.width + width) / 2 + 0.3 &&
+          (l.v - v).abs() < (l.depth + depth) / 2 + 0.3) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void _addBuilding(
+    _LitMesh solids,
+    math.Random random,
+    _Landmark tower, {
+    required _Rgb tint,
   }) {
-    final x = _worldX(u);
-    final z = _worldZ(v);
-    final base = this.height(u, v) - 0.2;
-    // Office towers are curtain walls; lower blocks have punched windows.
-    final office = height > 12 || random.nextDouble() < 0.35;
-    final wall = office
-        ? [
-            const _Rgb.hex(0x8E949C),
-            const _Rgb.hex(0x5A616C),
-            const _Rgb.hex(0xB9BDC2),
-          ][random.nextInt(3)]
-        : [
-            const _Rgb.hex(0xC9C3B8),
-            const _Rgb.hex(0xB59E7E),
-            const _Rgb.hex(0xA77E62),
-            const _Rgb.hex(0xD8D2C6),
-          ][random.nextInt(4)];
-    final glass = _Rgb.lerp(
-      const _Rgb.hex(0x5F7F9C),
-      const _Rgb.hex(0x9DB6CB),
-      random.nextDouble(),
-    );
-    final neon = random.nextDouble() < 0.35
-        ? _neon[random.nextInt(_neon.length)]
-        : null;
-    // Taller towers step back once or twice, like the classic skyline.
-    final tiers = height > 16 ? 1 + random.nextInt(3) : 1;
-    var tierBase = base;
-    var w = width;
-    var d = depth;
-    for (var tier = 0; tier < tiers; tier += 1) {
-      final last = tier == tiers - 1;
-      final tierHeight = last
-          ? height - (tierBase - base)
-          : height * (0.45 + random.nextDouble() * 0.15);
-      _addFacades(
-        mesh,
+    final x = _worldX(tower.u);
+    final z = _worldZ(tower.v);
+    final base = height(tower.u, tower.v) - 0.2;
+    // Some towers are nearly dark, some working late.
+    final emit = 0.62 + random.nextDouble() * 0.5;
+    final near = tower.v < 58;
+    final pitchX = near ? 0.2 + random.nextDouble() * 0.05 : 0.34;
+    final pitchY = near ? 0.28 + random.nextDouble() * 0.05 : 0.44;
+    void faces(
+      double w,
+      double d,
+      double y,
+      double h, {
+      double taper = 1,
+      required _FacadeStyle style,
+    }) {
+      _addBoxFacades(
         random,
         x,
-        tierBase,
         z,
         w,
         d,
-        tierHeight,
-        wall: wall,
-        glass: glass,
-        office: office,
-        neon: neon,
-        crown: last,
-        storefront: tier == 0,
-        coarse: v > 44,
+        y,
+        h,
+        taper: taper,
+        style: style,
+        tint: tint,
+        emit: emit,
+        pitchX: pitchX,
+        pitchY: pitchY,
       );
-      tierBase += tierHeight;
-      w *= 0.72;
-      d *= 0.72;
     }
-    if (height > 20 && random.nextDouble() < 0.6) {
-      // Spire with a beacon.
-      _addPrism(
-        mesh,
-        x,
-        tierBase,
-        z,
-        bottomRadius: w * 0.22,
-        topRadius: 0.03,
-        height: 2.5 + random.nextDouble() * 3,
-        sides: 4,
-        color: const _Rgb.hex(0xC8CCD2),
-        emissive: neon ?? const _Rgb.hex(0xFFF2D8),
-      );
-    } else {
-      // Rooftop plant: an AC block and, on older blocks, a water tank.
-      _addBox(
-        mesh,
-        x - w * 0.15,
-        tierBase + 0.2,
-        z - d * 0.1,
-        width: w * 0.4,
-        height: 0.4,
-        depth: d * 0.35,
-        color: const _Rgb.hex(0x9A9C9E),
-      );
-      if (!office) {
-        _addPrism(
-          mesh,
-          x + w * 0.22,
-          tierBase,
-          z + d * 0.1,
-          bottomRadius: 0.22,
-          topRadius: 0.22,
-          height: 0.75,
-          sides: 6,
-          color: const _Rgb.hex(0x7A5E48),
+
+    final wallTint = _Rgb(0.34 * tint.r, 0.34 * tint.g, 0.36 * tint.b);
+    var top = base;
+    var roofW = tower.width;
+    var roofD = tower.depth;
+    switch (tower.form) {
+      case _TowerForm.box:
+        faces(tower.width, tower.depth, base, tower.height, style: tower.style);
+        top = base + tower.height;
+      case _TowerForm.tapered:
+        const taper = 0.78;
+        faces(
+          tower.width,
+          tower.depth,
+          base,
+          tower.height,
+          taper: taper,
+          style: tower.style,
         );
-      }
+        top = base + tower.height;
+        roofW *= taper;
+        roofD *= taper;
+      case _TowerForm.stepped:
+        final lower = tower.height * 0.58;
+        faces(tower.width, tower.depth, base, lower, style: tower.style);
+        _addLedge(
+          solids,
+          x,
+          z,
+          tower.width,
+          tower.depth,
+          base + lower,
+          wallTint,
+        );
+        final upperW = tower.width * 0.78;
+        final upperD = tower.depth * 0.78;
+        faces(
+          upperW,
+          upperD,
+          base + lower,
+          tower.height - lower,
+          style: tower.style,
+        );
+        top = base + tower.height;
+        roofW = upperW;
+        roofD = upperD;
+      case _TowerForm.round:
+        _addRoundFacades(
+          random,
+          x,
+          z,
+          tower.width,
+          base,
+          tower.height,
+          style: tower.style,
+          tint: tint,
+          emit: emit,
+          pitchX: pitchX,
+          pitchY: pitchY,
+        );
+        top = base + tower.height;
+      case _TowerForm.deco:
+        // Art-deco setbacks climbing to a mast, with pilasters on each stage.
+        var w = tower.width;
+        var d = tower.depth;
+        var y = base;
+        const stages = [1.0, 0.46, 0.3, 0.2];
+        for (var i = 0; i < stages.length; i += 1) {
+          final h = tower.height * stages[i];
+          faces(w, d, y, h, style: tower.style);
+          _addPilasters(solids, x, z, w, d, y, h, wallTint);
+          y += h;
+          _addLedge(solids, x, z, w, d, y, wallTint);
+          w *= 0.74;
+          d *= 0.74;
+        }
+        _addPrism(
+          solids,
+          x,
+          y,
+          z,
+          bottomRadius: w * 0.6,
+          topRadius: 0.05,
+          height: 6.5,
+          sides: 4,
+          color: wallTint.scale(1.5),
+        );
+        _addBeacon(solids, x, y + 6.6, z);
+        top = y + 6.6;
+        roofW = w;
+        roofD = d;
     }
-    _towerTops.add((v, tierBase + 6));
-    if (u.abs() < 26 && v < 48) {
-      _addReflection(x, w, neon ?? const _Rgb.hex(0xFFC27A), height);
+    if (tower.form != _TowerForm.deco) {
+      _addRoof(solids, random, tower, x, z, roofW, roofD, top, wallTint);
+    }
+    final sign = tower.sign;
+    if (sign != null) {
+      _addSign(x, z, roofW, roofD, top, tower.form, sign, tint, emit);
+    }
+    // Lit street level along the front rows.
+    if (tower.v < 48) {
+      _addBox(
+        solids,
+        x,
+        base + 0.42,
+        z + tower.depth / 2 + 0.02,
+        width: tower.width * 0.92,
+        height: 0.32,
+        depth: 0.03,
+        color: wallTint,
+        emissive: _Rgb.lerp(
+          const _Rgb.hex(0xFFD9A0),
+          const _Rgb.hex(0xFFF0DC),
+          random.nextDouble(),
+        ).scale(0.5),
+      );
+    }
+    _towerTops.add((tower.v, top));
+    if (tower.u.abs() < 34 && tower.v < 54) {
+      _addReflection(random, x, tower.width);
     }
   }
 
-  /// The two facades the house can see, each a wall with a grid of windows
-  /// set just proud of it. Every window lights up, or not, on its own.
-  void _addFacades(
-    _LitMesh mesh,
+  /// A patch of the atlas sized to a face, so windows keep a real-world size.
+  (double, double, double, double) _patchFor(
+    math.Random random,
+    _FacadeStyle style,
+    double faceWidth,
+    double faceHeight,
+    double pitchX,
+    double pitchY,
+  ) {
+    final cols = (faceWidth / pitchX).round().clamp(
+      2,
+      _FacadeAtlas.columns - 2,
+    );
+    final rows = (faceHeight / pitchY).round().clamp(
+      2,
+      _FacadeAtlas.floors - 2,
+    );
+    return _FacadeAtlas.instance.patch(
+      style,
+      random.nextInt(_FacadeAtlas.columns - cols),
+      random.nextInt(_FacadeAtlas.floors - rows),
+      cols,
+      rows,
+    );
+  }
+
+  /// The faces the house can see: the front, plus whichever sides are turned
+  /// toward the window (both, for towers near the centre of the view, since
+  /// the camera can pan around the room).
+  void _addBoxFacades(
     math.Random random,
     double x,
-    double baseY,
     double z,
     double width,
     double depth,
+    double baseY,
     double height, {
-    required _Rgb wall,
-    required _Rgb glass,
-    required bool office,
-    required _Rgb? neon,
-    required bool crown,
-    required bool storefront,
-    required bool coarse,
+    double taper = 1,
+    required _FacadeStyle style,
+    required _Rgb tint,
+    required double emit,
+    required double pitchX,
+    required double pitchY,
   }) {
     final hw = width / 2;
     final hd = depth / 2;
+    final tw = hw * taper;
+    final td = hd * taper;
     final top = baseY + height;
-    // Faces as (a, b, outward normal) at ground level, wound outward.
-    final faces = <((double, double), (double, double), (double, double))>[
-      ((x - hw, z + hd), (x + hw, z + hd), (0, 1)), // front, toward the house
-      // Only the side turned toward the window is ever seen.
-      if (x < OutdoorScene._eyeX)
-        ((x + hw, z + hd), (x + hw, z - hd), (1, 0))
-      else
-        ((x - hw, z - hd), (x - hw, z + hd), (-1, 0)),
-    ];
-    final floorHeight = coarse ? 1.1 : 0.85;
-    final floors = math.max(1, (height / floorHeight).floor());
-    final band = height / floors;
-    for (final (a, b, n) in faces) {
-      final faceWidth = math.sqrt(
-        (b.$1 - a.$1) * (b.$1 - a.$1) + (b.$2 - a.$2) * (b.$2 - a.$2),
-      );
-      _addQuad(
-        mesh,
+    void face(
+      (double, double) a,
+      (double, double) b,
+      (double, double) ta,
+      (double, double) tb,
+      double faceWidth,
+    ) {
+      _facades.quad(
         (a.$1, baseY, a.$2),
         (b.$1, baseY, b.$2),
-        (b.$1, top, b.$2),
-        (a.$1, top, a.$2),
-        wall,
+        (tb.$1, top, tb.$2),
+        (ta.$1, top, ta.$2),
+        _patchFor(random, style, faceWidth, height, pitchX, pitchY),
+        tint,
+        emit,
       );
-      (double, double, double) at(double s, double y, double proud) => (
-        a.$1 + (b.$1 - a.$1) * s + n.$1 * proud,
-        y,
-        a.$2 + (b.$2 - a.$2) * s + n.$2 * proud,
-      );
-      final pitch = coarse ? 0.75 : (office ? 0.46 : 0.55);
-      final columns = math.max(1, (faceWidth / pitch).floor());
-      final cell = 1 / columns;
-      // Curtain walls are nearly all glass; punched windows leave more wall.
-      final glassWidth = office ? 0.86 : 0.58;
-      final glassHeight = office ? 0.78 : 0.56;
-      for (var f = 0; f < floors; f += 1) {
-        final y0 = baseY + f * band;
-        final isStore = storefront && f == 0;
-        final isCrown = crown && neon != null && f == floors - 1;
-        if (isStore) {
-          // Shopfronts: one lit band of glass across the ground floor.
-          final shop = _neon[random.nextInt(_neon.length)];
-          _addQuad(
-            mesh,
-            at(0.04, y0 + band * 0.12, 0.02),
-            at(0.96, y0 + band * 0.12, 0.02),
-            at(0.96, y0 + band * 0.86, 0.02),
-            at(0.04, y0 + band * 0.86, 0.02),
-            glass.scale(0.8),
-            emissive: _Rgb.lerp(const _Rgb.hex(0xFFE2B0), shop, 0.35),
-          );
-          continue;
-        }
-        if (isCrown) {
-          _addQuad(
-            mesh,
-            at(0, y0 + band * 0.3, 0.02),
-            at(1, y0 + band * 0.3, 0.02),
-            at(1, y0 + band * 0.7, 0.02),
-            at(0, y0 + band * 0.7, 0.02),
-            neon.scale(0.8),
-            emissive: neon,
-          );
-          continue;
-        }
-        final wy0 = y0 + band * (1 - glassHeight) * 0.55;
-        final wy1 = wy0 + band * glassHeight;
-        for (var c = 0; c < columns; c += 1) {
-          final s0 = (c + (1 - glassWidth) / 2) * cell;
-          final s1 = s0 + glassWidth * cell;
-          final roll = random.nextDouble();
-          // Most windows burn warm, some cool white, the rest stay dark.
-          final lit = roll < 0.34
-              ? _Rgb.lerp(
-                  const _Rgb.hex(0xFFCF85),
-                  const _Rgb.hex(0xFFE9C0),
-                  random.nextDouble(),
-                )
-              : roll < 0.44
-              ? const _Rgb.hex(0xDCE9FF)
-              : null;
-          _addQuad(
-            mesh,
-            at(s0, wy0, 0.015),
-            at(s1, wy0, 0.015),
-            at(s1, wy1, 0.015),
-            at(s0, wy1, 0.015),
-            glass.scale(0.9 + random.nextDouble() * 0.2),
-            emissive: lit,
-          );
-        }
-      }
-      // Neon corner strips run the full height on lit towers.
-      if (neon != null && n.$2 > 0) {
-        for (final s in const [0.0, 1.0]) {
-          _addBeam(
-            mesh,
-            at(s, baseY, 0.04),
-            at(s, top, 0.04),
-            0.09,
-            neon.scale(0.7),
-            emissive: neon,
-          );
-        }
-      }
     }
-    // Roof.
-    _addQuad(
+
+    face(
+      (x - hw, z + hd),
+      (x + hw, z + hd),
+      (x - tw, z + td),
+      (x + tw, z + td),
+      width,
+    );
+    final offset = x - OutdoorScene._eyeX;
+    if (offset < 6) {
+      face(
+        (x + hw, z + hd),
+        (x + hw, z - hd),
+        (x + tw, z + td),
+        (x + tw, z - td),
+        depth,
+      );
+    }
+    if (offset > -6) {
+      face(
+        (x - hw, z - hd),
+        (x - hw, z + hd),
+        (x - tw, z - td),
+        (x - tw, z + td),
+        depth,
+      );
+    }
+    _addRoofCap(x, z, tw, td, top, tint);
+  }
+
+  void _addRoofCap(
+    double x,
+    double z,
+    double hw,
+    double hd,
+    double y,
+    _Rgb tint,
+  ) {
+    // Dark bare wall from the signs' panel colour; roofs are seen from above
+    // only by a camera tilted well down.
+    final uv = _FacadeAtlas.instance.signPatch(0);
+    final solid = (uv.$1, uv.$2, uv.$1 + 0.0005, uv.$2 + 0.0005);
+    _facades.quad(
+      (x - hw, y, z + hd),
+      (x + hw, y, z + hd),
+      (x + hw, y, z - hd),
+      (x - hw, y, z - hd),
+      solid,
+      tint,
+      0,
+    );
+  }
+
+  void _addRoundFacades(
+    math.Random random,
+    double x,
+    double z,
+    double radius,
+    double baseY,
+    double height, {
+    required _FacadeStyle style,
+    required _Rgb tint,
+    required double emit,
+    required double pitchX,
+    required double pitchY,
+  }) {
+    const segments = 18;
+    final segmentWidth = 2 * math.pi * radius / segments;
+    final colsPerSegment = (segmentWidth / pitchX).round().clamp(1, 6);
+    final rows = (height / pitchY).round().clamp(2, _FacadeAtlas.floors - 2);
+    final firstFloor = random.nextInt(_FacadeAtlas.floors - rows);
+    var column = 0;
+    for (var i = 0; i < segments; i += 1) {
+      final a0 = i / segments * math.pi * 2;
+      final a1 = (i + 1) / segments * math.pi * 2;
+      final mid = (a0 + a1) / 2;
+      // Skip the half facing away from the house.
+      if (math.sin(mid) < -0.25) {
+        continue;
+      }
+      // Walking the angle downward keeps each quad wound to face outward.
+      final uv = _FacadeAtlas.instance.patch(
+        style,
+        column,
+        firstFloor,
+        colsPerSegment,
+        rows,
+      );
+      column += colsPerSegment;
+      _facades.quad(
+        (x + math.cos(a1) * radius, baseY, z + math.sin(a1) * radius),
+        (x + math.cos(a0) * radius, baseY, z + math.sin(a0) * radius),
+        (x + math.cos(a0) * radius, baseY + height, z + math.sin(a0) * radius),
+        (x + math.cos(a1) * radius, baseY + height, z + math.sin(a1) * radius),
+        uv,
+        tint,
+        emit,
+      );
+    }
+  }
+
+  void _addLedge(
+    _LitMesh mesh,
+    double x,
+    double z,
+    double width,
+    double depth,
+    double y,
+    _Rgb color,
+  ) {
+    _addBox(
       mesh,
-      (x - hw, top, z + hd),
-      (x + hw, top, z + hd),
-      (x + hw, top, z - hd),
-      (x - hw, top, z - hd),
-      wall.scale(0.8),
-    );
-  }
-
-  void _addReflection(double x, double width, _Rgb color, double height) {
-    // A soft streak stretching from the far bank toward the viewer.
-    final length = 3 + math.min(height, 24) * 0.32;
-    final near = _wallZ - (30.5 - length);
-    final far = _wallZ - 30.5;
-    final hw = width * 0.3;
-    _reflections.quad(
-      (x - hw, _water + 0.03, far),
-      (x + hw, _water + 0.03, far),
-      (x + hw * 0.6, _water + 0.03, near),
-      (x - hw * 0.6, _water + 0.03, near),
-      near: color.scale(0.55),
-      far: const _Rgb(0, 0, 0),
-    );
-  }
-
-  // --- Bridge and roads ----------------------------------------------------------
-
-  void _buildBridge(_LitMesh mesh) {
-    final a = _route[_bridgeStart];
-    final b = _route[_bridgeEnd];
-    final du = b.$1 - a.$1;
-    final dv = b.$2 - a.$2;
-    final length = math.sqrt(du * du + dv * dv);
-    // Unit vectors along and across the deck, in (u, v).
-    final au = du / length;
-    final av = dv / length;
-    final pu = -av;
-    final pv = au;
-    (double, double, double) at(double along, double across, double y) => (
-      _worldX(a.$1 + au * along + pu * across),
+      x,
       y,
-      _worldZ(a.$2 + av * along + pv * across),
+      z,
+      width: width + 0.1,
+      height: 0.14,
+      depth: depth + 0.1,
+      color: color.scale(1.3),
     );
-    const deckRed = _Rgb.hex(0xFF2D3A);
-    const pylonBlue = _Rgb.hex(0x5C6BFF);
-    // Pylon: two legs meeting high above the river, lit blue at night.
-    final mid = length * 0.48;
-    const pylonTop = 13.5;
-    for (final side in const [-1.0, 1.0]) {
+  }
+
+  /// Slim vertical fins standing proud of the front face.
+  void _addPilasters(
+    _LitMesh mesh,
+    double x,
+    double z,
+    double width,
+    double depth,
+    double y,
+    double height,
+    _Rgb color,
+  ) {
+    final count = (width / 0.7).floor();
+    for (var i = 0; i <= count; i += 1) {
+      final px = x - width / 2 + width * i / math.max(1, count);
+      _addBox(
+        mesh,
+        px,
+        y + height / 2,
+        z + depth / 2 + 0.03,
+        width: 0.07,
+        height: height,
+        depth: 0.08,
+        color: color.scale(1.4),
+        back: false,
+      );
+    }
+  }
+
+  void _addRoof(
+    _LitMesh mesh,
+    math.Random random,
+    _Landmark tower,
+    double x,
+    double z,
+    double width,
+    double depth,
+    double top,
+    _Rgb color,
+  ) {
+    if (tower.form != _TowerForm.round) {
+      _addLedge(mesh, x, z, width, depth, top, color);
+    }
+    final span = tower.form == _TowerForm.round ? tower.width * 1.3 : width;
+    // A plant room, then a scatter of smaller boxes and masts.
+    _addBox(
+      mesh,
+      x + (random.nextDouble() - 0.5) * span * 0.2,
+      top + 0.32,
+      z,
+      width: span * 0.5,
+      height: 0.6,
+      depth: span * 0.42,
+      color: color.scale(1.15),
+    );
+    final extras = tower.height > 9 ? 3 : 1;
+    for (var i = 0; i < extras; i += 1) {
+      _addBox(
+        mesh,
+        x + (random.nextDouble() - 0.5) * span * 0.75,
+        top + 0.14,
+        z + (random.nextDouble() - 0.5) * span * 0.6,
+        width: 0.2 + random.nextDouble() * 0.3,
+        height: 0.26,
+        depth: 0.2 + random.nextDouble() * 0.3,
+        color: color.scale(1.3),
+        back: false,
+      );
+    }
+    // Only the tallest towers carry an aviation light: one, at the very top.
+    final beaconed = tower.height >= 19 && tower.v < 60;
+    if (beaconed || (tower.height > 9 && random.nextDouble() < 0.3)) {
+      final mast = 1.4 + random.nextDouble() * 1.8;
       _addBeam(
         mesh,
-        at(mid, side * 2.4, _water - 0.5),
-        at(mid, 0, pylonTop),
-        0.5,
-        const _Rgb.hex(0xDCDCD8),
-        emissive: pylonBlue,
+        (x, top + 0.5, z),
+        (x, top + mast, z),
+        0.05,
+        color.scale(1.6),
       );
-    }
-    _addBeam(
-      mesh,
-      at(mid, 0, pylonTop - 0.2),
-      at(mid, 0, pylonTop + 1.6),
-      0.35,
-      const _Rgb.hex(0xDCDCD8),
-      emissive: const _Rgb.hex(0xC9A3FF),
-    );
-    // Fan of stay cables to both spans.
-    for (var i = 1; i <= 5; i += 1) {
-      final reach = i / 5.5;
-      for (final dir in const [-1.0, 1.0]) {
-        final along = mid + dir * reach * mid * 0.95;
-        final cableTop = pylonTop - 0.4 - i * 0.75;
-        for (final side in const [-1.0, 1.0]) {
-          _addBeam(
-            mesh,
-            at(mid, side * 0.35, cableTop),
-            at(along, side * 1.2, _deckY + 0.2),
-            0.03,
-            const _Rgb.hex(0xE8E8E4),
-            emissive: const _Rgb.hex(0xC8D4FF),
-          );
-        }
+      if (beaconed) {
+        _addBeacon(mesh, x, top + mast, z);
       }
     }
-    // Deck with a red neon underside, on piers.
-    for (var s = 0.0; s < length; s += 2.0) {
-      final e = math.min(length, s + 2.0);
+  }
+
+  /// A red aviation light: a tiny core plus a small, softly pulsing halo.
+  void _addBeacon(_LitMesh mesh, double x, double y, double z) {
+    _addBox(
+      mesh,
+      x,
+      y,
+      z,
+      width: 0.07,
+      height: 0.07,
+      depth: 0.07,
+      color: const _Rgb.hex(0x3A1414),
+      emissive: const _Rgb.hex(0xFF2A20),
+      back: false,
+    );
+    _beacons.fan((x, y, z + 0.06), 0.2, const _Rgb.hex(0xFF2A20));
+  }
+
+  void _addSign(
+    double x,
+    double z,
+    double width,
+    double depth,
+    double top,
+    _TowerForm form,
+    int sign,
+    _Rgb tint,
+    double emit,
+  ) {
+    final uv = _FacadeAtlas.instance.signPatch(sign);
+    final signWidth = form == _TowerForm.round ? width * 1.6 : width * 0.82;
+    final signHeight = signWidth * 72 / 244;
+    final y = form == _TowerForm.round ? top + 0.1 : top - signHeight - 0.18;
+    final front = form == _TowerForm.round
+        ? z + width + 0.05
+        : z + depth / 2 + 0.03;
+    _facades.quad(
+      (x - signWidth / 2, y, front),
+      (x + signWidth / 2, y, front),
+      (x + signWidth / 2, y + signHeight, front),
+      (x - signWidth / 2, y + signHeight, front),
+      uv,
+      const _Rgb(1, 1, 1),
+      1.15,
+    );
+  }
+
+  void _addReflection(math.Random random, double x, double width) {
+    // Soft-sided streaks of light on the water, from the far bank to the view.
+    final color = _Rgb.lerp(
+      const _Rgb.hex(0xFFB765),
+      const _Rgb.hex(0xFFE3B8),
+      random.nextDouble(),
+    ).scale(0.14 + random.nextDouble() * 0.14);
+    _streak(
+      x + (random.nextDouble() - 0.5) * width * 0.7,
+      _wallZ - 30.8,
+      2.5 + random.nextDouble() * 6,
+      width * (0.08 + random.nextDouble() * 0.09),
+      color,
+    );
+  }
+
+  /// The far side of town: out-of-focus points of light low on the horizon.
+  void _buildDistantLights() {
+    final random = math.Random(0xB0CE);
+    for (var i = 0; i < 520; i += 1) {
+      final angle = (random.nextDouble() - 0.5) * 2.2;
+      final distance = 66 + random.nextDouble() * 11;
+      final u = math.sin(angle) * distance;
+      final v = math.cos(angle) * distance - 0.6;
+      if (v < 40) {
+        continue;
+      }
+      final pick = random.nextDouble();
+      final color = pick < 0.65
+          ? const _Rgb.hex(0xFFB866)
+          : pick < 0.9
+          ? const _Rgb.hex(0xFFE7C4)
+          : const _Rgb.hex(0xA8C8FF);
+      _halos.fan(
+        (_worldX(u), -2.6 + random.nextDouble() * 4.4, _worldZ(v)),
+        0.16 + random.nextDouble() * 0.34,
+        color.scale(0.25 + random.nextDouble() * 0.45),
+      );
+    }
+  }
+
+  // --- Road -----------------------------------------------------------------------
+
+  /// One continuous deck from edge to edge of the view: the road surface,
+  /// barriers and columns all read the same centreline the cars drive on.
+  void _buildRoad(_LitMesh mesh) {
+    final road = _road;
+    const halfWidth = _CityRoad.halfWidth;
+    const step = 1.5;
+    final count = (road.length / step).floor();
+    (double, double, double) side(_RoadPoint p, double across, double y) => (
+      _worldX(p.u - math.sin(p.heading) * across),
+      y,
+      _worldZ(p.v + math.cos(p.heading) * across),
+    );
+    for (var i = 0; i < count; i += 1) {
+      final s0 = i * step;
+      final s1 = math.min(s0 + step, road.length);
+      final a = road.at(s0);
+      final b = road.at(s1);
+      final onBridge = road.isBridge((s0 + s1) / 2);
       _addQuad(
         mesh,
-        at(s, -1.3, _deckY),
-        at(e, -1.3, _deckY),
-        at(e, 1.3, _deckY),
-        at(s, 1.3, _deckY),
-        const _Rgb.hex(0x45474C),
+        side(a, -halfWidth, a.y),
+        side(b, -halfWidth, b.y),
+        side(b, halfWidth, b.y),
+        side(a, halfWidth, a.y),
+        const _Rgb.hex(0x3A3C40),
         doubleSided: true,
       );
-      for (final side in const [-1.0, 1.0]) {
+      // Dashed centre line.
+      if (i.isEven) {
         _addQuad(
           mesh,
-          at(s, side * 1.3, _deckY - 0.45),
-          at(e, side * 1.3, _deckY - 0.45),
-          at(e, side * 1.3, _deckY),
-          at(s, side * 1.3, _deckY),
-          const _Rgb.hex(0xB9B6AE),
-          emissive: deckRed,
+          side(a, -0.04, a.y + 0.015),
+          side(b, -0.04, b.y + 0.015),
+          side(b, 0.04, b.y + 0.015),
+          side(a, 0.04, a.y + 0.015),
+          const _Rgb.hex(0xC8C6BE),
+          doubleSided: true,
+        );
+      }
+      for (final edge in const [-1.0, 1.0]) {
+        final e = edge * halfWidth;
+        if (onBridge) {
+          // The bridge's truss carries the deck; only a slim rail shows here.
+          _addQuad(
+            mesh,
+            side(a, e, a.y),
+            side(b, e, b.y),
+            side(b, e, b.y + 0.12),
+            side(a, e, a.y + 0.12),
+            const _Rgb.hex(0x8E8C86),
+            doubleSided: true,
+          );
+          continue;
+        }
+        // Girder beneath, low barrier above with a thin light line along it.
+        _addQuad(
+          mesh,
+          side(a, e, a.y - 0.42),
+          side(b, e, b.y - 0.42),
+          side(b, e, b.y + 0.14),
+          side(a, e, a.y + 0.14),
+          const _Rgb.hex(0x8E8C86),
+          doubleSided: true,
+        );
+        _addQuad(
+          mesh,
+          side(a, e * 1.01, a.y - 0.24),
+          side(b, e * 1.01, b.y - 0.24),
+          side(b, e * 1.01, b.y - 0.15),
+          side(a, e * 1.01, a.y - 0.15),
+          const _Rgb.hex(0x8E8C86),
+          emissive: const _Rgb.hex(0xFFC98A),
           doubleSided: true,
         );
       }
     }
-    for (final s in [length * 0.18, length * 0.82]) {
+    // Columns and street lamps, leaving the river to the bridge's own piers.
+    for (var s = 2.0; s < road.length; s += 5.0) {
+      final p = road.at(s);
+      if (road.isBridge(s)) {
+        continue;
+      }
       _addBeam(
         mesh,
-        at(s, 0, _water - 0.5),
-        at(s, 0, _deckY - 0.4),
-        0.9,
-        const _Rgb.hex(0xA8A49C),
+        (_worldX(p.u), height(p.u, p.v) - 0.3, _worldZ(p.v)),
+        (_worldX(p.u), p.y - 0.3, _worldZ(p.v)),
+        0.5,
+        const _Rgb.hex(0x8E8A82),
       );
     }
-    _reflections.quad(
-      at(0, -1, _water + 0.04),
-      at(length, -1, _water + 0.04),
-      at(length, 1.6, _water + 0.04),
-      at(0, 1.6, _water + 0.04),
-      near: deckRed.scale(0.6),
-      far: deckRed.scale(0.15),
-    );
-  }
-
-  void _buildRoads(_LitMesh mesh) {
-    for (var i = 1; i < _route.length; i += 1) {
-      if (i == _bridgeEnd) {
-        continue; // the bridge deck is built separately
-      }
-      final a = _route[i - 1];
-      final b = _route[i];
-      final du = b.$1 - a.$1;
-      final dv = b.$2 - a.$2;
-      final length = math.sqrt(du * du + dv * dv);
-      final pu = -dv / length * 1.3;
-      final pv = du / length * 1.3;
-      final y = i <= _bridgeStart ? _deckY : height(b.$1, b.$2) + 0.08;
-      final y0 = i <= _bridgeStart ? _deckY : height(a.$1, a.$2) + 0.08;
-      _addQuad(
+    var lampSide = 1.0;
+    for (var s = 3.0; s < road.length; s += 6.0) {
+      final p = road.at(s);
+      lampSide = -lampSide;
+      final foot = side(p, lampSide * (halfWidth - 0.08), p.y);
+      final head = (foot.$1, foot.$2 + 1.25, foot.$3);
+      _addBeam(mesh, foot, head, 0.05, const _Rgb.hex(0x6E6E6E));
+      _addBox(
         mesh,
-        (_worldX(a.$1 - pu), y0, _worldZ(a.$2 - pv)),
-        (_worldX(b.$1 - pu), y, _worldZ(b.$2 - pv)),
-        (_worldX(b.$1 + pu), y, _worldZ(b.$2 + pv)),
-        (_worldX(a.$1 + pu), y0, _worldZ(a.$2 + pv)),
-        const _Rgb.hex(0x3E4044),
-        doubleSided: true,
+        head.$1,
+        head.$2,
+        head.$3,
+        width: 0.18,
+        height: 0.07,
+        depth: 0.18,
+        color: const _Rgb.hex(0xBDBAB2),
+        emissive: const _Rgb.hex(0xFFD9A0),
+        back: false,
       );
-      if (i <= _bridgeStart) {
-        // Viaduct: side barriers with a lit edge, and columns.
-        for (final side in const [-1.0, 1.0]) {
-          _addQuad(
-            mesh,
-            (_worldX(a.$1 + pu * side), y0 - 0.5, _worldZ(a.$2 + pv * side)),
-            (_worldX(b.$1 + pu * side), y - 0.5, _worldZ(b.$2 + pv * side)),
-            (_worldX(b.$1 + pu * side), y + 0.25, _worldZ(b.$2 + pv * side)),
-            (_worldX(a.$1 + pu * side), y0 + 0.25, _worldZ(a.$2 + pv * side)),
-            const _Rgb.hex(0xBDB9B0),
-            emissive: const _Rgb.hex(0x7FD6FF),
-            doubleSided: true,
-          );
-        }
-      }
-      // Street lamps along every stretch.
-      for (var s = 2.0; s < length; s += 4.5) {
-        final lu = a.$1 + du / length * s + pu * 1.05;
-        final lv = a.$2 + dv / length * s + pv * 1.05;
-        final ly = y0 + (y - y0) * (s / length);
-        _addBeam(
-          mesh,
-          (_worldX(lu), ly, _worldZ(lv)),
-          (_worldX(lu), ly + 1.1, _worldZ(lv)),
-          0.06,
-          const _Rgb.hex(0x6E6E6E),
-        );
-        _addBox(
-          mesh,
-          _worldX(lu),
-          ly + 1.15,
-          _worldZ(lv),
-          width: 0.22,
-          height: 0.1,
-          depth: 0.22,
-          color: const _Rgb.hex(0xDAD6CC),
-          emissive: const _Rgb.hex(0xFFE0A0),
-        );
-      }
-      if (i <= _bridgeStart) {
-        for (var s = 0.0; s < length; s += 3.2) {
-          final cu = a.$1 + du / length * s;
-          final cv = a.$2 + dv / length * s;
-          _addBeam(
-            mesh,
-            (_worldX(cu), height(cu, cv) - 0.2, _worldZ(cv)),
-            (_worldX(cu), _deckY - 0.1, _worldZ(cv)),
-            0.45,
-            const _Rgb.hex(0x9E9A92),
-          );
-        }
+      final glowAt = (head.$1, head.$2, head.$3 + 0.1);
+      final facing = _facingRight(head);
+      _halos.fan(
+        glowAt,
+        0.26,
+        const _Rgb.hex(0xFFC27A).scale(0.5),
+        right: facing,
+      );
+      if (road.isBridge(s)) {
+        _halos.star(glowAt, 0.62, const _Rgb.hex(0xFFD9A6), right: facing);
       }
     }
   }
@@ -668,8 +1032,9 @@ class _CityScene extends OutdoorScene {
     for (var i = 0; i < 70; i += 1) {
       final u = (random.nextDouble() - 0.5) * 92;
       final v = 1.5 + random.nextDouble() * 9;
-      // Trees frame the sides of the bluff; the view across stays open.
-      if (u.abs() < 7 + v * 0.6 || (v - 6.5 - u * 0.05).abs() < 1.6) {
+      // Trees frame the sides of the bluff; the view across stays open and
+      // nothing grows up through the expressway.
+      if (u.abs() < 7 + v * 0.6 || _road.distanceTo(u, v) < 3.4) {
         continue;
       }
       _addBroadleaf(
@@ -699,7 +1064,7 @@ class _CityScene extends OutdoorScene {
       0x9AA0A6,
       0xE8C23A, // taxi
     ];
-    for (var i = 0; i < 18; i += 1) {
+    for (var i = 0; i < 26; i += 1) {
       final body = _LitMesh(wrap: 0.3);
       _buildCarModel(
         body,
@@ -712,7 +1077,7 @@ class _CityScene extends OutdoorScene {
         _Car(
           mesh: mesh,
           body: body,
-          distance: random.nextDouble() * _routeLengths.last,
+          distance: random.nextDouble() * _road.length,
           speed: 3.2 + random.nextDouble() * 2.2,
           forward: i.isEven,
         ),
@@ -800,39 +1165,229 @@ class _CityScene extends OutdoorScene {
 
   void _placeCars() {
     for (final car in _cars) {
-      final (u, v, heading) = _routeAt(car.distance);
+      final p = _road.at(car.distance);
       // Two lanes, offset either side of the centreline.
       final lane = car.forward ? -0.55 : 0.55;
-      final lu = u - math.sin(heading) * lane;
-      final lv = v + math.cos(heading) * lane;
-      final onViaduct = car.distance <= _routeLengths[_bridgeEnd];
-      final y = onViaduct ? _deckY : height(lu, lv) + 0.08;
-      car.mesh.position.setValues(_worldX(lu), y + 0.02, _worldZ(lv));
-      // Cars face the way they drive.
-      car.mesh.rotation.y = car.forward ? heading : heading + math.pi;
+      final lu = p.u - math.sin(p.heading) * lane;
+      final lv = p.v + math.cos(p.heading) * lane;
+      // Height comes from the same centreline as the deck, so a car can never
+      // leave the road surface.
+      car.mesh.position.setValues(_worldX(lu), p.y + 0.01, _worldZ(lv));
+      // Cars face the way they drive, nose up or down with the deck's slope.
+      car.mesh.rotation
+        ..y = car.forward ? p.heading : p.heading + math.pi
+        ..z = car.forward ? p.slope : -p.slope;
     }
   }
 
   @override
   void _onRelight(OutdoorLight light) {
     _night = light.windowGlow;
+    _facades.relight(light, OutdoorScene._eyeX, OutdoorScene._eyeY, _eyeZ);
     for (final car in _cars) {
       // Car models sit at their own origin; light them as if near the house.
       car.body.relight(light, 0, 1, 6);
     }
     _reflections.intensity = _night * 0.7;
+    _halos.intensity = _night;
+    _beacons.intensity = _night;
   }
 
   @override
   void _onAnimate(double dt) {
     _time += dt;
     for (final car in _cars) {
-      car.distance += (car.forward ? 1 : -1) * car.speed * dt;
+      final moved = car.distance + (car.forward ? 1 : -1) * car.speed * dt;
+      // Past the far plane at both ends, so the wrap is never seen.
+      car.distance = (moved % _road.length + _road.length) % _road.length;
     }
     _placeCars();
     if (_night > 0) {
       _reflections.intensity = _night * (0.58 + 0.12 * math.sin(_time * 2.1));
+      // Aviation lights breathe slowly rather than flash.
+      _beacons.intensity =
+          _night * (0.65 + 0.35 * math.sin(_time * math.pi / 2.5));
     }
+  }
+}
+
+enum _TowerForm { box, tapered, stepped, round, deco }
+
+class _Landmark {
+  const _Landmark(
+    this.u,
+    this.v,
+    this.width,
+    this.depth,
+    this.height,
+    this.form,
+    this.style,
+    this.sign,
+  );
+
+  final double u;
+  final double v;
+  final double width;
+  final double depth;
+  final double height;
+  final _TowerForm form;
+  final _FacadeStyle style;
+  final int? sign;
+}
+
+/// A point on the road: where it is, which way it runs and how high it stands.
+class _RoadPoint {
+  const _RoadPoint(this.u, this.v, this.y, this.heading, this.slope);
+
+  final double u;
+  final double v;
+  final double y;
+  final double heading;
+  final double slope;
+}
+
+/// The expressway's centreline: a smooth curve from one side of the view to
+/// the other, sampled evenly, with one height profile for everything on it.
+class _CityRoad {
+  _CityRoad() {
+    _resample();
+  }
+
+  static const double halfWidth = 1.3;
+  static const double _deckY = -1.6;
+  static const double _spacing = 0.5;
+  static const _waypoints = <(double, double)>[
+    (-90, 6.8),
+    (-84, 6.8),
+    (-66, 7.0),
+    (-54, 7.6),
+    (-46, 8.4),
+    (-38, 10.0),
+    (18, 32.5),
+    (26, 34.2),
+    (40, 34.2),
+    (86, 34.4),
+    (92, 34.4),
+  ];
+
+  final List<double> _us = [];
+  final List<double> _vs = [];
+  late final double length;
+  late final double bridgeStart;
+  late final double bridgeEnd;
+
+  void _resample() {
+    // Dense Catmull-Rom points, then even steps along their arc length.
+    final dense = <(double, double)>[];
+    for (var i = 1; i < _waypoints.length - 2; i += 1) {
+      final p0 = _waypoints[i - 1];
+      final p1 = _waypoints[i];
+      final p2 = _waypoints[i + 1];
+      final p3 = _waypoints[i + 2];
+      for (var k = 0; k < 40; k += 1) {
+        final t = k / 40;
+        double spline(double a, double b, double c, double d) =>
+            0.5 *
+            (2 * b +
+                (c - a) * t +
+                (2 * a - 5 * b + 4 * c - d) * t * t +
+                (3 * b - a - 3 * c + d) * t * t * t);
+        dense.add((
+          spline(p0.$1, p1.$1, p2.$1, p3.$1),
+          spline(p0.$2, p1.$2, p2.$2, p3.$2),
+        ));
+      }
+    }
+    dense.add(_waypoints[_waypoints.length - 2]);
+    _us.add(dense.first.$1);
+    _vs.add(dense.first.$2);
+    var carried = 0.0;
+    for (var i = 1; i < dense.length; i += 1) {
+      final a = dense[i - 1];
+      final b = dense[i];
+      final du = b.$1 - a.$1;
+      final dv = b.$2 - a.$2;
+      final segment = math.sqrt(du * du + dv * dv);
+      var at = _spacing - carried;
+      while (at <= segment) {
+        final t = at / segment;
+        _us.add(a.$1 + du * t);
+        _vs.add(a.$2 + dv * t);
+        at += _spacing;
+      }
+      carried = segment - (at - _spacing);
+    }
+    length = (_us.length - 1) * _spacing;
+    var start = 0.0;
+    var end = length;
+    for (var i = 0; i < _vs.length; i += 1) {
+      if (_vs[i] < 10) {
+        start = i * _spacing;
+      }
+      if (_vs[i] > 32 && end == length) {
+        end = i * _spacing;
+      }
+    }
+    bridgeStart = start;
+    bridgeEnd = end;
+  }
+
+  bool isBridge(double s) => s >= bridgeStart && s <= bridgeEnd;
+
+  /// A gentle arch over the river, level everywhere else.
+  double _heightAt(double s) {
+    if (!isBridge(s)) {
+      return _deckY;
+    }
+    final arch = math.sin(
+      (s - bridgeStart) / (bridgeEnd - bridgeStart) * math.pi,
+    );
+    return _deckY + 1.6 * arch * arch;
+  }
+
+  /// The road at [distance] along it; any distance wraps onto the road.
+  _RoadPoint at(double distance) {
+    final s = (distance % length + length) % length;
+    final f = s / _spacing;
+    final i = math.min(f.floor(), _us.length - 2);
+    final t = f - i;
+    final u = _us[i] + (_us[i + 1] - _us[i]) * t;
+    final v = _vs[i] + (_vs[i + 1] - _vs[i]) * t;
+    // Heading from a wider baseline, so cars turn smoothly through curves.
+    final a = math.max(0, i - 1);
+    final b = math.min(_us.length - 1, i + 2);
+    final heading = math.atan2(_vs[b] - _vs[a], _us[b] - _us[a]);
+    final slope = math.atan2(
+      _heightAt(math.min(s + 0.5, length)) - _heightAt(math.max(s - 0.5, 0)),
+      1,
+    );
+    return _RoadPoint(u, v, _heightAt(s), heading, slope);
+  }
+
+  double distanceTo(double u, double v) {
+    var best = double.infinity;
+    for (var i = 0; i < _us.length; i += 4) {
+      final du = _us[i] - u;
+      final dv = _vs[i] - v;
+      best = math.min(best, du * du + dv * dv);
+    }
+    return math.sqrt(best);
+  }
+
+  /// Deck height at the point of the road nearest (u, v).
+  double heightNear(double u, double v) {
+    var best = double.infinity;
+    var bestIndex = 0;
+    for (var i = 0; i < _us.length; i += 1) {
+      final du = _us[i] - u;
+      final dv = _vs[i] - v;
+      final d = du * du + dv * dv;
+      if (d < best) {
+        best = d;
+        bestIndex = i;
+      }
+    }
+    return _heightAt(bestIndex * _spacing);
   }
 }
 

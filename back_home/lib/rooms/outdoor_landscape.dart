@@ -1,11 +1,14 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:three_js/three_js.dart' as three;
 
 import 'room_state.dart' show OutdoorEnvironment;
 
 part 'outdoor_city.dart';
+part 'outdoor_city_bridge.dart';
+part 'outdoor_city_facades.dart';
 part 'outdoor_forest.dart';
 part 'outdoor_island.dart';
 part 'outdoor_kit.dart';
@@ -104,7 +107,7 @@ abstract class OutdoorScene {
     final OutdoorScene scene = switch (environment) {
       OutdoorEnvironment.island => IslandScene(wallZ: wallZ),
       OutdoorEnvironment.waterfall => _WaterfallScene(wallZ),
-      OutdoorEnvironment.city => _CityScene(wallZ),
+      OutdoorEnvironment.city => CityScene(wallZ),
       OutdoorEnvironment.forest => _ForestScene(wallZ),
     };
     return scene;
@@ -119,7 +122,6 @@ abstract class OutdoorScene {
   Float32List? _groundShadow;
   int _groundCols = 0;
   int _groundRows = 0;
-  final double _groundStep = 0.55;
   double _groundMinU = 0;
   double _groundMinV = 0;
   bool _built = false;
@@ -142,7 +144,13 @@ abstract class OutdoorScene {
   /// Adds everything other than the ground mesh.
   void _populate();
 
-  // Ground grid extent, in window-centred coordinates.
+  /// Frees the scene's geometry and materials.
+  void dispose() {
+    group.dispose();
+  }
+
+  // Ground grid spacing and extent, in window-centred coordinates.
+  double get _groundStep => 0.55;
   double get _groundUMin => -54;
   double get _groundUSpan => 108;
   double get _groundVMin => -4;

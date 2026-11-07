@@ -757,12 +757,18 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _publishSelectedScreenPosition();
   }
 
+  /// The city's towers stand far beyond the usual depth of the moon, stars
+  /// and clouds, so its sky sits further back (same apparent size and place)
+  /// and the skyline passes in front of it. Stays inside the 80-unit far plane.
+  double get _skyDepthScale =>
+      widget.outdoorEnvironment == OutdoorEnvironment.city ? 1.57 : 1;
+
   /// How far below level the outside view opens: down over the island's
   /// valley, nearly level for the tall waterfall and skyline.
   double get _outsideOpeningTilt => switch (widget.outdoorEnvironment) {
     OutdoorEnvironment.island => 0.2,
     OutdoorEnvironment.forest => 0.16,
-    OutdoorEnvironment.city => 0.16,
+    OutdoorEnvironment.city => 0.02,
     OutdoorEnvironment.waterfall => 0.04,
   };
 
@@ -1466,7 +1472,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     if (landscape != null &&
         _landscapeEnvironment != widget.outdoorEnvironment) {
       threeJs.scene.remove(landscape.group);
-      landscape.group.dispose();
+      landscape.dispose();
       landscape = null;
     }
     landscape ??= OutdoorScene.build(
@@ -1562,8 +1568,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     final roomDepth =
         RoomEditorController.roomDepth * RoomEditorController.cellSize;
     final wallZ = -roomDepth / 2;
-    final backdropZ = wallZ - 46;
-    final celestialZ = wallZ - 44.5;
+    final skyScale = _skyDepthScale;
+    final backdropZ = wallZ - 45 * skyScale;
+    final celestialZ = wallZ - 44.5 * skyScale;
     final look = _skyLook(time, weather);
     _activeSkyLook = look;
 
@@ -1576,17 +1583,26 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         // A broad low-altitude glow makes dawn and dusk legible even when
         // the actual disc is partially hidden by the hills.
         glow: look.horizonGlow,
-        glowStrength: look.twilightStrength * 0.55,
+        glowStrength: math.max(
+          look.twilightStrength * 0.55,
+          widget.outdoorEnvironment == OutdoorEnvironment.city
+              ? (1 - look.daylight / 0.35).clamp(0.0, 1.0) * 0.8
+              : 0.0,
+        ),
       ),
     );
 
     if (look.isNight) {
-      for (final star in seededSkyStars(96)) {
-        final sx = backdropCenterX + (star.x - 0.5) * 190;
-        final sy = 2.1 + star.y * 17.5;
+      // Few stars survive the glow of a city.
+      final starCount = widget.outdoorEnvironment == OutdoorEnvironment.city
+          ? 14
+          : 96;
+      for (final star in seededSkyStars(starCount)) {
+        final sx = backdropCenterX + (star.x - 0.5) * 190 * skyScale;
+        final sy = 2.1 + star.y * 17.5 * skyScale;
         group.add(
           _skyDisc(
-            radius: star.radius,
+            radius: star.radius * skyScale,
             color: 0xF2F4FA,
             x: sx,
             y: sy,
@@ -1600,15 +1616,16 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _skySun = _buildCelestialBody(
       coreColor: look.sun,
       haloColor: look.sun,
-      coreRadius: 1.25,
-      haloRadius: 3.8,
+      coreRadius: 1.25 * skyScale,
+      haloRadius: 3.8 * skyScale,
       opacity: look.celestialOpacity,
     )..position.z = celestialZ;
     _skyMoon = _buildCelestialBody(
       coreColor: look.moon,
       haloColor: 0xDCE8FF,
-      coreRadius: 1.18,
-      haloRadius: 3.2,
+      coreRadius: 1.18 * skyScale,
+      // The tight glow of a moon over city haze, not a broad disc.
+      haloRadius: (skyScale > 1 ? 2.0 : 3.2) * skyScale,
       opacity: math.max(0.72, look.celestialOpacity),
       coreOpacity: 1,
     )..position.z = celestialZ + 0.1;
@@ -1617,12 +1634,17 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       ..add(_skyMoon!);
     _positionCelestialBodies(time);
 
+    final cloudDusk = (1 - look.daylight / 0.4).clamp(0.0, 1.0) * 0.92;
     for (var cloudIndex = 0; cloudIndex < look.clouds; cloudIndex += 1) {
       final farLayer = cloudIndex.isEven;
-      final cloudZ = wallZ - (farLayer ? 33.0 : 28.0);
+      // Over the city, clouds pass behind the skyline rather than across it.
+      final cloudZ = skyScale > 1
+          ? wallZ - (farLayer ? 68.0 : 62.0)
+          : wallZ - (farLayer ? 33.0 : 28.0);
       final cloudCenterX = _windowProjectionCenterX(cloudZ, wallZ);
       final spread = farLayer ? 112.0 : 92.0;
-      final cloudScale = (farLayer ? 2.1 : 1.7) + (cloudIndex % 3) * 0.2;
+      final cloudScale =
+          ((farLayer ? 2.1 : 1.7) + (cloudIndex % 3) * 0.2) * skyScale;
       // Keep the flat cloud base above any cliff, ridge or tower it drifts
       // past at this depth.
       final cloudFloor =
@@ -1633,8 +1655,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
           _buildCloud(
               variant: cloudIndex,
               scale: cloudScale,
-              color: look.cloudColor,
-              shadowColor: look.cloudShadow,
+              // Clouds lose their daylight after dark instead of glowing white.
+              color: _lerpColor(look.cloudColor, 0x232A38, cloudDusk),
+              shadowColor: _lerpColor(look.cloudShadow, 0x10141C, cloudDusk),
               opacity: look.cloudOpacity,
             )
             ..position.setValues(
@@ -1716,11 +1739,12 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     final roomDepth =
         RoomEditorController.roomDepth * RoomEditorController.cellSize;
     final wallZ = -roomDepth / 2;
-    final celestialZ = wallZ - 44.5;
+    final skyScale = _skyDepthScale;
+    final celestialZ = wallZ - 44.5 * skyScale;
     final centerX = _windowProjectionCenterX(celestialZ, wallZ);
     const horizonY = _eyeHeight;
-    const horizontalRadius = 15.0;
-    const verticalRadius = 11.5;
+    final horizontalRadius = 15.0 * skyScale;
+    final verticalRadius = 11.5 * skyScale;
 
     final sunArc = skyCelestialArc(time);
     sun
@@ -1833,6 +1857,15 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         zenith = _lerpColor(zenith, 0x5C6066, 0.65);
         horizon = _lerpColor(horizon, 0x6E7378, 0.65);
         horizonGlow = _lerpColor(horizonGlow, 0x737A82, 0.8);
+    }
+
+    // City nights are near-black overhead with a band of light-polluted haze
+    // low on the horizon. Fog follows the horizon, so towers stay dark too.
+    if (widget.outdoorEnvironment == OutdoorEnvironment.city) {
+      final night = 1 - (daylight / 0.35).clamp(0.0, 1.0);
+      zenith = _lerpColor(zenith, 0x050A13, night * 0.92);
+      horizon = _lerpColor(horizon, 0x0D1722, night * 0.92);
+      horizonGlow = _lerpColor(horizonGlow, 0x2B3744, night);
     }
 
     return _SkyLook(

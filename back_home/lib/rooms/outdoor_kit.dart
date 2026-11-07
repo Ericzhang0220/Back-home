@@ -382,6 +382,74 @@ class _GlowMesh {
     quadColors(a, b, c, d, near, near, far, far);
   }
 
+  /// A soft round glow: [color] at the centre, fading out. It lies in the
+  /// plane of [right] and straight up, so scenery can turn it toward the view.
+  void fan(
+    (double, double, double) center,
+    double radius,
+    _Rgb color, {
+    (double, double) right = (1, 0),
+  }) {
+    const segments = 7;
+    const dark = _Rgb(0, 0, 0);
+    (double, double, double) rim(double angle) => (
+      center.$1 + math.cos(angle) * radius * right.$1,
+      center.$2 + math.sin(angle) * radius,
+      center.$3 + math.cos(angle) * radius * right.$2,
+    );
+    for (var i = 0; i < segments; i += 1) {
+      final a0 = i / segments * math.pi * 2;
+      final a1 = (i + 1) / segments * math.pi * 2;
+      _triangle(center, rim(a0), rim(a1), color, dark, dark);
+    }
+  }
+
+  /// The four-point flare a camera sees around a bright lamp.
+  void star(
+    (double, double, double) center,
+    double radius,
+    _Rgb color, {
+    (double, double) right = (1, 0),
+  }) {
+    const dark = _Rgb(0, 0, 0);
+    final thin = radius * 0.05;
+    (double, double, double) at(double h, double v) =>
+        (center.$1 + h * right.$1, center.$2 + v, center.$3 + h * right.$2);
+    for (final (dh, dv) in const [
+      (1.0, 0.0),
+      (-1.0, 0.0),
+      (0.0, 1.0),
+      (0.0, -1.0),
+    ]) {
+      _triangle(
+        at(-dv * thin, dh * thin),
+        at(dv * thin, -dh * thin),
+        at(dh * radius, dv * radius),
+        color,
+        color,
+        dark,
+      );
+    }
+  }
+
+  void _triangle(
+    (double, double, double) a,
+    (double, double, double) b,
+    (double, double, double) c,
+    _Rgb ca,
+    _Rgb cb,
+    _Rgb cc,
+  ) {
+    for (final (p, color) in [(a, ca), (b, cb), (c, cc)]) {
+      _positions.addAll([p.$1, p.$2, p.$3]);
+      _colors.addAll([
+        srgbToLinear(color.r),
+        srgbToLinear(color.g),
+        srgbToLinear(color.b),
+      ]);
+    }
+  }
+
   /// A quad with its own colour at each corner, emitted as triangles
   /// (a, b, c) and (a, c, d).
   void quadColors(
