@@ -9,7 +9,7 @@ extension _CityBridge on CityScene {
   static const _concrete = _Rgb.hex(0xA9A69E);
   static const _led = _Rgb.hex(0xDCEBFF);
   static const _cableAcross = 1.35;
-  static const double _towerTop = 12.5;
+  static const double _towerTop = 9.5;
 
   (double, double, double) _onRoad(double s, double across, double y) {
     final p = _road.at(s);
@@ -34,7 +34,7 @@ extension _CityBridge on CityScene {
     final start = road.bridgeStart;
     final end = road.bridgeEnd;
     final span = end - start;
-    final towers = [start + span * 0.22, start + span * 0.8];
+    final towers = [start + span * 0.24, start + span * 0.76];
     final mid = (towers[0] + towers[1]) / 2;
     final half = (towers[1] - towers[0]) / 2;
     final lowPoint = road.at(mid).y + 0.75;
@@ -49,7 +49,7 @@ extension _CityBridge on CityScene {
       final tower = s < towers[0] ? towers[0] : towers[1];
       final t = (s - anchor) / (tower - anchor);
       final anchorY = road.at(anchor).y + 0.2;
-      return anchorY + (_towerTop - anchorY) * t - 0.9 * t * (1 - t);
+      return anchorY + (_towerTop - anchorY) * t - 0.5 * t * (1 - t);
     }
 
     for (final tower in towers) {
@@ -84,7 +84,7 @@ extension _CityBridge on CityScene {
         mesh,
         leg(side, pierTop),
         leg(side, _towerTop),
-        0.46,
+        0.36,
         legColor,
         emissive: legGlow,
       );
@@ -149,7 +149,7 @@ extension _CityBridge on CityScene {
     }
     final lightY = CityScene._water + 0.5;
     for (var i = -3; i <= 3; i += 1) {
-      final light = _onRoad(s + 1.05, i * 0.75, lightY);
+      final light = _onRoad(s - 1.05, i * 0.75, lightY);
       final warm = i.isEven;
       _pierLight(light, warm);
     }
@@ -160,7 +160,7 @@ extension _CityBridge on CityScene {
 
   void _pierLight((double, double, double) p, bool warm) {
     final color = warm ? const _Rgb.hex(0xFFD49A) : const _Rgb.hex(0xE8F1FF);
-    _halos.fan(p, 0.17, color, right: _facingRight(p));
+    _halos.fan(p, 0.09, color, right: _facingRight(p));
   }
 
   void _buildCables(
@@ -195,10 +195,10 @@ extension _CityBridge on CityScene {
         );
         // A bead of LEDs on the cable at every suspender.
         final facing = _facingRight(a);
-        _halos.fan(a, near ? 0.2 : 0.11, ledColor.scale(0.6), right: facing);
+        _halos.fan(a, near ? 0.13 : 0.08, ledColor.scale(0.6), right: facing);
         if (near) {
           // A tight, hot centre so each bead reads as a point of light.
-          _halos.fan(a, 0.075, const _Rgb(1, 1, 1), right: facing);
+          _halos.fan(a, 0.05, const _Rgb(1, 1, 1), right: facing);
         }
         if (towers.any((tower) => (tower - s0).abs() < 0.5) || i == 0) {
           continue;
@@ -339,7 +339,7 @@ extension _CityBridge on CityScene {
     for (var t = 0.08; t < 1; t += 0.14) {
       final s = start + (end - start) * t;
       final p = _onRoad(s, -_CityRoad.halfWidth, _road.at(s).y - depth - 0.1);
-      _halos.fan(p, 0.2, const _Rgb.hex(0x2BFFC4), right: _facingRight(p));
+      _halos.fan(p, 0.1, const _Rgb.hex(0x2BFFC4), right: _facingRight(p));
     }
   }
 }

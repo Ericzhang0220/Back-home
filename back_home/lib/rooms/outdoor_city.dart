@@ -18,7 +18,7 @@ class CityScene extends OutdoorScene {
     minU: -92,
     maxU: 92,
     nearV: 10.0,
-    farV: 32.0,
+    farV: 36.5,
     wallZ: _wallZ,
   );
   final _GlowMesh _halos = _GlowMesh();
@@ -85,7 +85,7 @@ class CityScene extends OutdoorScene {
   }
 
   double _riverMask(double u, double v) =>
-      _smoothstep(10.5, 12.5, v) * (1 - _smoothstep(29.5, 31.5, v));
+      _smoothstep(10.5, 12.5, v) * (1 - _smoothstep(34, 36, v));
 
   @override
   double height(double u, double v) {
@@ -95,7 +95,7 @@ class CityScene extends OutdoorScene {
         -0.4 - 3.2 * _smoothstep(2, 9, v) + detail * 0.8 * _smoothstep(3, 9, v);
     h += (_water - 1.6 - h) * _riverMask(u, v);
     // Far bank: flat embankment, rising gently into the city.
-    final far = _smoothstep(30.5, 32, v);
+    final far = _smoothstep(35, 36.5, v);
     h += (_bank + _smoothstep(30, 56, v) * 1.2 - h) * far;
     // Hills behind the city close the horizon at the sides.
     h += _smoothstep(26, 50, u.abs()) * _smoothstep(36, 60, v) * 6;
@@ -106,7 +106,7 @@ class CityScene extends OutdoorScene {
   _Rgb _groundColor(double u, double v, double h, double ny) {
     final fine = _hash2((u * 1.6).round(), (v * 1.6).round() + 59);
     // Paved city blocks on the far bank, green bluff on the near one.
-    if (v > 31) {
+    if (v > 35.5) {
       return _Rgb.lerp(
         const _Rgb.hex(0x4E4D4C),
         const _Rgb.hex(0x62605C),
@@ -291,7 +291,7 @@ class CityScene extends OutdoorScene {
       _Rgb(0.78, 0.6, 0.5),
     ];
     const step = 3.7;
-    for (var v = 37.5; v < 70; v += step) {
+    for (var v = 43.0; v < 70; v += step) {
       for (var u = -74.0; u < 74; u += step) {
         if (random.nextDouble() < 0.1) {
           continue;
@@ -311,7 +311,7 @@ class CityScene extends OutdoorScene {
         }
         // Low blocks up front, rising toward the centre of town.
         final centre = math.exp(-math.pow(bu / 24, 2).toDouble());
-        final depthRise = _smoothstep(37, 56, bv);
+        final depthRise = _smoothstep(42, 58, bv);
         final tall =
             3.2 +
             random.nextDouble() * 4 +
@@ -496,7 +496,7 @@ class CityScene extends OutdoorScene {
       _addSign(x, z, roofW, roofD, top, tower.form, sign, tint, emit);
     }
     // Lit street level along the front rows.
-    if (tower.v < 48) {
+    if (tower.v < 52) {
       _addBox(
         solids,
         x,
@@ -972,17 +972,12 @@ class CityScene extends OutdoorScene {
         emissive: const _Rgb.hex(0xFFD9A0),
         back: false,
       );
-      final glowAt = (head.$1, head.$2, head.$3 + 0.1);
-      final facing = _facingRight(head);
       _halos.fan(
-        glowAt,
-        0.26,
-        const _Rgb.hex(0xFFC27A).scale(0.5),
-        right: facing,
+        (head.$1, head.$2, head.$3 + 0.1),
+        0.2,
+        const _Rgb.hex(0xFFC27A).scale(0.4),
+        right: _facingRight(head),
       );
-      if (road.isBridge(s)) {
-        _halos.star(glowAt, 0.62, const _Rgb.hex(0xFFD9A6), right: facing);
-      }
     }
   }
 
@@ -993,13 +988,54 @@ class CityScene extends OutdoorScene {
       _Rgb.hex(0x5C9A3A),
       _Rgb.hex(0x2F6234),
       _Rgb.hex(0x7DAA3A),
+      _Rgb.hex(0x9CBF3E),
     ];
-    for (var i = 0; i < 70; i += 1) {
-      final u = (random.nextDouble() - 0.5) * 92;
-      final v = 1.5 + random.nextDouble() * 9;
-      // Trees frame the sides of the bluff; the view across stays open and
-      // nothing grows up through the expressway.
-      if (u.abs() < 7 + v * 0.6 || _road.distanceTo(u, v) < 3.4) {
+    _Rgb green() => greens[random.nextInt(greens.length)];
+
+    // Trees stand back from the expressway, and on the left stay clear of the
+    // line of sight from the window to the bridge.
+    bool treeFits(double u, double v) {
+      if (_road.distanceTo(u, v) < 3.2) {
+        return false;
+      }
+      final toBridge = u > -21 && u < -2.5 && v > 2.5;
+      return !toBridge && u.abs() > 3 + v * 0.14;
+    }
+
+    // Close trees rising into the lower corners of the window's view; the low
+    // ones toward the middle leave the river and skyline clear above them.
+    const framing = [
+      (2.9, 8.8, 1.2),
+      (-3.2, 9.2, 1.3),
+      (0.5, 9.9, 0.62),
+      (-1.3, 8.4, 0.66),
+      (3.9, 6.2, 0.85),
+      (5.2, 7.6, 1.4),
+      (7.6, 5.2, 1.25),
+      (9.6, 8.6, 1.05),
+      (12.4, 4.0, 1.3),
+      (14.0, 7.4, 1.1),
+      (-23.5, 3.6, 1.2),
+      (-25.5, 1.8, 1.1),
+    ];
+    for (final (u, v, scale) in framing) {
+      _addBroadleaf(
+        foliage,
+        solids,
+        random,
+        _worldX(u),
+        height(u, v),
+        _worldZ(v),
+        scale,
+        green(),
+        birchChance: 0,
+      );
+    }
+    // A wooded bluff either side, thinning out with distance.
+    for (var i = 0; i < 150; i += 1) {
+      final u = (random.nextDouble() - 0.5) * 120;
+      final v = 1.5 + random.nextDouble() * 8.5;
+      if (!treeFits(u, v) || u.abs() < 15) {
         continue;
       }
       _addBroadleaf(
@@ -1009,9 +1045,33 @@ class CityScene extends OutdoorScene {
         _worldX(u),
         height(u, v),
         _worldZ(v),
-        0.8 + random.nextDouble() * 0.4,
-        greens[random.nextInt(greens.length)],
-        birchChance: 0,
+        0.8 + random.nextDouble() * 0.45,
+        green(),
+        birchChance: 0.05,
+        maxDetail: 1,
+      );
+    }
+    // Undergrowth covers the slope down to the water, kept low enough that it
+    // never rises into the view of the river.
+    for (var i = 0; i < 260; i += 1) {
+      final u = (random.nextDouble() - 0.5) * 70;
+      final v = 2.2 + random.nextDouble() * 8.0;
+      if (_road.distanceTo(u, v) < 2.4) {
+        continue;
+      }
+      // Denser toward the edge of the bluff and away from the centre line.
+      if (random.nextDouble() > 0.45 + v * 0.05 + u.abs() * 0.02) {
+        continue;
+      }
+      _addShrub(
+        foliage,
+        random,
+        _worldX(u),
+        height(u, v) + 0.1,
+        _worldZ(v),
+        // Smaller right under the window, where they're seen from up close.
+        (0.5 + random.nextDouble() * 0.65) * (0.5 + 0.5 * _smoothstep(2, 8, v)),
+        green(),
       );
     }
   }
@@ -1223,15 +1283,18 @@ class _CityRoad {
   static const _waypoints = <(double, double)>[
     (-90, 6.8),
     (-84, 6.8),
-    (-66, 7.0),
-    (-54, 7.6),
-    (-46, 8.4),
-    (-38, 10.0),
-    (18, 32.5),
-    (26, 34.2),
-    (40, 34.2),
-    (86, 34.4),
-    (92, 34.4),
+    (-62, 6.9),
+    (-40, 7.0),
+    (-26, 7.4),
+    (-17, 9.4),
+    (-13.5, 12.5),
+    (-8.5, 34.0),
+    (-5.5, 37.4),
+    (2, 39.0),
+    (20, 39.2),
+    (40, 39.2),
+    (86, 39.4),
+    (92, 39.4),
   ];
 
   final List<double> _us = [];
@@ -1288,7 +1351,7 @@ class _CityRoad {
       if (_vs[i] < 10) {
         start = i * _spacing;
       }
-      if (_vs[i] > 32 && end == length) {
+      if (_vs[i] > 36.5 && end == length) {
         end = i * _spacing;
       }
     }
@@ -1306,7 +1369,7 @@ class _CityRoad {
     final arch = math.sin(
       (s - bridgeStart) / (bridgeEnd - bridgeStart) * math.pi,
     );
-    return _deckY + 1.6 * arch * arch;
+    return _deckY + 1.0 * arch * arch;
   }
 
   /// The road at [distance] along it; any distance wraps onto the road.

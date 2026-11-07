@@ -31,9 +31,13 @@ extension _TreeKit on OutdoorScene {
     _Rgb color, {
     double birchChance = 0.15,
     double tallChance = 0.3,
+    int maxDetail = 2,
   }) {
     final distance = _distanceToWindow(x, baseY, z);
-    final detail = distance < 17 ? 2 : (distance < 27 ? 1 : 0);
+    final detail = math.min(
+      maxDetail,
+      distance < 17 ? 2 : (distance < 27 ? 1 : 0),
+    );
     final tall = random.nextDouble() < tallChance;
     final birch = random.nextDouble() < birchChance;
     final trunkHeight =

@@ -404,34 +404,6 @@ class _GlowMesh {
     }
   }
 
-  /// The four-point flare a camera sees around a bright lamp.
-  void star(
-    (double, double, double) center,
-    double radius,
-    _Rgb color, {
-    (double, double) right = (1, 0),
-  }) {
-    const dark = _Rgb(0, 0, 0);
-    final thin = radius * 0.05;
-    (double, double, double) at(double h, double v) =>
-        (center.$1 + h * right.$1, center.$2 + v, center.$3 + h * right.$2);
-    for (final (dh, dv) in const [
-      (1.0, 0.0),
-      (-1.0, 0.0),
-      (0.0, 1.0),
-      (0.0, -1.0),
-    ]) {
-      _triangle(
-        at(-dv * thin, dh * thin),
-        at(dv * thin, -dh * thin),
-        at(dh * radius, dv * radius),
-        color,
-        color,
-        dark,
-      );
-    }
-  }
-
   void _triangle(
     (double, double, double) a,
     (double, double, double) b,

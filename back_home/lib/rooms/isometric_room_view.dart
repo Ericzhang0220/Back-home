@@ -768,7 +768,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   double get _outsideOpeningTilt => switch (widget.outdoorEnvironment) {
     OutdoorEnvironment.island => 0.2,
     OutdoorEnvironment.forest => 0.16,
-    OutdoorEnvironment.city => 0.02,
+    OutdoorEnvironment.city => 0.14,
     OutdoorEnvironment.waterfall => 0.04,
   };
 
