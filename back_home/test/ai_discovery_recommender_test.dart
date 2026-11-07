@@ -17,12 +17,12 @@ void main() {
   const presets = AiCharacter.presets;
 
   test(
-    'expanded catalog has 30 distinct authored personas with valid metadata',
+    'expanded catalog has 70 distinct authored personas with valid metadata',
     () {
-      expect(presets.length, 50);
-      expect(presets.map((p) => p.id).toSet().length, 50);
-      expect(presets.map((p) => p.name).toSet().length, 50);
-      expect(presets.map((p) => p.personality).toSet().length, 50);
+      expect(presets.length, 70);
+      expect(presets.map((p) => p.id).toSet().length, 70);
+      expect(presets.map((p) => p.name).toSet().length, 70);
+      expect(presets.map((p) => p.personality).toSet().length, 70);
       for (final persona in presets.skip(20)) {
         expect(persona.introduction, isNotEmpty);
         expect(persona.preview, isNotEmpty);
@@ -86,7 +86,7 @@ void main() {
       firstIds.add(deck.first.id);
       if (deck.first.gender == 'male') maleFirst++;
     }
-    expect(firstIds.length, 50);
+    expect(firstIds.length, presets.length);
     expect(maleFirst, inInclusiveRange(450, 550));
   });
 

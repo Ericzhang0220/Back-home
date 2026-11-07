@@ -123,7 +123,7 @@ class AiCharacter {
   /// Increment this whenever the built-in catalog changes. It lets existing
   /// accounts receive a one-time catalog update without restoring presets a
   /// person intentionally removed later.
-  static const int presetCatalogVersion = 5;
+  static const int presetCatalogVersion = 6;
 
   /// Version gates let an expansion add new people without resurrecting older
   /// presets an existing account has deliberately removed.

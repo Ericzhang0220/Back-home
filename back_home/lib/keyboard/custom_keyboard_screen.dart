@@ -225,11 +225,6 @@ class _CustomKeyboardScreenState extends State<CustomKeyboardScreen> {
     if (error == null &&
         widget.store.accountId == _account &&
         widget.store.ready) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Keyboard saved to My inventory and applied.'),
-        ),
-      );
       Navigator.of(context).pop();
     }
   }

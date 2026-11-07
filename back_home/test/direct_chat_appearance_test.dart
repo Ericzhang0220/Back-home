@@ -241,6 +241,37 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets(
+    'photo chat keeps bubbles and input translucent with readable text',
+    (tester) async {
+      await open(
+        tester,
+        messages: const [
+          AiMessage(id: 'mine', isUser: true, text: 'Hello June'),
+          AiMessage(id: 'reply', isUser: false, text: 'Hello, welcome back!'),
+        ],
+      );
+      for (final text in ['Hello June', 'Hello, welcome back!']) {
+        final label = find.text(text);
+        expect(tester.widget<Text>(label).style?.color, Colors.white);
+        final bubble = tester.widget<Container>(
+          find.ancestor(of: label, matching: find.byType(Container)).first,
+        );
+        final color = (bubble.decoration! as BoxDecoration).color!;
+        expect(color.a, lessThan(1));
+        expect(color.computeLuminance(), lessThan(.15));
+      }
+      final input = tester.widget<TextField>(find.byType(TextField));
+      expect(input.style?.color, Colors.white);
+      expect(input.decoration!.fillColor!.a, lessThan(1));
+      expect(input.decoration!.fillColor!.computeLuminance(), lessThan(.15));
+      await tester.enterText(find.byType(TextField), 'My draft');
+      await tester.pump();
+      expect(find.text('My draft'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('AI profile opens owned keyboards without losing the draft', (
     tester,
   ) async {
@@ -335,7 +366,10 @@ void main() {
       expect(appBar.backgroundColor, Colors.transparent);
       expect(appBar.foregroundColor, Colors.white);
       expect(tester.getTopLeft(find.byType(ChatBackground)).dy, 0);
-      expect(tester.getTopLeft(find.text(repository.character.name)).dy, greaterThanOrEqualTo(47));
+      expect(
+        tester.getTopLeft(find.text(repository.character.name)).dy,
+        greaterThanOrEqualTo(47),
+      );
 
       expect(find.byIcon(Icons.favorite_rounded), findsNothing);
       expect(find.byIcon(Icons.favorite_border_rounded), findsNothing);

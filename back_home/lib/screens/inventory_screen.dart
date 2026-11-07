@@ -23,14 +23,28 @@ class _InventoryScreenState extends State<InventoryScreen> {
   bool _keyboards = true;
   RoomItemCategory? _category;
 
+  void _showError(String message) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Could not complete action'),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _turnOff() async {
     try {
       await widget.store.useSystemKeyboard();
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not save. Please try again.')),
-      );
+      _showError('Could not save. Please try again.');
     }
   }
 
@@ -122,9 +136,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
     }
     final error = await store.buyOrApply(skin, scope);
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(error ?? 'Keyboard applied.')));
+    if (error != null) _showError(error);
   }
 
   @override
@@ -240,9 +252,8 @@ class _InventoryScreenState extends State<InventoryScreen> {
                                     final result = store.room.addOwnedItem(
                                       item.id,
                                     );
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text(result.message)),
-                                    );
+                                    if (!result.isSuccess)
+                                      _showError(result.message);
                                   },
                             child: const Text('Place'),
                           ),

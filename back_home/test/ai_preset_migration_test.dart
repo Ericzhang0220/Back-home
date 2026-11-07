@@ -172,7 +172,52 @@ void main() {
           preset.personality,
         );
       }
-      expect(store.docs['users/me']!['aiPresetCatalogVersion'], 5);
+      expect(store.docs['users/me']!['aiPresetCatalogVersion'], 6);
+      await repository.seedPresetCharactersIfNeeded();
+      expect(store.commits, 1);
+    },
+  );
+
+  test(
+    'version five gets revised voices without restoring removed newcomers',
+    () async {
+      store.docs['users/me'] = {'aiPresetCatalogVersion': 5};
+      for (final preset in AiCharacter.presets) {
+        if (preset.id == 'riven-ash') continue;
+        store.docs['users/me/aiCharacters/${preset.id}'] = preset.toFirestore();
+      }
+      final oldAdrian = store.docs['users/me/aiCharacters/adrian-vale']!;
+      oldAdrian.addAll({
+        'personality': 'Old persona, age 30',
+        'introduction': 'One harmless wager...',
+        'isFriend': true,
+        'isFavorite': true,
+        'avatarUrl': 'https://example.com/chosen-photo.png',
+      });
+      store.docs['users/me/aiChats/adrian-vale'] = {
+        'userMessageCount': 23,
+        'lastMessage': 'Keep our conversation',
+      };
+      final revised = AiCharacter.presets.singleWhere(
+        (c) => c.id == 'adrian-vale',
+      );
+      await repository.seedPresetCharactersIfNeeded();
+      final updated = store.docs['users/me/aiCharacters/adrian-vale']!;
+      expect(updated['personality'], revised.personality);
+      expect(updated['introduction'], revised.introduction);
+      expect(updated['isFriend'], isTrue);
+      expect(updated['isFavorite'], isTrue);
+      expect(updated['avatarUrl'], 'https://example.com/chosen-photo.png');
+      expect(store.docs, isNot(contains('users/me/aiCharacters/riven-ash')));
+      expect(
+        store.docs['users/me/aiChats/adrian-vale']!['userMessageCount'],
+        23,
+      );
+      expect(
+        store.docs['users/me/aiChats/adrian-vale']!['lastMessage'],
+        'Keep our conversation',
+      );
+      expect(store.docs['users/me']!['aiPresetCatalogVersion'], 6);
       await repository.seedPresetCharactersIfNeeded();
       expect(store.commits, 1);
     },
@@ -184,7 +229,7 @@ void main() {
       store.docs.keys.where((key) => key.startsWith('users/me/aiCharacters/')),
       hasLength(70),
     );
-    expect(store.docs['users/me']!['aiPresetCatalogVersion'], 5);
+    expect(store.docs['users/me']!['aiPresetCatalogVersion'], 6);
     expect(store.commits, 1);
   });
 
@@ -208,9 +253,9 @@ void main() {
         store.docs.keys.where((key) => key.contains('/aiCharacters/')),
         hasLength(20),
       );
-      store.docs['users/me']!['aiPresetCatalogVersion'] = 6;
+      store.docs['users/me']!['aiPresetCatalogVersion'] = 7;
       await repository.seedPresetCharactersIfNeeded();
-      expect(store.docs['users/me']!['aiPresetCatalogVersion'], 6);
+      expect(store.docs['users/me']!['aiPresetCatalogVersion'], 7);
       expect(store.commits, 1);
     },
   );

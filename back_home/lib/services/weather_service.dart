@@ -31,6 +31,11 @@ class WeatherService {
   DateTime? _fetchedAt;
 
   bool _inFlight = false;
+  Position? _lastPosition;
+
+  /// Reuses weather location only while permission is currently granted.
+  Future<Position?> moonPosition() =>
+      _resolvePosition(requestPermission: false);
 
   /// Returns the weather to show for the current hour, fetching a fresh forecast
   /// only when the cache is empty or stale. Returns `null` if location or the
@@ -96,14 +101,14 @@ class WeatherService {
 
   /// Resolves the device location, requesting permission if needed. Returns
   /// `null` when services are off or permission is denied.
-  Future<Position?> _resolvePosition() async {
+  Future<Position?> _resolvePosition({bool requestPermission = true}) async {
     try {
       if (!await Geolocator.isLocationServiceEnabled()) {
         return null;
       }
 
       var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
+      if (permission == LocationPermission.denied && requestPermission) {
         permission = await Geolocator.requestPermission();
       }
       if (permission == LocationPermission.denied ||
@@ -113,13 +118,21 @@ class WeatherService {
 
       // Current weather only needs a rough location; low accuracy is faster and
       // lighter on battery, and a cached fix is fine if one is recent.
+      final cached = _lastPosition;
+      if (!requestPermission &&
+          cached != null &&
+          DateTime.now().difference(cached.timestamp) <
+              const Duration(minutes: 20)) {
+        return cached;
+      }
       final last = await Geolocator.getLastKnownPosition();
       if (last != null) {
-        return last;
+        return _lastPosition = last;
       }
-      return await Geolocator.getCurrentPosition(
+      return _lastPosition = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.low,
+          timeLimit: Duration(seconds: 8),
         ),
       );
     } catch (_) {
@@ -139,9 +152,7 @@ class WeatherService {
     });
 
     try {
-      final response = await http
-          .get(uri)
-          .timeout(const Duration(seconds: 10));
+      final response = await http.get(uri).timeout(const Duration(seconds: 10));
       if (response.statusCode != 200) {
         return null;
       }
@@ -153,9 +164,7 @@ class WeatherService {
         return null;
       }
 
-      return [
-        for (final value in raw) value is num ? value.toInt() : null,
-      ];
+      return [for (final value in raw) value is num ? value.toInt() : null];
     } catch (_) {
       return null;
     }

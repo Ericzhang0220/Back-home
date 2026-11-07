@@ -3391,7 +3391,8 @@ class _TutorBubble extends StatelessWidget {
 
 /// Three-dot "typing" affordance shown while a reply is in flight.
 class _TypingIndicator extends StatefulWidget {
-  const _TypingIndicator();
+  const _TypingIndicator({this.color = AppColors.muted});
+  final Color color;
 
   @override
   State<_TypingIndicator> createState() => _TypingIndicatorState();
@@ -3432,8 +3433,8 @@ class _TypingIndicatorState extends State<_TypingIndicator>
                     child: Container(
                       height: 7,
                       width: 7,
-                      decoration: const BoxDecoration(
-                        color: AppColors.muted,
+                      decoration: BoxDecoration(
+                        color: widget.color,
                         shape: BoxShape.circle,
                       ),
                     ),
@@ -3959,6 +3960,7 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
     final currentUid = widget.currentUid;
     if (widget.peer.isAi || currentUid == null) {
       return _MessageComposer(
+        photoSurface: _background.mode != ChatBackgroundMode.plain,
         controller: _controller,
         onSend: _sendMessage,
         isBusy: _isReplying,
@@ -3977,6 +3979,7 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
           return _AwaitingReplyNotice(name: widget.peer.displayName);
         }
         return _MessageComposer(
+          photoSurface: _background.mode != ChatBackgroundMode.plain,
           controller: _controller,
           onSend: _sendMessage,
           isBusy: _isReplying,
@@ -4027,13 +4030,18 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
           return _emptyConversationNotice(
             Text(
               'Start a conversation with ${widget.peer.displayName}.',
-              style: Theme.of(context).textTheme.bodyMedium,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: _background.mode == ChatBackgroundMode.plain
+                    ? null
+                    : Colors.white,
+              ),
               textAlign: TextAlign.center,
             ),
           );
         }
 
         return _MessageList(
+          photoSurface: _background.mode != ChatBackgroundMode.plain,
           messages: messages,
           onOpenSharedCard: _openSharedCard,
           inbox: widget.inbox,
@@ -4066,13 +4074,18 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
                 'Hi, I am ${character.data?.name ?? widget.peer.displayName}. '
                 'What do you want to talk through?',
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyMedium,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: _background.mode == ChatBackgroundMode.plain
+                      ? null
+                      : Colors.white,
+                ),
               ),
             ),
           );
         }
 
         return _MessageList(
+          photoSurface: _background.mode != ChatBackgroundMode.plain,
           inbox: widget.inbox,
           onOpenSharedCard: _openSharedCard,
           readKey: 'ai:${widget.peer.id}',
@@ -4106,7 +4119,7 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
           : Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.94),
+                color: Colors.black.withValues(alpha: .58),
                 borderRadius: BorderRadius.circular(16),
               ),
               child: text,
@@ -4253,12 +4266,14 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
 class _MessageList extends StatelessWidget {
   const _MessageList({
     required this.messages,
+    this.photoSurface = false,
     this.inbox,
     this.readKey,
     this.onOpenSharedCard,
   });
 
   final List<_DirectMessage> messages;
+  final bool photoSurface;
   final ChatInboxController? inbox;
   final String? readKey;
   final ValueChanged<_DirectMessage>? onOpenSharedCard;
@@ -4293,12 +4308,24 @@ class _MessageList extends StatelessWidget {
                   vertical: 11,
                 ),
                 decoration: BoxDecoration(
-                  color: message.isMine ? AppColors.blush : Colors.white,
+                  color: photoSurface
+                      ? (message.isMine
+                            ? const Color(0xAD49372B)
+                            : const Color(0x94000000))
+                      : message.isMine
+                      ? AppColors.blush
+                      : Colors.white,
                   borderRadius: BorderRadius.circular(17),
-                  border: Border.all(color: AppColors.stroke),
+                  border: Border.all(
+                    color: photoSurface
+                        ? Colors.white.withValues(alpha: .18)
+                        : AppColors.stroke,
+                  ),
                 ),
                 child: message.isPending
-                    ? const _TypingIndicator()
+                    ? _TypingIndicator(
+                        color: photoSurface ? Colors.white : AppColors.muted,
+                      )
                     : Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisSize: MainAxisSize.min,
@@ -4310,7 +4337,13 @@ class _MessageList extends StatelessWidget {
                                   ? null
                                   : () => onOpenSharedCard!(message),
                             ),
-                          if (message.text.isNotEmpty) Text(message.text),
+                          if (message.text.isNotEmpty)
+                            Text(
+                              message.text,
+                              style: photoSurface
+                                  ? const TextStyle(color: Colors.white)
+                                  : null,
+                            ),
                         ],
                       ),
               ),
@@ -4358,11 +4391,13 @@ class _MessageComposer extends StatelessWidget {
     required this.controller,
     required this.onSend,
     this.isBusy = false,
+    this.photoSurface = false,
   });
 
   final TextEditingController controller;
   final VoidCallback onSend;
   final bool isBusy;
+  final bool photoSurface;
 
   @override
   Widget build(BuildContext context) {
@@ -4378,14 +4413,21 @@ class _MessageComposer extends StatelessWidget {
           Expanded(
             child: TextField(
               controller: controller,
+              style: photoSurface ? const TextStyle(color: Colors.white) : null,
+              cursorColor: photoSurface ? Colors.white : null,
               minLines: 1,
               maxLines: 3,
               enabled: !isBusy,
               onSubmitted: (_) => onSend(),
               decoration: InputDecoration(
                 hintText: isBusy ? 'Waiting for reply' : 'Message',
+                hintStyle: photoSurface
+                    ? TextStyle(color: Colors.white.withValues(alpha: .75))
+                    : null,
                 filled: true,
-                fillColor: Colors.white.withValues(alpha: 0.94),
+                fillColor: photoSurface
+                    ? Colors.black.withValues(alpha: .58)
+                    : Colors.white.withValues(alpha: 0.94),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(32),
                   borderSide: BorderSide.none,
@@ -4398,7 +4440,9 @@ class _MessageComposer extends StatelessWidget {
             onPressed: isBusy ? null : onSend,
             icon: const Icon(Icons.arrow_upward_rounded),
             style: IconButton.styleFrom(
-              backgroundColor: AppColors.clay,
+              backgroundColor: photoSurface
+                  ? Colors.black.withValues(alpha: .58)
+                  : AppColors.clay,
               foregroundColor: Colors.white,
             ),
           ),

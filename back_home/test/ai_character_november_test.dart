@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:back_home/chat/ai_models.dart';
+import 'package:back_home/chat/ai_character_catalog.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -28,7 +29,9 @@ void main() {
       );
       for (final character in characters) {
         expect(character['age'] as int, greaterThanOrEqualTo(18));
+        expect(character['age'] as int, lessThanOrEqualTo(25));
         expect(character['distinctiveDifference'] as String, isNotEmpty);
+        expect(character['introductionZh'] as String, isNotEmpty);
       }
       expect(AiCharacter.presets.map((c) => c.id).toSet(), hasLength(70));
       expect(AiCharacter.presets.map((c) => c.publicId).toSet(), hasLength(70));
@@ -50,6 +53,15 @@ void main() {
       expect(character.preview, brief['preview']);
       expect(character.gender, brief['gender']);
       expect(character.discoveryTags, brief['tags']);
+      expect(
+        character.discoveryTags.every(aiInterestLabels.containsKey),
+        isTrue,
+      );
+      final savedCopy = AiCharacter.fromData(
+        id: character.id,
+        data: character.toFirestore(),
+      );
+      expect(savedCopy.discoveryTags, character.discoveryTags);
       expect(
         character.portraitAsset,
         'assets/ai_characters/${character.id}.png',

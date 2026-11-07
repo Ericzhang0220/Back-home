@@ -10,9 +10,21 @@ import '../rooms/isometric_room_view.dart';
 import '../rooms/room_gl_gate.dart';
 import '../rooms/room_state.dart';
 import '../services/weather_service.dart';
+import '../services/moon_service.dart';
+import '../rooms/moon_state.dart';
+import '../widgets/moon_disc.dart';
 import '../settings/app_settings_controller.dart';
 import '../widgets/app_ui.dart';
 import '../widgets/weather_settings_controls.dart';
+
+/// Greeting is chosen from the device's local time when rest begins.
+@visibleForTesting
+String roomRestGreeting(DateTime localTime) {
+  final hour = localTime.hour;
+  if (hour >= 20 || hour < 6) return 'Have a good night! Sleep well.';
+  if (hour >= 12 && hour < 18) return 'Enjoy your afternoon nap!';
+  return 'Have a good nap!';
+}
 
 class RoomScreen extends StatefulWidget {
   const RoomScreen({
@@ -64,12 +76,15 @@ class _RoomScreenState extends State<RoomScreen> {
   Timer? _nightGlowDimTimer;
   Timer? _nightExitTimer;
   Timer? _weatherTimer;
+  Timer? _moonTimer;
   bool _panelOpen = false;
   bool _deskFocused = false;
   bool _nightMode = false;
+  String _restGreeting = roomRestGreeting(DateTime.now());
   bool _outsideView = false;
   bool _nightHintVisible = false;
   bool _nightGlowDimmed = false;
+  MoonState _moon = MoonState.estimate(DateTime.now());
   SkyWeather? _autoWeather; // latest reading from WeatherService
   double _cameraZoom = 1.0;
   bool _showFurnitureColliders = false;
@@ -87,6 +102,9 @@ class _RoomScreenState extends State<RoomScreen> {
   void initState() {
     super.initState();
     _refreshWeather();
+    _moonTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (widget.isActive && _nightMode) unawaited(_refreshMoon());
+    });
     _weatherTimer = Timer.periodic(
       _weatherRefreshInterval,
       (_) => _refreshWeather(),
@@ -95,10 +113,15 @@ class _RoomScreenState extends State<RoomScreen> {
 
   Future<void> _refreshWeather() async {
     final weather = await WeatherService.instance.currentSkyWeather();
-    if (!mounted || weather == null) {
-      return;
-    }
-    setState(() => _autoWeather = weather);
+    if (!mounted) return;
+    if (weather != null) setState(() => _autoWeather = weather);
+    await _refreshMoon();
+  }
+
+  Future<void> _refreshMoon() async {
+    if (mounted) setState(() => _moon = MoonState.estimate(DateTime.now()));
+    final moon = await MoonService.instance.current();
+    if (mounted) setState(() => _moon = moon);
   }
 
   @override
@@ -107,6 +130,7 @@ class _RoomScreenState extends State<RoomScreen> {
     _nightGlowDimTimer?.cancel();
     _nightExitTimer?.cancel();
     _weatherTimer?.cancel();
+    _moonTimer?.cancel();
     super.dispose();
   }
 
@@ -144,11 +168,13 @@ class _RoomScreenState extends State<RoomScreen> {
     setState(() {
       _deskFocused = false;
       _nightMode = true;
+      _restGreeting = roomRestGreeting(DateTime.now());
       _outsideView = false;
       _nightHintVisible = true;
       _nightGlowDimmed = false;
       _panelOpen = false;
     });
+    unawaited(_refreshMoon());
     widget.onSubviewChanged(_inSubview);
     _scheduleNightHintFade();
     _scheduleNightGlowDim();
@@ -404,6 +430,9 @@ class _RoomScreenState extends State<RoomScreen> {
                     curve: Curves.easeInOutCubic,
                     opacity: _nightMode ? 1 : 0,
                     child: _GoodNightOverlay(
+                      greeting: _restGreeting,
+                      moon: _moon,
+                      weather: _effectiveWeather,
                       showHint: _nightHintVisible,
                       dimBrightElements: _nightGlowDimmed,
                     ),
@@ -478,10 +507,16 @@ class _RoomScreenState extends State<RoomScreen> {
 
 class _GoodNightOverlay extends StatelessWidget {
   const _GoodNightOverlay({
+    required this.greeting,
+    required this.moon,
+    required this.weather,
     required this.showHint,
     required this.dimBrightElements,
   });
 
+  final String greeting;
+  final MoonState moon;
+  final SkyWeather weather;
   final bool showHint;
   final bool dimBrightElements;
 
@@ -501,10 +536,18 @@ class _GoodNightOverlay extends StatelessWidget {
               duration: const Duration(milliseconds: 900),
               curve: Curves.easeInOutCubic,
               opacity: brightElementsOpacity,
-              child: const SizedBox(
+              child: SizedBox(
                 width: 92,
                 height: 92,
-                child: CustomPaint(painter: _GoodNightMoonPainter()),
+                child: MoonDisc(
+                  moon: moon,
+                  cloudOpacity: switch (weather) {
+                    SkyWeather.clear => 1,
+                    SkyWeather.cloudy => .8,
+                    SkyWeather.overcast => .5,
+                    SkyWeather.rain => .35,
+                  },
+                ),
               ),
             ),
           ),
@@ -518,10 +561,10 @@ class _GoodNightOverlay extends StatelessWidget {
                     duration: const Duration(milliseconds: 900),
                     curve: Curves.easeInOutCubic,
                     opacity: brightElementsOpacity,
-                    child: const Text(
-                      'Have a good night! See you tomorrow.',
+                    child: Text(
+                      greeting,
                       textAlign: TextAlign.center,
-                      style: TextStyle(
+                      style: const TextStyle(
                         color: Color(0xFFF5F0E8),
                         fontSize: 28,
                         fontWeight: FontWeight.w700,
@@ -536,7 +579,7 @@ class _GoodNightOverlay extends StatelessWidget {
                     curve: Curves.easeInOutCubic,
                     opacity: showHint ? 1 : 0,
                     child: const Text(
-                      '(Your room is now in night mode. If you want to go back, just double click the scene.)',
+                      'Rest mode is on. Double-tap the scene to return.',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         color: Color(0xFFF5F0E8),
@@ -554,36 +597,6 @@ class _GoodNightOverlay extends StatelessWidget {
       ),
     );
   }
-}
-
-class _GoodNightMoonPainter extends CustomPainter {
-  const _GoodNightMoonPainter();
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final radius = size.shortestSide / 2;
-    final center = size.center(Offset.zero);
-    final crescent = Path.combine(
-      PathOperation.difference,
-      Path()..addOval(Rect.fromCircle(center: center, radius: radius)),
-      Path()..addOval(
-        Rect.fromCircle(
-          center: center + Offset(radius * 0.65, -radius * 0.42),
-          radius: radius * 0.89,
-        ),
-      ),
-    );
-    canvas.drawPath(
-      crescent,
-      Paint()
-        ..color = const Color(0x77E7E1C9)
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, radius * 0.38),
-    );
-    canvas.drawPath(crescent, Paint()..color = const Color(0xFFE2E0D2));
-  }
-
-  @override
-  bool shouldRepaint(_GoodNightMoonPainter oldDelegate) => false;
 }
 
 class _SettingsPanel extends StatelessWidget {

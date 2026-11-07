@@ -7,6 +7,24 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('rest greeting follows local time including afternoon and midnight', () {
+    for (final hour in [0, 5, 20, 23]) {
+      expect(
+        roomRestGreeting(DateTime(2026, 11, 6, hour)),
+        'Have a good night! Sleep well.',
+      );
+    }
+    for (final hour in [12, 15, 17]) {
+      expect(
+        roomRestGreeting(DateTime(2026, 11, 6, hour)),
+        'Enjoy your afternoon nap!',
+      );
+    }
+    for (final hour in [6, 10, 11, 18, 19]) {
+      expect(roomRestGreeting(DateTime(2026, 11, 6, hour)), 'Have a good nap!');
+    }
+  });
+
   setUp(() => IsometricRoomView.rendererEnabled = false);
   tearDown(() => IsometricRoomView.rendererEnabled = true);
 
