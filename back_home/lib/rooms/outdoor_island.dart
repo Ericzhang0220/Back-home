@@ -211,8 +211,6 @@ class IslandScene extends OutdoorScene {
   void _buildTrees(_LitMesh foliage, _LitMesh solids) {
     final random = math.Random(0x7EE5);
     const spacing = 2.35;
-    final unitHigh = _unitIcosahedron(1);
-    final unitLow = _unitIcosahedron(0);
     for (var v = 2.5; v < 55; v += spacing) {
       for (var u = -46.0; u < 46; u += spacing) {
         final tu = u + (random.nextDouble() - 0.5) * spacing * 0.9;
@@ -260,17 +258,7 @@ class IslandScene extends OutdoorScene {
           if (roll < 0.14) {
             color = _accents[random.nextInt(_accents.length)];
           }
-          _addBroadleaf(
-            foliage,
-            solids,
-            random,
-            x,
-            h,
-            z,
-            scale,
-            color,
-            tv < 16 ? unitHigh : unitLow,
-          );
+          _addBroadleaf(foliage, solids, random, x, h, z, scale, color);
         }
       }
     }

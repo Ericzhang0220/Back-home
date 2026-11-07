@@ -13,7 +13,14 @@ class CityScene extends OutdoorScene {
 
   final _FacadeMesh _facades = _FacadeMesh();
   final _CityRoad _road = _CityRoad();
-  final _GlowMesh _reflections = _GlowMesh();
+  late final _CityWater _river = _CityWater(
+    level: _water,
+    minU: -92,
+    maxU: 92,
+    nearV: 10.0,
+    farV: 32.0,
+    wallZ: _wallZ,
+  );
   final _GlowMesh _halos = _GlowMesh();
   final _GlowMesh _beacons = _GlowMesh();
   final List<(double, double)> _towerTops = []; // (v, top y)
@@ -41,6 +48,7 @@ class CityScene extends OutdoorScene {
   @override
   void dispose() {
     _facades.dispose();
+    _river.dispose();
     super.dispose();
   }
 
@@ -125,7 +133,6 @@ class CityScene extends OutdoorScene {
 
   @override
   void _populate() {
-    _buildRiver();
     final solids = _LitMesh(wrap: 0.2);
     final foliage = _LitMesh(wrap: 0.45);
     _buildSkyline(solids);
@@ -133,38 +140,15 @@ class CityScene extends OutdoorScene {
     _buildBridge(solids);
     _buildRoad(solids);
     _buildTrees(foliage, solids);
-    group.add(_facades.createMesh());
+    group
+      ..add(_facades.createMesh())
+      ..add(_river.createMesh());
     _addMesh(solids);
     _addMesh(foliage);
     group
-      ..add(_reflections.createMesh())
       ..add(_halos.createMesh())
       ..add(_beacons.createMesh());
     _buildCars();
-  }
-
-  void _buildRiver() {
-    final river = _FlowMesh(
-      speed: 0.5,
-      alongFrequency: 0.35,
-      acrossFrequency: 1.2,
-      foamThreshold: 0.8,
-    );
-    river.ribbon(18, 90, (s, t) {
-      final u = -92 + t * 184;
-      final v = 10.5 + s * 21.5;
-      return (
-        x: _worldX(u),
-        y: _water,
-        z: _worldZ(v),
-        along: u,
-        across: v,
-        base: _Rgb.lerp(const _Rgb.hex(0x2B5C78), const _Rgb.hex(0x3A6E86), s),
-        foam: const _Rgb.hex(0x8FB6C8),
-        foamBias: 0,
-      );
-    });
-    _addFlow(river);
   }
 
   // --- Skyline -----------------------------------------------------------------
@@ -530,9 +514,7 @@ class CityScene extends OutdoorScene {
       );
     }
     _towerTops.add((tower.v, top));
-    if (tower.u.abs() < 34 && tower.v < 54) {
-      _addReflection(random, x, tower.width);
-    }
+    _river.addTower(x, z, tower.width, base, top, tint, emit);
   }
 
   /// A patch of the atlas sized to a face, so windows keep a real-world size.
@@ -854,22 +836,6 @@ class CityScene extends OutdoorScene {
     );
   }
 
-  void _addReflection(math.Random random, double x, double width) {
-    // Soft-sided streaks of light on the water, from the far bank to the view.
-    final color = _Rgb.lerp(
-      const _Rgb.hex(0xFFB765),
-      const _Rgb.hex(0xFFE3B8),
-      random.nextDouble(),
-    ).scale(0.14 + random.nextDouble() * 0.14);
-    _streak(
-      x + (random.nextDouble() - 0.5) * width * 0.7,
-      _wallZ - 30.8,
-      2.5 + random.nextDouble() * 6,
-      width * (0.08 + random.nextDouble() * 0.09),
-      color,
-    );
-  }
-
   /// The far side of town: out-of-focus points of light low on the horizon.
   void _buildDistantLights() {
     final random = math.Random(0xB0CE);
@@ -1022,7 +988,6 @@ class CityScene extends OutdoorScene {
 
   void _buildTrees(_LitMesh foliage, _LitMesh solids) {
     final random = math.Random(0x7EE7);
-    final unit = _unitIcosahedron(1);
     const greens = [
       _Rgb.hex(0x3F7A34),
       _Rgb.hex(0x5C9A3A),
@@ -1046,7 +1011,6 @@ class CityScene extends OutdoorScene {
         _worldZ(v),
         0.8 + random.nextDouble() * 0.4,
         greens[random.nextInt(greens.length)],
-        unit,
         birchChance: 0,
       );
     }
@@ -1188,7 +1152,7 @@ class CityScene extends OutdoorScene {
       // Car models sit at their own origin; light them as if near the house.
       car.body.relight(light, 0, 1, 6);
     }
-    _reflections.intensity = _night * 0.7;
+    _river.relight(light);
     _halos.intensity = _night;
     _beacons.intensity = _night;
   }
@@ -1202,8 +1166,8 @@ class CityScene extends OutdoorScene {
       car.distance = (moved % _road.length + _road.length) % _road.length;
     }
     _placeCars();
+    _river.animate(dt);
     if (_night > 0) {
-      _reflections.intensity = _night * (0.58 + 0.12 * math.sin(_time * 2.1));
       // Aviation lights breathe slowly rather than flash.
       _beacons.intensity =
           _night * (0.65 + 0.35 * math.sin(_time * math.pi / 2.5));

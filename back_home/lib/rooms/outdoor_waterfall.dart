@@ -325,8 +325,6 @@ class _WaterfallScene extends OutdoorScene {
 
   void _buildJungle(_LitMesh foliage, _LitMesh solids) {
     final random = math.Random(0x1A6E);
-    final high = _unitIcosahedron(1);
-    final low = _unitIcosahedron(0);
     const spacing = 2.1;
     for (var v = 1.0; v < 54; v += spacing) {
       for (var u = -46.0; u < 46; u += spacing) {
@@ -350,24 +348,20 @@ class _WaterfallScene extends OutdoorScene {
               h > _water + 0.6 &&
               accept < 0.25 &&
               tu.abs() > 8) {
-            _addBlob(
+            _addShrub(
               foliage,
-              low,
               random,
               _worldX(tu),
-              h + 0.4,
+              h + 0.25,
               _worldZ(tv),
-              0.9 * scale,
-              0.6 * scale,
-              0.9 * scale,
+              1.0 * scale,
               _jungle[random.nextInt(_jungle.length)],
-              bottom: h,
-              top: h + 1,
             );
           }
           continue;
         }
-        if (accept > 0.86) {
+        // Deep behind the cliff top only the first rows can be seen.
+        if (accept > (tv > 40 ? 0.3 : 0.8)) {
           continue;
         }
         final color =
@@ -383,7 +377,6 @@ class _WaterfallScene extends OutdoorScene {
           _worldZ(tv),
           scale * (tv > 30 ? 1.25 : 1.0),
           pick < 0.12 ? const _Rgb.hex(0xB9D43A) : color,
-          tv < 18 ? high : low,
           birchChance: 0.05,
           tallChance: 0.45,
         );
@@ -401,19 +394,14 @@ class _WaterfallScene extends OutdoorScene {
       }
       final h = height(u, v);
       final size = 0.6 + random.nextDouble() * 0.7;
-      _addBlob(
+      _addShrub(
         foliage,
-        low,
         random,
         _worldX(u + u.sign * 0.8),
         h - size * 0.25,
         _worldZ(v),
         size * 1.2,
-        size * 0.7,
-        size,
         _jungle[random.nextInt(_jungle.length)],
-        bottom: h - size,
-        top: h + size,
       );
     }
   }

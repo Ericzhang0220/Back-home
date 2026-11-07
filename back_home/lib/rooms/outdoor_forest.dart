@@ -144,8 +144,6 @@ class _ForestScene extends OutdoorScene {
 
   void _buildForest(_LitMesh foliage, _LitMesh solids) {
     final random = math.Random(0xF0E5);
-    final high = _unitIcosahedron(1);
-    final low = _unitIcosahedron(0);
     const greens = [
       _Rgb.hex(0x4E8F33),
       _Rgb.hex(0x6DA83A),
@@ -203,7 +201,6 @@ class _ForestScene extends OutdoorScene {
             _worldZ(tv),
             scale,
             greens[random.nextInt(greens.length)],
-            tv < 18 ? high : low,
             birchChance: 0.1,
           );
         } else {

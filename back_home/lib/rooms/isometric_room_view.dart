@@ -1928,6 +1928,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       daylight: day,
       twilight: look.twilightStrength,
       clearness: sunWeather,
+      zenith: look.zenith,
     );
   }
 

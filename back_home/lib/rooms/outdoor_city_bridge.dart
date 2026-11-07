@@ -57,7 +57,7 @@ extension _CityBridge on CityScene {
     }
     _buildCables(mesh, start, end, towers, cableY);
     _buildTruss(mesh, start, end);
-    _buildBridgeWater(start, end, towers);
+    _bakeBridgeReflection(start, end, towers, cableY);
   }
 
   void _buildTower(_LitMesh mesh, double s) {
@@ -161,7 +161,6 @@ extension _CityBridge on CityScene {
   void _pierLight((double, double, double) p, bool warm) {
     final color = warm ? const _Rgb.hex(0xFFD49A) : const _Rgb.hex(0xE8F1FF);
     _halos.fan(p, 0.17, color, right: _facingRight(p));
-    _streak(p.$1, p.$3, 2.5, 0.09, color.scale(0.5));
   }
 
   void _buildCables(
@@ -247,6 +246,42 @@ extension _CityBridge on CityScene {
       );
   }
 
+  /// Writes the lit bridge into the river's reflection map.
+  void _bakeBridgeReflection(
+    double start,
+    double end,
+    List<double> towers,
+    double Function(double) cableY,
+  ) {
+    final span = end - start;
+    _river.setBridgeSpan(
+      _onRoad(start, -_cableAcross, 0),
+      _onRoad(end, -_cableAcross, 0),
+    );
+    const hanger = _Rgb(0.55, 0.68, 0.9);
+    const truss = _Rgb(0.42, 0.3, 0.16);
+    const towerLight = _Rgb(0.13, 0.15, 0.19);
+    for (var s = start; s < end; s += 0.6) {
+      final along = (s - start) / span;
+      final deck = _road.at(s).y;
+      final cable = cableY(s);
+      for (var y = deck; y < cable; y += 0.25) {
+        _river.plotBridge(along, y, hanger, radius: 0.2);
+      }
+      _river.plotBridge(along, cable, _led, radius: 1);
+      for (var y = deck - 0.72; y < deck; y += 0.25) {
+        _river.plotBridge(along, y, truss, radius: 1);
+      }
+    }
+    for (final tower in towers) {
+      final along = (tower - start) / span;
+      for (var y = CityScene._water + 0.5; y < _towerTop; y += 0.2) {
+        _river.plotBridge(along - 0.012, y, towerLight, radius: 1);
+        _river.plotBridge(along + 0.012, y, towerLight, radius: 1);
+      }
+    }
+  }
+
   void _buildTruss(_LitMesh mesh, double start, double end) {
     const bay = 0.9;
     const depth = 0.72;
@@ -306,60 +341,5 @@ extension _CityBridge on CityScene {
       final p = _onRoad(s, -_CityRoad.halfWidth, _road.at(s).y - depth - 0.1);
       _halos.fan(p, 0.2, const _Rgb.hex(0x2BFFC4), right: _facingRight(p));
     }
-  }
-
-  void _buildBridgeWater(double start, double end, List<double> towers) {
-    // LED light scattered across the water below the bridge.
-    final random = math.Random(0xB41D);
-    for (var s = start; s < end; s += 0.8) {
-      final p = _onRoad(s, -_cableAcross, CityScene._water);
-      _streak(
-        p.$1,
-        p.$3,
-        2 + random.nextDouble() * 6,
-        0.3 + random.nextDouble() * 0.3,
-        const _Rgb.hex(0x9DB8E0).scale(0.05 + random.nextDouble() * 0.09),
-      );
-    }
-    for (final tower in towers) {
-      final p = _onRoad(tower, 0, CityScene._water);
-      _streak(p.$1, p.$3, 9, 0.8, const _Rgb.hex(0xBFD2F0).scale(0.22));
-    }
-  }
-
-  /// A soft-sided streak of light on the water, running toward the window.
-  void _streak(double x, double z, double length, double width, _Rgb color) {
-    final dx = OutdoorScene._eyeX - x;
-    final dz = _eyeZ - z;
-    final d = math.sqrt(dx * dx + dz * dz);
-    final ax = dx / d;
-    final az = dz / d;
-    final rx = az * width;
-    final rz = -ax * width;
-    final y = CityScene._water + 0.04;
-    final nx = x + ax * length;
-    final nz = z + az * length;
-    const dark = _Rgb(0, 0, 0);
-    _reflections
-      ..quadColors(
-        (x - rx, y, z - rz),
-        (x, y, z),
-        (nx, y, nz),
-        (nx - rx, y, nz - rz),
-        dark,
-        color,
-        dark,
-        dark,
-      )
-      ..quadColors(
-        (x, y, z),
-        (x + rx, y, z + rz),
-        (nx + rx, y, nz + rz),
-        (nx, y, nz),
-        color,
-        dark,
-        dark,
-        dark,
-      );
   }
 }

@@ -9,9 +9,11 @@ import 'room_state.dart' show OutdoorEnvironment;
 part 'outdoor_city.dart';
 part 'outdoor_city_bridge.dart';
 part 'outdoor_city_facades.dart';
+part 'outdoor_city_water.dart';
 part 'outdoor_forest.dart';
 part 'outdoor_island.dart';
 part 'outdoor_kit.dart';
+part 'outdoor_trees.dart';
 part 'outdoor_waterfall.dart';
 
 /// Lighting for the baked outdoor scene. Every outdoor surface is unlit
@@ -37,6 +39,7 @@ class OutdoorLight {
     this.daylight = 1,
     this.twilight = 0,
     this.clearness = 1,
+    this.zenith = 0x3F86CF,
   });
 
   /// Unit-ish direction pointing toward the key light (sun or moon).
@@ -74,6 +77,9 @@ class OutdoorLight {
   /// 1 under a clear sky, falling toward 0 in overcast and rain.
   final double clearness;
 
+  /// Sky colour overhead, for reflective water.
+  final int zenith;
+
   OutdoorLight withFogAmount(double amount) => OutdoorLight(
     sunX: sunX,
     sunY: sunY,
@@ -91,6 +97,7 @@ class OutdoorLight {
     daylight: daylight,
     twilight: twilight,
     clearness: clearness,
+    zenith: zenith,
   );
 }
 
@@ -375,244 +382,6 @@ abstract class OutdoorScene {
         final index = row * _groundCols + col;
         shadow[index] = math.min(shadow[index], 1 - amount);
       }
-    }
-  }
-
-  // --- Trees -------------------------------------------------------------------
-
-  void _addBroadleaf(
-    _LitMesh foliage,
-    _LitMesh solids,
-    math.Random random,
-    double x,
-    double baseY,
-    double z,
-    double scale,
-    _Rgb color,
-    List<double> unit, {
-    double birchChance = 0.15,
-    double tallChance = 0.3,
-  }) {
-    final tall = random.nextDouble() < tallChance;
-    final trunkHeight = (tall ? 1.6 : 1.2) * scale + random.nextDouble() * 0.5;
-    final radius = (tall ? 1.15 : 1.45) * scale;
-    final birch = random.nextDouble() < birchChance;
-    _addPrism(
-      solids,
-      x,
-      baseY - 0.1,
-      z,
-      bottomRadius: 0.13 * scale,
-      topRadius: 0.08 * scale,
-      height: trunkHeight + radius * 0.6,
-      sides: 5,
-      color: birch ? const _Rgb.hex(0xE2DED3) : const _Rgb.hex(0x5B4636),
-    );
-    final centerY = baseY + trunkHeight + radius * (tall ? 1.15 : 0.75);
-    final stretch = tall ? 1.55 : 0.95;
-    final bottom = centerY - radius * stretch;
-    final top = centerY + radius * stretch;
-    void blob(double dx, double dy, double dz, double r, double sy) {
-      _addBlob(
-        foliage,
-        unit,
-        random,
-        x + dx,
-        centerY + dy,
-        z + dz,
-        r,
-        r * sy,
-        r,
-        color,
-        bottom: bottom,
-        top: top,
-      );
-    }
-
-    blob(0, 0, 0, radius, stretch);
-    final lobes = 3 + random.nextInt(3);
-    for (var i = 0; i < lobes; i += 1) {
-      final a = random.nextDouble() * math.pi * 2;
-      final spread = radius * (0.55 + random.nextDouble() * 0.25);
-      blob(
-        math.cos(a) * spread,
-        (random.nextDouble() - 0.6) * radius * stretch * 0.7,
-        math.sin(a) * spread,
-        radius * (0.55 + random.nextDouble() * 0.2),
-        stretch * 0.9,
-      );
-    }
-    _shadows.add(
-      _TreeShadow(x: x, z: z, radius: radius * 1.25, height: centerY - baseY),
-    );
-  }
-
-  void _addConifer(
-    _LitMesh foliage,
-    _LitMesh solids,
-    math.Random random,
-    double x,
-    double baseY,
-    double z,
-    double scale, {
-    _Rgb dark = const _Rgb.hex(0x2B5A36),
-    _Rgb light = const _Rgb.hex(0x3F7038),
-    int tiers = 3,
-    int sides = 7,
-    double slender = 1,
-    bool castShadow = true,
-  }) {
-    final color = _Rgb.lerp(dark, light, random.nextDouble());
-    final total = (3.4 + random.nextDouble() * 1.6) * scale * slender;
-    _addPrism(
-      solids,
-      x,
-      baseY - 0.1,
-      z,
-      bottomRadius: 0.12 * scale,
-      topRadius: 0.08 * scale,
-      height: total * 0.35,
-      sides: 5,
-      color: const _Rgb.hex(0x4A3A2E),
-    );
-    for (var tier = 0; tier < tiers; tier += 1) {
-      final t = tier / tiers;
-      final tierBase = baseY + total * (0.22 + t * 0.42);
-      final tierHeight = total * (0.5 - t * 0.08);
-      final radius = scale * (1.15 - t * 0.32);
-      _addCone(
-        foliage,
-        random,
-        x,
-        tierBase,
-        z,
-        radius,
-        tierHeight,
-        color,
-        aoBase: 0.55 + t * 0.2,
-        sides: sides,
-      );
-    }
-    if (castShadow) {
-      _shadows.add(
-        _TreeShadow(x: x, z: z, radius: scale * 1.05, height: total * 0.55),
-      );
-    }
-  }
-
-  void _addBlob(
-    _LitMesh mesh,
-    List<double> unit,
-    math.Random random,
-    double cx,
-    double cy,
-    double cz,
-    double rx,
-    double ry,
-    double rz,
-    _Rgb color, {
-    required double bottom,
-    required double top,
-  }) {
-    final hueShift = (random.nextDouble() - 0.5) * 0.12;
-    final base = color.shift(hueShift);
-    for (var i = 0; i < unit.length; i += 9) {
-      // Shared corners displace identically, so the lumpy blob stays closed.
-      final p = List<double>.filled(9, 0);
-      for (var k = 0; k < 3; k += 1) {
-        final ux = unit[i + k * 3];
-        final uy = unit[i + k * 3 + 1];
-        final uz = unit[i + k * 3 + 2];
-        final bump =
-            0.82 +
-            0.36 *
-                _hash3(
-                  (ux * 997).round() + (cx * 13).round(),
-                  (uy * 997).round() + (cy * 13).round(),
-                  (uz * 997).round() + (cz * 13).round(),
-                );
-        p[k * 3] = cx + ux * rx * bump;
-        p[k * 3 + 1] = cy + uy * ry * bump;
-        p[k * 3 + 2] = cz + uz * rz * bump;
-      }
-      final face = _faceNormal(p);
-      // Leafy speckle: each facet gets its own small brightness step.
-      final speckle = 0.86 + random.nextDouble() * 0.24;
-      final faceColor = base.scale(speckle);
-      for (var k = 0; k < 3; k += 1) {
-        final ux = unit[i + k * 3];
-        final uy = unit[i + k * 3 + 1];
-        final uz = unit[i + k * 3 + 2];
-        // Blend the faceted and the round normal: chunky but not glassy.
-        var nx = face.$1 * 0.55 + ux * 0.45;
-        var ny = face.$2 * 0.55 + uy * 0.45;
-        var nz = face.$3 * 0.55 + uz * 0.45;
-        final len = math.sqrt(nx * nx + ny * ny + nz * nz);
-        nx /= len;
-        ny /= len;
-        nz /= len;
-        final y = p[k * 3 + 1];
-        final heightT = ((y - bottom) / (top - bottom)).clamp(0.0, 1.0);
-        // Self-shadowing: the underside and the core of the canopy are dark.
-        final ao = 0.5 + 0.5 * math.pow(heightT, 0.7);
-        mesh.vertex(
-          p[k * 3],
-          y,
-          p[k * 3 + 2],
-          nx,
-          ny,
-          nz,
-          faceColor,
-          ao: ao.toDouble(),
-        );
-      }
-    }
-  }
-
-  void _addCone(
-    _LitMesh mesh,
-    math.Random random,
-    double x,
-    double baseY,
-    double z,
-    double radius,
-    double height,
-    _Rgb color, {
-    required double aoBase,
-    int sides = 7,
-  }) {
-    final twist = random.nextDouble() * math.pi;
-    final slope = radius / height;
-    for (var s = 0; s < sides; s += 1) {
-      final a0 = twist + s / sides * math.pi * 2;
-      final a1 = twist + (s + 1) / sides * math.pi * 2;
-      final am = (a0 + a1) / 2;
-      final nLen = math.sqrt(1 + slope * slope);
-      final nx = math.cos(am) / nLen;
-      final ny = slope / nLen;
-      final nz = math.sin(am) / nLen;
-      final faceColor = color.scale(0.9 + random.nextDouble() * 0.2);
-      mesh.vertex(
-        x + math.cos(a0) * radius,
-        baseY,
-        z + math.sin(a0) * radius,
-        nx,
-        ny,
-        nz,
-        faceColor,
-        ao: aoBase,
-      );
-      mesh.vertex(x, baseY + height, z, nx, ny, nz, faceColor, ao: 1);
-      mesh.vertex(
-        x + math.cos(a1) * radius,
-        baseY,
-        z + math.sin(a1) * radius,
-        nx,
-        ny,
-        nz,
-        faceColor,
-        ao: aoBase,
-      );
     }
   }
 
