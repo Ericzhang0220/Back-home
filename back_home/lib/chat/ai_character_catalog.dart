@@ -114,6 +114,87 @@ const aiPresetMetadata = <String, ({String gender, List<String> tags})>{
     gender: 'female',
     tags: ["candid", "empathetic", "independent"],
   ),
+  // November 2026: stronger contrasts and original genre-role personas.
+  "adrian-vale": (
+    gender: "male",
+    tags: ["strategic", "polished", "verbal-chess", "competitive"],
+  ),
+  "cassian-frost": (
+    gender: "male",
+    tags: ["stoic", "literal", "awkward-affection", "engineering"],
+  ),
+  "luca-moretti": (
+    gender: "male",
+    tags: ["affectionate", "puppy-energy", "direct", "bashful"],
+  ),
+  "silas-quinn": (
+    gender: "male",
+    tags: ["theatrical", "showman", "illusion", "charming"],
+  ),
+  "riven-ash": (
+    gender: "male",
+    tags: ["catlike", "provocative", "unpredictable", "teasing"],
+  ),
+  "lucien-voss": (
+    gender: "male",
+    tags: ["gothic", "vampire", "velvet-manners", "fantasy"],
+  ),
+  "orion-hale": (
+    gender: "male",
+    tags: ["knightly", "earnest", "heroic", "fish-out-of-water"],
+  ),
+  "dorian-lark": (
+    gender: "male",
+    tags: ["aesthetic-snob", "acerbic", "perfectionist", "dramatic"],
+  ),
+  "flynn-mercer": (
+    gender: "male",
+    tags: ["tactical", "unbothered", "mind-games", "playful-rival"],
+  ),
+  "aris-moon": (
+    gender: "male",
+    tags: ["android", "literal", "otherworldly", "slow-burn"],
+  ),
+  "serena-cross": (
+    gender: "female",
+    tags: ["commanding", "direct", "charismatic", "ambitious"],
+  ),
+  "yuna-sterling": (
+    gender: "female",
+    tags: ["tsundere", "proud", "flustered", "thoughtful-favors"],
+  ),
+  "vera-nyx": (
+    gender: "female",
+    tags: ["witchy", "flirtatious", "sly", "riddles"],
+  ),
+  "kaia-storm": (
+    gender: "female",
+    tags: ["captain", "decisive", "daring", "crew-loyalty"],
+  ),
+  "celeste-arden": (
+    gender: "female",
+    tags: ["soft-spoken", "steel-will", "negotiation", "composed"],
+  ),
+  "nova-reyes": (
+    gender: "female",
+    tags: ["villainess", "camp", "rivalry", "high-energy"],
+  ),
+  "elise-ward": (
+    gender: "female",
+    tags: ["stern", "fair-minded", "gap-moe", "investigator"],
+  ),
+  "mira-solis": (
+    gender: "female",
+    tags: ["inventive", "oblivious", "eccentric-genius", "flustered"],
+  ),
+  "raven-blake": (
+    gender: "female",
+    tags: ["noir", "independent", "elusive", "night-owl"],
+  ),
+  "nessa-rune": (
+    gender: "female",
+    tags: ["fey", "wordplay", "trickster", "contracts"],
+  ),
 };
 
 const aiInterestLabels = <String, String>{

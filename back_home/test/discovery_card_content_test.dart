@@ -198,7 +198,6 @@ void main() {
             previousCard: card(interactive: false),
             nextCard: card(interactive: false),
             onSwiped: (_) {},
-            enabled: true,
           ),
         ),
       ),

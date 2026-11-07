@@ -155,16 +155,28 @@ class _DiscoveryControlsScope extends InheritedWidget {
       canDismiss != oldWidget.canDismiss;
 }
 
-/// Keeps a control's position while fading it with the shared portrait chrome.
+/// Animates portrait controls without changing their layout or reveal target.
 class DiscoveryControlVisibility extends StatelessWidget {
-  const DiscoveryControlVisibility({super.key, required this.child});
+  const DiscoveryControlVisibility({
+    super.key,
+    required this.child,
+    this.slideUp = false,
+  });
 
   final Widget child;
+  final bool slideUp;
 
   @override
   Widget build(BuildContext context) {
     final controls = _DiscoveryControlsScope.of(context);
     final visible = controls?.visible ?? true;
+    final duration = Duration(milliseconds: visible ? 260 : 380);
+    final content = AnimatedOpacity(
+      opacity: visible ? 1 : 0,
+      duration: duration,
+      curve: Curves.easeInOutCubic,
+      child: child,
+    );
     return IgnorePointer(
       ignoring: !visible,
       // A Listener sees every pointer without joining the gesture arena, so the
@@ -182,12 +194,14 @@ class DiscoveryControlVisibility extends StatelessWidget {
           excluding: !visible,
           child: ExcludeSemantics(
             excluding: !visible,
-            child: AnimatedOpacity(
-              opacity: visible ? 1 : 0,
-              duration: Duration(milliseconds: visible ? 260 : 180),
-              curve: Curves.easeInOutCubic,
-              child: child,
-            ),
+            child: slideUp
+                ? AnimatedSlide(
+                    duration: duration,
+                    curve: Curves.easeInOutCubic,
+                    offset: visible ? Offset.zero : const Offset(0, -1),
+                    child: content,
+                  )
+                : content,
           ),
         ),
       ),
@@ -230,7 +244,7 @@ class _DiscoveryTopTabsState extends State<DiscoveryTopTabs> {
           : null,
       child: Stack(
         children: [
-          DiscoveryControlVisibility(child: widget.child),
+          DiscoveryControlVisibility(slideUp: true, child: widget.child),
           if (controls?.canReveal ?? false)
             Positioned.fill(
               child: GestureDetector(

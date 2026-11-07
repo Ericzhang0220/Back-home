@@ -269,6 +269,7 @@ class _AppShellState extends State<AppShell> {
   // deliberately stops short of the very bottom of the screen, which iOS
   // reserves for its own home-indicator gestures.
   static const Duration _navIdleHold = Duration(seconds: 4);
+  static const Duration _chatNavIdleHold = Duration(milliseconds: 2900);
   static const Duration _navSlideIn = Duration(milliseconds: 260);
   static const Duration _navSlideOut = Duration(milliseconds: 380);
   static const double _navRevealZoneHeight = 56;
@@ -322,7 +323,8 @@ class _AppShellState extends State<AppShell> {
 
   void _scheduleNavHide() {
     _navHideTimer?.cancel();
-    _navHideTimer = Timer(_navIdleHold, () {
+    final hold = _currentTab == AppTab.chat ? _chatNavIdleHold : _navIdleHold;
+    _navHideTimer = Timer(hold, () {
       if (!mounted || !_navVisible) {
         return;
       }
@@ -331,7 +333,7 @@ class _AppShellState extends State<AppShell> {
   }
 
   void _revealNav() {
-    if (_shopOpen) return;
+    if (_shopOpen || _currentTab == AppTab.home) return;
     if (!_navVisible) {
       setState(() => _navVisible = true);
     }
@@ -564,10 +566,8 @@ class _AppShellState extends State<AppShell> {
     final useCompactRoomNav =
         isRoomTab && MediaQuery.orientationOf(context) == Orientation.landscape;
     final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
-    final navShown = !_shopOpen && _navVisible && !keyboardOpen;
-    final navSlideOut = _currentTab == AppTab.chat
-        ? const Duration(milliseconds: 180)
-        : _navSlideOut;
+    final canShowNav = !_shopOpen && _currentTab != AppTab.home;
+    final navShown = canShowNav && _navVisible && !keyboardOpen;
     final revealZoneBottom = math.max(
       MediaQuery.paddingOf(context).bottom,
       _navRevealZoneBottomGap,
@@ -593,9 +593,9 @@ class _AppShellState extends State<AppShell> {
     );
 
     return BottomNavigationReveal(
-      enabled: !_shopOpen && !navShown && !keyboardOpen,
+      enabled: canShowNav && !navShown && !keyboardOpen,
       allowDoubleTap:
-          !_shopOpen &&
+          canShowNav &&
           !navShown &&
           !keyboardOpen &&
           (!isRoomTab || _showingDetail),
@@ -627,7 +627,7 @@ class _AppShellState extends State<AppShell> {
                 ),
               ),
             ),
-            if (!_shopOpen)
+            if (canShowNav)
               Positioned(
                 left: 0,
                 right: 0,
@@ -636,11 +636,11 @@ class _AppShellState extends State<AppShell> {
                   ignoring: !navShown,
                   child: AnimatedSlide(
                     key: ValueKey(_currentTab == AppTab.home),
-                    duration: navShown ? _navSlideIn : navSlideOut,
+                    duration: navShown ? _navSlideIn : _navSlideOut,
                     curve: navShown ? Curves.easeOutCubic : Curves.easeInCubic,
                     offset: Offset(0, navShown ? 0 : 1),
                     child: AnimatedOpacity(
-                      duration: navShown ? _navSlideIn : navSlideOut,
+                      duration: navShown ? _navSlideIn : _navSlideOut,
                       curve: Curves.easeInOutCubic,
                       opacity: navShown ? 1 : 0,
                       child: GestureDetector(

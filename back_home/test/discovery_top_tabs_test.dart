@@ -80,6 +80,9 @@ double _likeOpacity(WidgetTester tester) => tester
     .opacity;
 
 Future<void> _doubleTap(WidgetTester tester, Offset point) async {
+  if (_opacity(tester) == 0) {
+    point = tester.getCenter(find.byType(DiscoveryTopTabs));
+  }
   await tester.tapAt(point);
   await tester.pump(const Duration(milliseconds: 100));
   await tester.tapAt(point);
@@ -99,10 +102,6 @@ void main() {
       final pressed = <String>[];
       await _pumpTabs(tester, settings, pressed.add);
       final tabsRect = tester.getRect(find.byType(DiscoveryTopTabs));
-      final buttonRects = [
-        for (final label in ['AI', 'Human', 'Tutor'])
-          tester.getRect(find.text(label)),
-      ];
       final revealPoint = tester.getCenter(find.text('Human'));
       final likeRect = tester.getRect(find.byTooltip('Like'));
       expect(_opacity(tester), 1);
@@ -112,6 +111,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(_opacity(tester), 0);
       expect(_likeOpacity(tester), 0);
+      final slide = tester.widget<AnimatedSlide>(find.byType(AnimatedSlide));
+      expect(slide.offset, const Offset(0, -1));
+      expect(slide.duration, const Duration(milliseconds: 380));
       expect(find.text('Human').hitTestable(), findsNothing);
       expect(find.byTooltip('Like').hitTestable(), findsNothing);
       expect(tester.getRect(find.byType(DiscoveryTopTabs)), tabsRect);
@@ -129,9 +131,9 @@ void main() {
         expect(tester.getRect(find.byTooltip('Like')), likeRect);
         expect(pressed, isEmpty);
         expect(settings.value.navVisible, isFalse);
-        for (final (index, label) in ['AI', 'Human', 'Tutor'].indexed) {
-          expect(tester.getRect(find.text(label)), buttonRects[index]);
-        }
+        final slide = tester.widget<AnimatedSlide>(find.byType(AnimatedSlide));
+        expect(slide.offset, Offset.zero);
+        expect(slide.duration, const Duration(milliseconds: 260));
         await tester.pump(const Duration(milliseconds: 1499));
         expect(_opacity(tester), 1);
         expect(_likeOpacity(tester), 1);

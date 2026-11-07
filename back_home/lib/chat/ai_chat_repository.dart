@@ -148,7 +148,8 @@ class AiChatRepository {
   Future<void> seedPresetCharactersIfNeeded() async {
     final userSnapshot = await _userRef.get();
     final installedVersion = userSnapshot.data()?['aiPresetCatalogVersion'];
-    if (installedVersion == AiCharacter.presetCatalogVersion) {
+    if (installedVersion is int &&
+        installedVersion >= AiCharacter.presetCatalogVersion) {
       return;
     }
 
@@ -158,6 +159,10 @@ class AiChatRepository {
     for (var index = 0; index < AiCharacter.presets.length; index++) {
       final preset = AiCharacter.presets[index];
       if (existingIds.contains(preset.id)) {
+        final existingData = existing.docs
+            .firstWhere((doc) => doc.id == preset.id)
+            .data();
+        if (existingData['isCustom'] == true) continue;
         // Refresh built-in fields when the catalog changes, but retain a
         // picture a person may later add to a preset and their saved-friend
         // choice.
@@ -168,6 +173,11 @@ class AiChatRepository {
           SetOptions(merge: true),
         );
       } else {
+        if (installedVersion is int &&
+            AiCharacter.introducedInCatalogVersion(preset.id) <=
+                installedVersion) {
+          continue;
+        }
         batch.set(_charactersRef.doc(preset.id), {
           ...preset.toFirestore(),
           // Preserves the authored order, since serverTimestamp would collapse

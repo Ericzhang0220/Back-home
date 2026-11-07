@@ -20,15 +20,12 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(430, 844));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(const BackHomeApp());
-    await tester.dragFrom(const Offset(195, 794), const Offset(0, -90));
+    await tester.ensureVisible(find.text('Low'));
+    await tester.tap(find.text('Low'));
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 500));
-    await tester.tap(
-      find.descendant(
-        of: find.byType(NavigationBar),
-        matching: find.text('Room'),
-      ),
-    );
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.ensureVisible(find.text('Open room'));
+    await tester.tap(find.text('Open room'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
     await tester.tap(find.byIcon(Icons.shopping_bag_rounded));
@@ -318,11 +315,24 @@ void main() {
         await tester.pump(const Duration(milliseconds: 400));
       }
 
-      // The landing page can reveal the same navigation without opening a tab.
-      expect(hidden(), isTrue);
+      // The welcome page keeps navigation unavailable, even after gestures.
+      expect(hidden(), isFalse);
+      expect(find.byType(NavigationBar), findsNothing);
       await tester.dragFrom(bottom, const Offset(0, -90));
       await settle();
-      expect(hidden(), isFalse);
+      await tester.tapAt(const Offset(5, 100));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tapAt(const Offset(5, 100));
+      await settle();
+      expect(find.byType(NavigationBar), findsNothing);
+      await tester.ensureVisible(find.text('Low'));
+      await tester.tap(find.text('Low'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.ensureVisible(find.text('Open room'));
+      await tester.tap(find.text('Open room'));
+      await settle();
+      expect(find.byType(NavigationBar).hitTestable(), findsOneWidget);
       for (final label in ['Room', 'Hall', 'Chat', 'Profile']) {
         await tester.tap(
           find.descendant(
@@ -370,29 +380,41 @@ void main() {
       await tester.pumpWidget(const BackHomeApp());
       final size = tester.view.physicalSize / tester.view.devicePixelRatio;
       final bottom = Offset(size.width / 2, size.height - 50);
-      await tester.dragFrom(bottom, const Offset(0, -90));
-      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Low'));
+      await tester.tap(find.text('Low'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.ensureVisible(find.text('Open room'));
+      await tester.tap(find.text('Open room'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
       await tester.tap(
         find.descendant(
           of: find.byType(NavigationBar),
           matching: find.text('Profile'),
         ),
       );
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
       await tester.tap(find.byTooltip('Profile settings'));
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
       expect(find.text('Settings'), findsOneWidget);
       await tester.binding.handlePopRoute();
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
       expect(find.text('Settings'), findsNothing);
       expect(find.byTooltip('Profile settings'), findsOneWidget);
       await tester.tap(find.byTooltip('Profile settings'));
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
       // Hide it while the detail route remains open, then reveal from that page.
       await tester.drag(find.byType(NavigationBar), const Offset(0, 65));
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
       await tester.dragFrom(bottom, const Offset(0, -90));
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
       expect(find.byType(NavigationBar).hitTestable(), findsOneWidget);
       await tester.tap(
         find.descendant(
@@ -400,7 +422,8 @@ void main() {
           matching: find.text('Chat'),
         ),
       );
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
       expect(find.text('Settings'), findsNothing);
       expect(find.byType(ChatScreen), findsOneWidget);
       expect(tester.takeException(), isNull);
@@ -414,14 +437,12 @@ void main() {
       await tester.pumpWidget(const BackHomeApp());
       final size = tester.view.physicalSize / tester.view.devicePixelRatio;
       final bottom = Offset(size.width / 2, size.height - 50);
-      await tester.dragFrom(bottom, const Offset(0, -90));
-      await tester.pumpAndSettle();
-      await tester.tap(
-        find.descendant(
-          of: find.byType(NavigationBar),
-          matching: find.text('Room'),
-        ),
-      );
+      await tester.ensureVisible(find.text('Low'));
+      await tester.tap(find.text('Low'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.ensureVisible(find.text('Open room'));
+      await tester.tap(find.text('Open room'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
       final pageNavigator = Navigator.of(

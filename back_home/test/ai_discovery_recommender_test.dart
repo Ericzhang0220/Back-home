@@ -257,8 +257,8 @@ void main() {
   );
 
   test('old preset documents resolve authored genders and tags locally', () {
-    expect(presets.where((c) => c.gender == 'male').length, 25);
-    expect(presets.where((c) => c.gender == 'female').length, 25);
+    expect(presets.where((c) => c.gender == 'male').length, 35);
+    expect(presets.where((c) => c.gender == 'female').length, 35);
     final restored = AiCharacter.fromData(
       id: 'olivia-parker',
       data: {'name': 'Olivia'},

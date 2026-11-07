@@ -317,6 +317,70 @@ class RoomEditorController extends ChangeNotifier {
   String? _selectedItemId;
 
   int get likesBalance => _likesBalance;
+  Map<String, dynamic> get inventoryRecord => {
+    'owned': Map<String, int>.of(_ownedCounts),
+    'nextId': _nextInstanceId,
+    'placed': [
+      for (final item in _placedItems)
+        {
+          'id': item.instanceId,
+          'definition': item.definitionId,
+          'x': item.origin.x,
+          'z': item.origin.z,
+          'rotation': item.rotationDegrees,
+        },
+    ],
+  };
+
+  void restoreInventory(Map<String, dynamic>? data) {
+    final starter = RoomEditorController();
+    final counts = Map<String, int>.of(starter._ownedCounts);
+    final items = List<PlacedRoomItem>.of(starter._placedItems);
+    var nextId = starter._nextInstanceId;
+    starter.dispose();
+    if (data != null) {
+      counts.clear();
+      for (final entry in (data['owned'] as Map).entries) {
+        if (_definitionsById.containsKey(entry.key) &&
+            entry.value is int &&
+            entry.value >= 0) {
+          counts[entry.key as String] = entry.value as int;
+        }
+      }
+      items.clear();
+      for (final raw in data['placed'] as List) {
+        final item = raw as Map;
+        final definition = item['definition'] as String;
+        if (!_definitionsById.containsKey(definition)) continue;
+        if (items.where((entry) => entry.definitionId == definition).length >=
+            (counts[definition] ?? 0)) {
+          continue;
+        }
+        items.add(
+          PlacedRoomItem(
+            instanceId: item['id'] as String,
+            definitionId: definition,
+            origin: GridPoint(
+              (item['x'] as num).toDouble(),
+              (item['z'] as num).toDouble(),
+            ),
+            rotationDegrees: (item['rotation'] as num).toDouble(),
+          ),
+        );
+      }
+      nextId = data['nextId'] as int;
+    }
+    _ownedCounts
+      ..clear()
+      ..addAll(counts);
+    _placedItems
+      ..clear()
+      ..addAll(items);
+    _nextInstanceId = nextId;
+    _selectedItemId = null;
+    notifyListeners();
+  }
+
   bool shopPurchaseLocked = false;
 
   /// Restores the shared local shop wallet, including keyboard purchases.

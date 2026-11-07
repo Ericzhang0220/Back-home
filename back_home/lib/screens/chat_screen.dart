@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../auth/app_auth_controller.dart';
 import '../chat/ai_chat_repository.dart';
@@ -31,6 +32,7 @@ import '../widgets/character_portrait.dart';
 import '../widgets/chat_background.dart';
 import '../widgets/profile_avatar.dart';
 import '../keyboard/keyboard_host.dart';
+import 'inventory_screen.dart';
 
 enum _ChatPage { ai, human, tutor }
 
@@ -199,10 +201,9 @@ class _ChatScreenState extends State<ChatScreen> {
   final _tutorSearchController = TextEditingController();
   final _messageController = TextEditingController();
 
-  // Owned here, not by the discovery pages, so a half-typed message survives
-  // the tab switch that tears those pages down.
-  final _aiDiscoveryMessageController = TextEditingController();
-  final _humanDiscoveryMessageController = TextEditingController();
+  // Keep each draft with its recipient across swipes and tab changes.
+  final _aiDiscoveryDrafts = _DiscoveryDrafts();
+  final _humanDiscoveryDrafts = _DiscoveryDrafts();
 
   _ChatPage _selectedPage = _ChatPage.ai;
   bool _showAiFriends = false;
@@ -248,8 +249,8 @@ class _ChatScreenState extends State<ChatScreen> {
     _humanSearchController.dispose();
     _tutorSearchController.dispose();
     _messageController.dispose();
-    _aiDiscoveryMessageController.dispose();
-    _humanDiscoveryMessageController.dispose();
+    _aiDiscoveryDrafts.dispose();
+    _humanDiscoveryDrafts.dispose();
     super.dispose();
   }
 
@@ -332,7 +333,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 children: [...previous, ?current],
               ),
               child: isAiDiscovery
-                  ? _AiDiscoveryPage(
+                  ? AiDiscoveryPage(
                       key: const ValueKey('ai-discovery'),
                       repository: repository,
                       recommendationDeck: _aiDiscoveryDeck,
@@ -341,7 +342,8 @@ class _ChatScreenState extends State<ChatScreen> {
                       keyboardOpen: widget.keyboardOpen,
                       navVisible: widget.navVisible,
                       onToggleFriend: _toggleAiFriend,
-                      messageController: _aiDiscoveryMessageController,
+                      draftFor: (id) =>
+                          _aiDiscoveryDrafts.controllerFor(repository.uid, id),
                       characterId: _discoveryCharacterId,
                       onCharacterChanged: (id) {
                         setState(() => _discoveryCharacterId = id);
@@ -357,7 +359,8 @@ class _ChatScreenState extends State<ChatScreen> {
                       keyboardOpen: widget.keyboardOpen,
                       navVisible: widget.navVisible,
                       currentUid: currentUid,
-                      messageController: _humanDiscoveryMessageController,
+                      draftFor: (id) =>
+                          _humanDiscoveryDrafts.controllerFor(currentUid, id),
                       contactUid: _discoveryContactUid,
                       onContactChanged: (uid) {
                         setState(() => _discoveryContactUid = uid);
@@ -1132,9 +1135,26 @@ class _AiContactsPage extends StatelessWidget {
   }
 }
 
+class _DiscoveryDrafts {
+  final _controllers = <(String, String), TextEditingController>{};
+
+  TextEditingController controllerFor(String accountId, String recipientId) =>
+      _controllers.putIfAbsent((
+        accountId,
+        recipientId,
+      ), TextEditingController.new);
+
+  void dispose() {
+    for (final controller in _controllers.values) {
+      controller.dispose();
+    }
+  }
+}
+
 /// Full-screen AI friend discovery with bundled artwork for every preset.
-class _AiDiscoveryPage extends StatefulWidget {
-  const _AiDiscoveryPage({
+@visibleForTesting
+class AiDiscoveryPage extends StatefulWidget {
+  const AiDiscoveryPage({
     super.key,
     required this.repository,
     required this.recommendationDeck,
@@ -1143,7 +1163,7 @@ class _AiDiscoveryPage extends StatefulWidget {
     this.inbox,
     this.isActive = true,
     required this.onToggleFriend,
-    required this.messageController,
+    required this.draftFor,
     required this.characterId,
     required this.onCharacterChanged,
   });
@@ -1163,8 +1183,7 @@ class _AiDiscoveryPage extends StatefulWidget {
   })
   onToggleFriend;
 
-  /// Owned by the chat screen, so an unsent draft outlives this page.
-  final TextEditingController messageController;
+  final TextEditingController Function(String characterId) draftFor;
 
   /// The profile to show. Owned by the chat screen so it survives the
   /// AI ⇄ Friend toggle, which tears this page down and rebuilds it.
@@ -1172,18 +1191,17 @@ class _AiDiscoveryPage extends StatefulWidget {
   final ValueChanged<String?> onCharacterChanged;
 
   @override
-  State<_AiDiscoveryPage> createState() => _AiDiscoveryPageState();
+  State<AiDiscoveryPage> createState() => _AiDiscoveryPageState();
 }
 
-class _AiDiscoveryPageState extends State<_AiDiscoveryPage> {
+class _AiDiscoveryPageState extends State<AiDiscoveryPage> {
   late DiscoveryConversationCache<AiMessage> _conversations;
   late Stream<List<AiCharacter>> _characters;
   late Stream<List<AiCharacter>> _publicCharacters;
   late Stream<Map<String, AiCharacterInteraction>> _discoveryInteractions;
-  bool _isReplying = false;
+  final _replying = <(String, String)>{};
 
   String? get _currentCharacterId => widget.characterId;
-  TextEditingController get _messageController => widget.messageController;
 
   @override
   void initState() {
@@ -1207,7 +1225,7 @@ class _AiDiscoveryPageState extends State<_AiDiscoveryPage> {
   }
 
   @override
-  void didUpdateWidget(covariant _AiDiscoveryPage oldWidget) {
+  void didUpdateWidget(covariant AiDiscoveryPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.repository.uid != widget.repository.uid) {
       _conversations.dispose();
@@ -1216,9 +1234,6 @@ class _AiDiscoveryPageState extends State<_AiDiscoveryPage> {
   }
 
   void _page(int delta) {
-    if (_isReplying) {
-      return;
-    }
     final id = widget.recommendationDeck.move(delta);
     if (id != null) widget.onCharacterChanged(id);
   }
@@ -1227,43 +1242,40 @@ class _AiDiscoveryPageState extends State<_AiDiscoveryPage> {
     AiCharacter character, {
     required bool isSharedTemplate,
   }) async {
-    final text = _messageController.text.trim();
-    if (text.isEmpty || _isReplying) {
+    final repository = widget.repository;
+    final conversation = (repository.uid, character.id);
+    final draft = widget.draftFor(character.id);
+    final text = draft.text.trim();
+    if (text.isEmpty || _replying.contains(conversation)) {
       return;
     }
 
     setState(() {
-      _messageController.clear();
-      _isReplying = true;
+      _replying.add(conversation);
+      draft.clear();
     });
     try {
       if (isSharedTemplate) {
         // The reply function reads the character from this account, so take a
         // copy first. Sending then saves it into the AI friends list.
-        await widget.repository.adoptPublicCharacter(
-          character,
-          asFriend: false,
-        );
+        await repository.adoptPublicCharacter(character, asFriend: false);
       }
-      await widget.repository.sendToCharacter(
-        characterId: character.id,
-        text: text,
-      );
+      await repository.sendToCharacter(characterId: character.id, text: text);
     } on AiChatException catch (error) {
-      if (mounted) {
+      if (mounted && widget.repository.uid == repository.uid) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(error.message)));
       }
     } catch (_) {
-      if (mounted) {
+      if (mounted && widget.repository.uid == repository.uid) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Could not send that message.')),
         );
       }
     } finally {
       if (mounted) {
-        setState(() => _isReplying = false);
+        setState(() => _replying.remove(conversation));
       }
     }
   }
@@ -1386,6 +1398,10 @@ class _AiDiscoveryPageState extends State<_AiDiscoveryPage> {
         cache: _conversations,
         conversationId: character.id,
         builder: (context, recentMessages) {
+          final isReplying = _replying.contains((
+            widget.repository.uid,
+            character.id,
+          ));
           final isSharedTemplate = shared.any(
             (template) => template.id == character.id,
           );
@@ -1415,12 +1431,11 @@ class _AiDiscoveryPageState extends State<_AiDiscoveryPage> {
                   isPending: message.isPending,
                   createdAt: message.createdAt,
                 ),
-              if (isInteractive && _isReplying)
-                const _DiscoveryBubble(text: '', isPending: true),
+              if (isReplying) const _DiscoveryBubble(text: '', isPending: true),
             ],
-            messageController: _messageController,
+            messageController: widget.draftFor(character.id),
             isInteractive: isInteractive,
-            isBusy: _isReplying,
+            isBusy: isReplying,
             onToggleFriend: () => widget.onToggleFriend(
               character,
               isSharedTemplate: isSharedTemplate,
@@ -1441,7 +1456,6 @@ class _AiDiscoveryPageState extends State<_AiDiscoveryPage> {
       nextCard: next == null
           ? null
           : portraitFor(next, currentIndex + 1, isInteractive: false),
-      enabled: !_isReplying && !widget.keyboardOpen,
       onSwiped: _page,
     );
   }
@@ -1473,7 +1487,6 @@ class SwipeableDiscoveryDeck extends StatefulWidget {
     required this.previousCard,
     required this.nextCard,
     required this.onSwiped,
-    required this.enabled,
   });
 
   final Object cardKey;
@@ -1481,7 +1494,6 @@ class SwipeableDiscoveryDeck extends StatefulWidget {
   final Widget? previousCard;
   final Widget? nextCard;
   final ValueChanged<int> onSwiped;
-  final bool enabled;
 
   @override
   State<SwipeableDiscoveryDeck> createState() => _SwipeableDiscoveryDeckState();
@@ -1554,16 +1566,15 @@ class _SwipeableDiscoveryDeckState extends State<SwipeableDiscoveryDeck>
   }
 
   void _handleDragStart(DragStartDetails details) {
-    if (!widget.enabled || _isAnimating) {
+    if (_isAnimating) {
       return;
     }
-    FocusScope.of(context).unfocus();
     _offsetAnimation = null;
     _committedDirection = null;
   }
 
   void _handleDragUpdate(DragUpdateDetails details) {
-    if (!widget.enabled || _isAnimating) {
+    if (_isAnimating) {
       return;
     }
     final nextDx = _dragOffset.dx + details.delta.dx;
@@ -1576,7 +1587,7 @@ class _SwipeableDiscoveryDeckState extends State<SwipeableDiscoveryDeck>
   }
 
   void _handleDragEnd(DragEndDetails details) {
-    if (!widget.enabled || _isAnimating) {
+    if (_isAnimating) {
       return;
     }
     final velocity = details.primaryVelocity ?? 0;
@@ -1595,6 +1606,7 @@ class _SwipeableDiscoveryDeckState extends State<SwipeableDiscoveryDeck>
       return;
     }
 
+    FocusScope.of(context).unfocus();
     _revealedDirection = direction;
     _committedDirection = direction;
     final sign = direction > 0 ? -1.0 : 1.0;
@@ -1654,16 +1666,14 @@ class _SwipeableDiscoveryDeckState extends State<SwipeableDiscoveryDeck>
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: () => FocusScope.of(context).unfocus(),
-          onHorizontalDragStart: widget.enabled ? _handleDragStart : null,
-          onHorizontalDragUpdate: widget.enabled ? _handleDragUpdate : null,
-          onHorizontalDragEnd: widget.enabled ? _handleDragEnd : null,
-          onHorizontalDragCancel: !widget.enabled
-              ? null
-              : () {
-                  if (!_isAnimating) {
-                    _animateOffset(Offset.zero, duration: _restoreDuration);
-                  }
-                },
+          onHorizontalDragStart: _handleDragStart,
+          onHorizontalDragUpdate: _handleDragUpdate,
+          onHorizontalDragEnd: _handleDragEnd,
+          onHorizontalDragCancel: () {
+            if (!_isAnimating && _dragOffset != Offset.zero) {
+              _animateOffset(Offset.zero, duration: _restoreDuration);
+            }
+          },
           child: ClipRect(
             child: Stack(
               fit: StackFit.expand,
@@ -2035,7 +2045,7 @@ class _SignedOutNotice extends StatelessWidget {
   }
 }
 
-/// The Human tab's counterpart to `_AiDiscoveryPage`: one app user at a time,
+/// The Human tab's counterpart to `AiDiscoveryPage`: one app user at a time,
 /// swipe left for the next, heart to save them to your people.
 class _HumanDiscoveryPage extends StatefulWidget {
   const _HumanDiscoveryPage({
@@ -2047,7 +2057,7 @@ class _HumanDiscoveryPage extends StatefulWidget {
     this.inbox,
     this.isActive = true,
     required this.currentUid,
-    required this.messageController,
+    required this.draftFor,
     required this.contactUid,
     required this.onContactChanged,
   });
@@ -2060,8 +2070,7 @@ class _HumanDiscoveryPage extends StatefulWidget {
   final bool isActive;
   final String currentUid;
 
-  /// Owned by the chat screen, so an unsent draft outlives this page.
-  final TextEditingController messageController;
+  final TextEditingController Function(String contactUid) draftFor;
 
   /// Owned by the chat screen so it survives the Human ⇄ Friend toggle.
   final String? contactUid;
@@ -2077,10 +2086,9 @@ class _HumanDiscoveryPageState extends State<_HumanDiscoveryPage> {
   late Stream<Set<String>> _friends;
   late Stream<QuerySnapshot<Map<String, dynamic>>> _users;
   final math.Random _random = math.Random();
-  bool _isSending = false;
+  final _sending = <(String, String)>{};
 
   String? get _currentContactUid => widget.contactUid;
-  TextEditingController get _messageController => widget.messageController;
 
   @override
   void initState() {
@@ -2120,9 +2128,6 @@ class _HumanDiscoveryPageState extends State<_HumanDiscoveryPage> {
   }
 
   void _page(int delta) {
-    if (_isSending) {
-      return;
-    }
     final uid = widget.history.move(delta);
     if (uid != null) widget.onContactChanged(uid);
   }
@@ -2156,36 +2161,39 @@ class _HumanDiscoveryPageState extends State<_HumanDiscoveryPage> {
   }
 
   Future<void> _sendMessage(_HumanContact contact) async {
-    final text = _messageController.text.trim();
-    if (text.isEmpty || _isSending) {
+    final currentUid = widget.currentUid;
+    final conversation = (currentUid, contact.uid);
+    final draft = widget.draftFor(contact.uid);
+    final text = draft.text.trim();
+    if (text.isEmpty || _sending.contains(conversation)) {
       return;
     }
 
     setState(() {
-      _messageController.clear();
-      _isSending = true;
+      _sending.add(conversation);
+      draft.clear();
     });
     try {
       await _sendDirectMessage(
-        currentUid: widget.currentUid,
+        currentUid: currentUid,
         peerUid: contact.uid,
         text: text,
       );
     } on _DirectMessageLimitException catch (error) {
-      if (mounted) {
+      if (mounted && widget.currentUid == currentUid) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(error.message)));
       }
     } catch (_) {
-      if (mounted) {
+      if (mounted && widget.currentUid == currentUid) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Could not send that message.')),
         );
       }
     } finally {
       if (mounted) {
-        setState(() => _isSending = false);
+        setState(() => _sending.remove(conversation));
       }
     }
   }
@@ -2308,9 +2316,9 @@ class _HumanDiscoveryPageState extends State<_HumanDiscoveryPage> {
                           isUser: doc.data()['senderUid'] == widget.currentUid,
                         ),
                     ],
-                    messageController: _messageController,
+                    messageController: widget.draftFor(contact.uid),
                     isInteractive: isInteractive,
-                    isBusy: _isSending,
+                    isBusy: _sending.contains((widget.currentUid, contact.uid)),
                     onToggleFriend: () =>
                         _toggleFriend(contact, isFriend: contactIsFriend),
                     onSendMessage: () => _sendMessage(contact),
@@ -2332,7 +2340,6 @@ class _HumanDiscoveryPageState extends State<_HumanDiscoveryPage> {
               nextCard: next == null
                   ? null
                   : portraitFor(next, currentIndex + 1, isInteractive: false),
-              enabled: !_isSending && !widget.keyboardOpen,
               onSwiped: _page,
             );
           },
@@ -2895,39 +2902,6 @@ class _TutorSidebar extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _DeviceStatusBanner extends StatelessWidget {
-  const _DeviceStatusBanner({required this.icon, required this.text});
-
-  final IconData icon;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-      decoration: BoxDecoration(
-        color: AppColors.card.withValues(alpha: 0.72),
-        border: const Border(bottom: BorderSide(color: AppColors.stroke)),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: AppColors.muted, size: 22),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              text,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: AppColors.muted,
-                fontSize: 13,
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -3661,11 +3635,36 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
   @override
   Widget build(BuildContext context) {
     unawaited(_backgroundReady);
+    final photoHeader = _background.mode != ChatBackgroundMode.plain;
+    final headerButtonStyle = IconButton.styleFrom(
+      foregroundColor: photoHeader ? Colors.white : AppColors.ink,
+      backgroundColor: photoHeader ? Colors.black.withValues(alpha: .24) : null,
+    );
     return Scaffold(
+      extendBodyBehindAppBar: photoHeader,
       backgroundColor: AppColors.cream,
       appBar: AppBar(
-        backgroundColor: AppColors.card.withValues(alpha: 0.94),
-        foregroundColor: AppColors.ink,
+        backgroundColor: photoHeader
+            ? Colors.transparent
+            : AppColors.card.withValues(alpha: 0.94),
+        foregroundColor: photoHeader ? Colors.white : AppColors.ink,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        systemOverlayStyle: photoHeader
+            ? SystemUiOverlayStyle.light
+            : SystemUiOverlayStyle.dark,
+        leading: BackButton(style: headerButtonStyle),
+        flexibleSpace: photoHeader
+            ? const DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Color(0x99000000), Color(0x00000000)],
+                  ),
+                ),
+              )
+            : null,
         surfaceTintColor: Colors.transparent,
         titleSpacing: 0,
         // Tapping the name opens the profile; sharing stays in the toolbar.
@@ -3678,7 +3677,13 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
                 child: InkWell(
                   onTap: () => _showPeerProfile(snapshot.data),
                   borderRadius: BorderRadius.circular(12),
-                  child: Padding(
+                  child: Container(
+                    decoration: photoHeader
+                        ? BoxDecoration(
+                            color: Colors.black.withValues(alpha: .24),
+                            borderRadius: BorderRadius.circular(16),
+                          )
+                        : null,
                     padding: const EdgeInsets.symmetric(
                       horizontal: 4,
                       vertical: 4,
@@ -3696,7 +3701,12 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
                           child: Text(
                             snapshot.data?.name ?? widget.peer.displayName,
                             overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.titleMedium,
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(
+                                  color: photoHeader
+                                      ? Colors.white
+                                      : AppColors.ink,
+                                ),
                           ),
                         ),
                       ],
@@ -3704,17 +3714,24 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
                   ),
                 ),
               ),
-              IconButton(
-                tooltip: 'Chat background',
-                onPressed: _isUpdatingBackground
-                    ? null
-                    : () => _changeBackground(snapshot.data),
-                icon: const Icon(Icons.wallpaper_outlined),
-              ),
+              if (!widget.peer.isAi)
+                IconButton(
+                  tooltip: 'Chat background',
+                  onPressed: _isUpdatingBackground
+                      ? null
+                      : () => _changeBackground(snapshot.data),
+                  icon: const Icon(Icons.wallpaper_outlined),
+                ),
             ],
           ),
         ),
-        actions: [_buildAppBarAction()],
+        actions: [
+          IconButtonTheme(
+            data: IconButtonThemeData(style: headerButtonStyle),
+            child: _buildAppBarAction(),
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
       body: Stack(
         fit: StackFit.expand,
@@ -3729,11 +3746,14 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
                   snapshot.data?.portraitAsset ?? widget.peer.portraitAsset,
             ),
           ),
-          Column(
-            children: [
-              Expanded(child: _buildMessages()),
-              _buildComposer(),
-            ],
+          SafeArea(
+            bottom: false,
+            child: Column(
+              children: [
+                Expanded(child: _buildMessages()),
+                _buildComposer(),
+              ],
+            ),
           ),
         ],
       ),
@@ -3776,18 +3796,6 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
           return Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (widget.onEditPhoto != null)
-                IconButton(
-                  tooltip: 'Change photo',
-                  onPressed: _isUpdatingPhoto ? null : _changePhoto,
-                  icon: _isUpdatingPhoto
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.add_a_photo_outlined),
-                ),
               IconButton(
                 tooltip: 'Share character',
                 onPressed: () => _shareCharacter(character),
@@ -4184,6 +4192,38 @@ class _DirectChatScreenState extends State<_DirectChatScreen> {
           return _PeerProfileSheet(
             peer: widget.peer,
             character: character,
+            onChangeKeyboard:
+                widget.peer.isAi &&
+                    KeyboardStoreScope.maybeOf(this.context) != null
+                ? () {
+                    final store = KeyboardStoreScope.maybeOf(this.context)!;
+                    Navigator.of(context).pop();
+                    Navigator.of(this.context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) =>
+                            InventoryScreen(store: store, keyboardsOnly: true),
+                      ),
+                    );
+                  }
+                : null,
+            onChangeBackground: widget.peer.isAi && !_isUpdatingBackground
+                ? () {
+                    Navigator.of(context).pop();
+                    _changeBackground(character);
+                  }
+                : null,
+            onChangePhoto:
+                widget.peer.isAi &&
+                    character != null &&
+                    repository != null &&
+                    character.canEditBy(repository.uid) &&
+                    widget.onEditPhoto != null &&
+                    !_isUpdatingPhoto
+                ? () {
+                    Navigator.of(context).pop();
+                    _changePhoto();
+                  }
+                : null,
             heart: character != null && repository != null
                 ? _buildHeartButton(
                     isFriend: character.isFriend,
@@ -4438,12 +4478,18 @@ class _PeerProfileSheet extends StatelessWidget {
     required this.peer,
     this.character,
     this.onEdit,
+    this.onChangeBackground,
+    this.onChangePhoto,
+    this.onChangeKeyboard,
     this.heart,
   });
 
   final _ChatPeer peer;
   final AiCharacter? character;
   final VoidCallback? onEdit;
+  final VoidCallback? onChangeBackground;
+  final VoidCallback? onChangePhoto;
+  final VoidCallback? onChangeKeyboard;
   final Widget? heart;
 
   @override
@@ -4539,6 +4585,30 @@ class _PeerProfileSheet extends StatelessWidget {
                     onPressed: onEdit,
                     icon: const Icon(Icons.edit_outlined),
                     label: const Text('Edit character'),
+                  ),
+                ],
+                if (onChangeKeyboard != null) ...[
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: onChangeKeyboard,
+                    icon: const Icon(Icons.keyboard_outlined),
+                    label: const Text('Change keyboard'),
+                  ),
+                ],
+                if (onChangeBackground != null) ...[
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: onChangeBackground,
+                    icon: const Icon(Icons.wallpaper_outlined),
+                    label: const Text('Change chat background'),
+                  ),
+                ],
+                if (onChangePhoto != null) ...[
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: onChangePhoto,
+                    icon: const Icon(Icons.add_a_photo_outlined),
+                    label: const Text('Change character photo'),
                   ),
                 ],
               ],

@@ -78,6 +78,67 @@ class _IosTextInput {
 
 void main() {
   testWidgets(
+    'keyboard and composer animate together and reverse without jumping',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final room = RoomEditorController();
+      final store = KeyboardStore(room);
+      addTearDown(store.dispose);
+      addTearDown(room.dispose);
+      await store.loadForAccount('animation');
+      await tester.runAsync(PinyinLexicon.load);
+      var inset = 0.0;
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) =>
+              AppKeyboardHost(store: store, child: child!),
+          home: Builder(
+            builder: (context) {
+              inset = MediaQuery.viewInsetsOf(context).bottom;
+              return const Scaffold(
+                body: KeyboardTarget(isAi: true, child: TextField()),
+              );
+            },
+          ),
+        ),
+      );
+      final screenHeight =
+          tester.view.physicalSize.height / tester.view.devicePixelRatio;
+      await tester.tap(find.byType(TextField));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      final opening = inset;
+      expect(opening, greaterThan(0));
+      expect(opening, lessThan(294));
+      expect(
+        tester.getTopLeft(find.byType(CharacterKeyboard)).dy,
+        closeTo(screenHeight - inset, .1),
+      );
+      FocusManager.instance.primaryFocus!.unfocus();
+      await tester.pump();
+      expect(inset, closeTo(opening, .1));
+      await tester.pump(const Duration(milliseconds: 60));
+      expect(inset, lessThan(opening));
+      final closing = inset;
+      await tester.tap(find.byType(TextField));
+      await tester.pump();
+      expect(inset, closeTo(closing, .1));
+      await tester.pumpAndSettle();
+      expect(inset, greaterThan(opening));
+      expect(
+        tester.getTopLeft(find.byType(CharacterKeyboard)).dy,
+        closeTo(screenHeight - inset, .1),
+      );
+      FocusManager.instance.primaryFocus!.unfocus();
+      await tester.pumpAndSettle();
+      expect(inset, 0);
+      expect(find.byType(CharacterKeyboard), findsNothing);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
     'iOS: the custom keyboard keeps focus and swaps with the system keyboard',
     (tester) async {
       SharedPreferences.setMockInitialValues({});

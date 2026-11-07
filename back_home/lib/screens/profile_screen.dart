@@ -18,6 +18,8 @@ import '../widgets/profile_avatar.dart';
 import '../widgets/settings_gear_icon.dart';
 import '../widgets/swipe_back_page_route.dart';
 import '../widgets/weather_settings_controls.dart';
+import '../keyboard/keyboard_host.dart';
+import 'inventory_screen.dart';
 import 'mood_calendar_screen.dart';
 import 'notifications_screen.dart';
 
@@ -86,6 +88,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
             onPressed: _openSettings,
           ),
           children: [
+            if (KeyboardStoreScope.maybeOf(context) case final store?)
+              ListTile(
+                leading: const Icon(Icons.inventory_2_outlined),
+                title: const Text('My inventory'),
+                subtitle: const Text('Your keyboards and furniture'),
+                onTap: () => Navigator.of(context).push(
+                  SwipeBackPageRoute<void>(
+                    builder: (_) => InventoryScreen(store: store),
+                  ),
+                ),
+              ),
             if (currentUser == null)
               _ProfileIdentityHeader(
                 key: const ValueKey('profile-identity-signed-out'),

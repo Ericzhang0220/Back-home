@@ -1,3 +1,8 @@
+import 'package:back_home/keyboard/keyboard_host.dart';
+import 'package:back_home/keyboard/keyboard_store.dart';
+import 'package:back_home/rooms/room_state.dart';
+import 'package:back_home/screens/inventory_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 // SDK references are substituted only to open the real conversation route.
 // ignore_for_file: subtype_of_sealed_class
 import 'dart:async';
@@ -184,6 +189,7 @@ void main() {
     AiCharacter? character,
     Future<AiCharacterPhoto?> Function()? picker,
     List<AiMessage> messages = const [],
+    KeyboardStore? keyboards,
   }) async {
     repository = _Repository(character ?? custom);
     repository.messages = messages;
@@ -207,7 +213,12 @@ void main() {
         theme: ThemeData(platform: TargetPlatform.iOS),
         builder: (context, child) => ValueListenableBuilder(
           valueListenable: media,
-          builder: (_, value, _) => MediaQuery(data: value, child: child!),
+          builder: (_, value, _) => MediaQuery(
+            data: value,
+            child: keyboards == null
+                ? child!
+                : KeyboardStoreScope(store: keyboards, child: child!),
+          ),
         ),
         home: Scaffold(
           body: Builder(
@@ -230,13 +241,35 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets('AI profile opens owned keyboards without losing the draft', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final room = RoomEditorController();
+    final store = KeyboardStore(room);
+    addTearDown(store.dispose);
+    addTearDown(room.dispose);
+    await store.loadForAccount('me');
+    await open(tester, keyboards: store);
+    await tester.enterText(find.byType(TextField), 'Keep my draft');
+    await tester.tap(find.text(repository.character.name));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Change keyboard'));
+    await tester.tap(find.text('Change keyboard'));
+    await tester.pumpAndSettle();
+    expect(find.byType(InventoryScreen), findsOneWidget);
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    expect(find.text('Keep my draft'), findsOneWidget);
+  });
+
   testWidgets(
     'own character is edited from its profile without a duplicate toolbar icon',
     (tester) async {
       await open(tester);
       expect(find.byIcon(Icons.info_outline_rounded), findsNothing);
       expect(find.byTooltip('Edit character'), findsNothing);
-      expect(find.byTooltip('Chat background'), findsOneWidget);
+      expect(find.byTooltip('Chat background'), findsNothing);
       await tester.enterText(find.byType(TextField), 'Keep this draft');
       await tester.tap(find.text(repository.character.name));
       await tester.pumpAndSettle();
@@ -298,6 +331,12 @@ void main() {
       await open(tester, character: AiCharacter.presets.first);
       expect(find.byTooltip('Edit character'), findsNothing);
       expect(find.byTooltip('Share character'), findsOneWidget);
+      final appBar = tester.widget<AppBar>(find.byType(AppBar));
+      expect(appBar.backgroundColor, Colors.transparent);
+      expect(appBar.foregroundColor, Colors.white);
+      expect(tester.getTopLeft(find.byType(ChatBackground)).dy, 0);
+      expect(tester.getTopLeft(find.text(repository.character.name)).dy, greaterThanOrEqualTo(47));
+
       expect(find.byIcon(Icons.favorite_rounded), findsNothing);
       expect(find.byIcon(Icons.favorite_border_rounded), findsNothing);
       expect(find.byIcon(Icons.info_outline_rounded), findsNothing);
@@ -337,7 +376,9 @@ void main() {
     (tester) async {
       await open(tester, character: AiCharacter.presets.first);
       await tester.enterText(find.byType(TextField), 'Draft');
-      await tester.tap(find.byTooltip('Chat background'));
+      await tester.tap(find.text(repository.character.name));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Change chat background'));
       await tester.pumpAndSettle();
       expect(find.text('Plain background'), findsNothing);
       expect(find.text('Character photo'), findsOneWidget);
@@ -345,7 +386,9 @@ void main() {
       await tester.tap(find.text('Character photo'));
       await tester.pumpAndSettle();
       expect(backgrounds.value!.mode, ChatBackgroundMode.portrait);
-      await tester.tap(find.byTooltip('Chat background'));
+      await tester.tap(find.text(repository.character.name));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Change chat background'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Choose from Photos'));
       await tester.pumpAndSettle();
@@ -361,7 +404,9 @@ void main() {
     tester,
   ) async {
     await open(tester, picker: () async => null);
-    await tester.tap(find.byTooltip('Chat background'));
+    await tester.tap(find.text(repository.character.name));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Change chat background'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Choose from Photos'));
     await tester.pumpAndSettle();

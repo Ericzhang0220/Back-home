@@ -53,6 +53,17 @@ class _ControlledPreferences extends Fake implements SharedPreferences {
 }
 
 void main() {
+  test('star keyword controls the visible motif and survives saved data', () {
+    final result = generateCustomKeyboard(
+      CustomKeyboardProject.forCharacter('stars', ownAi),
+      'blue star keyboard',
+    );
+    expect(result.skin.motif, Icons.star_rounded);
+    expect(
+      CustomKeyboardResult.fromJson(result.toJson()).skin.motif,
+      Icons.star_rounded,
+    );
+  });
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   Future<KeyboardStore> makeStore(
@@ -94,11 +105,6 @@ void main() {
         isNull,
       );
       final first = store.projects.single.results.single.skin;
-      expect(
-        await store.saveCustomKeyboard(id, first.id, KeyboardUseScope.allPages),
-        isNull,
-      );
-      expect(store.activeSkin, first);
       expect(await store.generateKeyboard(id, 'midnight purple'), isNull);
       expect(store.projects.single.results, hasLength(2));
       expect(await store.generateKeyboard(id, 'blue ocean'), isNull);
@@ -109,6 +115,11 @@ void main() {
         await store.saveCustomKeyboard(id, last.id, KeyboardUseScope.aiOnly),
         isNull,
       );
+      expect(
+        await store.saveCustomKeyboard(id, first.id, KeyboardUseScope.aiOnly),
+        isNotNull,
+      );
+      expect(await store.generateKeyboard(id, 'star'), isNotNull);
       expect(store.owned, contains(last.id));
       expect(store.owned, isNot(contains(first.id)));
       expect(room.likesBalance, 178);

@@ -5,6 +5,7 @@ import 'ai_character_catalog.dart';
 import 'character_share.dart';
 
 part 'ai_character_expansion.dart';
+part 'ai_character_november_2026.dart';
 
 /// Icons are stored as stable string keys rather than raw code points so the
 /// `IconData` values stay const — dynamic `IconData` breaks Flutter's icon
@@ -122,7 +123,15 @@ class AiCharacter {
   /// Increment this whenever the built-in catalog changes. It lets existing
   /// accounts receive a one-time catalog update without restoring presets a
   /// person intentionally removed later.
-  static const int presetCatalogVersion = 4;
+  static const int presetCatalogVersion = 5;
+
+  /// Version gates let an expansion add new people without resurrecting older
+  /// presets an existing account has deliberately removed.
+  static int introducedInCatalogVersion(String id) {
+    if (_novemberAiPresets.any((preset) => preset.id == id)) return 5;
+    if (_additionalAiPresets.any((preset) => preset.id == id)) return 4;
+    return 1;
+  }
 
   static const List<String> legacyPresetIds = ['ari', 'noah', 'mentor-lin'];
 
@@ -408,6 +417,7 @@ class AiCharacter {
       iconCodePoint: 'guitar',
     ),
     ..._additionalAiPresets,
+    ..._novemberAiPresets,
   ];
 
   factory AiCharacter.fromDoc(QueryDocumentSnapshot<Map<String, dynamic>> doc) {

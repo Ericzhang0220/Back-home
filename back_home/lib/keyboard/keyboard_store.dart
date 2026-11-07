@@ -60,6 +60,13 @@ class KeyboardStore extends ChangeNotifier {
   KeyboardUseScope scope = KeyboardUseScope.aiOnly;
   Set<String> _owned = {'mia-anderson'};
   Set<String> get owned => Set.unmodifiable(_owned);
+  List<KeyboardSkin> get ownedSkins => [
+    ...keyboardSkins.where((skin) => _owned.contains(skin.id)),
+    for (final project in _projects)
+      if (project.selected != null && _owned.contains(project.selectedId))
+        project.selected!.skin,
+  ];
+  String _lastFurniture = '';
   KeyboardSkin get activeSkin =>
       _customSkin(activeId) ?? keyboardSkinById(activeId);
   String get _key => 'chet_keyboard_v1_$_account';
@@ -111,6 +118,8 @@ class KeyboardStore extends ChangeNotifier {
           : KeyboardUseScope.aiOnly;
       enabled = data['enabled'] != false;
       final balance = data['likes'];
+      room.restoreInventory(data['furniture'] as Map<String, dynamic>?);
+      _lastFurniture = jsonEncode(room.inventoryRecord);
       room.restoreLikesBalance(balance is int && balance >= 0 ? balance : 238);
       _lastBalance = room.likesBalance;
       ready = true;
@@ -150,6 +159,7 @@ class KeyboardStore extends ChangeNotifier {
     'scope': scope.name,
     'enabled': enabled,
     'likes': room.likesBalance,
+    'furniture': room.inventoryRecord,
   };
 
   Future<void> _save() {
@@ -167,7 +177,12 @@ class KeyboardStore extends ChangeNotifier {
   }
 
   void _roomChanged() {
-    if (!ready || busy || _lastBalance == room.likesBalance) return;
+    if (!ready || busy) return;
+    final furniture = jsonEncode(room.inventoryRecord);
+    if (_lastBalance == room.likesBalance && _lastFurniture == furniture) {
+      return;
+    }
+    _lastFurniture = furniture;
     _lastBalance = room.likesBalance;
     unawaited(_save().catchError((Object _) {}));
   }
@@ -274,6 +289,9 @@ class KeyboardStore extends ChangeNotifier {
     if (!ready || busy) return 'The shop is still loading. Please try again.';
     final project = projectById(projectId);
     if (project == null) return 'Keyboard purchase not found.';
+    if (project.selectedId != null) {
+      return 'This keyboard has already been saved.';
+    }
     if (project.remaining <= 0) {
       return 'All three generations are ready. Choose a keyboard to save.';
     }
@@ -297,8 +315,10 @@ class KeyboardStore extends ChangeNotifier {
     if (project == null || !project.results.any((r) => r.skin.id == resultId)) {
       return 'Choose one of your generated keyboards first.';
     }
+    if (project.selectedId != null) {
+      return 'This keyboard has already been saved.';
+    }
     return _customMutation(() {
-      if (project.selectedId != null) _owned.remove(project.selectedId);
       _projects[_projects.indexOf(project)] = project.select(resultId);
       _owned.add(resultId);
       activeId = resultId;

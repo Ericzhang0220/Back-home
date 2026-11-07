@@ -125,12 +125,17 @@ class CustomKeyboardResult {
           Color(data['accent'] as int),
           Color(data['base'] as int),
           Color(data['ink'] as int),
-          Icons.auto_awesome_rounded,
+          _motifForStyle(data['style'] as String),
           0,
           (data['radius'] as num).toDouble(),
         ),
       );
 }
+
+IconData _motifForStyle(String style) =>
+    RegExp(r'\bstars?\b|starry|星', caseSensitive: false).hasMatch(style)
+    ? Icons.star_rounded
+    : Icons.auto_awesome_rounded;
 
 /// Offline procedural theme generation. Character background and the requested
 /// style both seed the artwork; explicit style colors take priority. No portrait
@@ -195,7 +200,7 @@ CustomKeyboardResult generateCustomKeyboard(
       accent,
       base,
       light ? const Color(0xFF293238) : const Color(0xFFF8F4FF),
-      Icons.auto_awesome_rounded,
+      _motifForStyle(style),
       0,
       radius,
     ),

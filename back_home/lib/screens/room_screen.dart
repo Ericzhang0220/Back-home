@@ -501,31 +501,10 @@ class _GoodNightOverlay extends StatelessWidget {
               duration: const Duration(milliseconds: 900),
               curve: Curves.easeInOutCubic,
               opacity: brightElementsOpacity,
-              child: Container(
+              child: const SizedBox(
                 width: 92,
                 height: 92,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Color(0xFFE2E0D2),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Color(0x77E7E1C9),
-                      blurRadius: 34,
-                      spreadRadius: 8,
-                    ),
-                  ],
-                ),
-                child: Align(
-                  alignment: const Alignment(0.28, -0.12),
-                  child: Container(
-                    width: 70,
-                    height: 70,
-                    decoration: const BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Color(0xE9000000),
-                    ),
-                  ),
-                ),
+                child: CustomPaint(painter: _GoodNightMoonPainter()),
               ),
             ),
           ),
@@ -575,6 +554,36 @@ class _GoodNightOverlay extends StatelessWidget {
       ),
     );
   }
+}
+
+class _GoodNightMoonPainter extends CustomPainter {
+  const _GoodNightMoonPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final radius = size.shortestSide / 2;
+    final center = size.center(Offset.zero);
+    final crescent = Path.combine(
+      PathOperation.difference,
+      Path()..addOval(Rect.fromCircle(center: center, radius: radius)),
+      Path()..addOval(
+        Rect.fromCircle(
+          center: center + Offset(radius * 0.65, -radius * 0.42),
+          radius: radius * 0.89,
+        ),
+      ),
+    );
+    canvas.drawPath(
+      crescent,
+      Paint()
+        ..color = const Color(0x77E7E1C9)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, radius * 0.38),
+    );
+    canvas.drawPath(crescent, Paint()..color = const Color(0xFFE2E0D2));
+  }
+
+  @override
+  bool shouldRepaint(_GoodNightMoonPainter oldDelegate) => false;
 }
 
 class _SettingsPanel extends StatelessWidget {

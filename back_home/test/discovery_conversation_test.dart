@@ -1,9 +1,49 @@
 import 'dart:async';
 
+import 'package:back_home/chat/ai_chat_repository.dart';
+import 'package:back_home/chat/ai_discovery_recommender.dart';
+import 'package:back_home/chat/ai_models.dart';
 import 'package:back_home/chat/discovery_conversation.dart';
 import 'package:back_home/screens/chat_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+class _DiscoveryRepository implements AiChatRepository {
+  final sends = <(String, String)>[];
+  final replies = <String, Completer<void>>{};
+
+  @override
+  String get uid => 'me';
+
+  @override
+  Stream<List<AiCharacter>> watchCharacters() => Stream.value([
+    AiCharacter.fromData(id: 'ava', data: {'name': 'Ava'}),
+    AiCharacter.fromData(id: 'mason', data: {'name': 'Mason'}),
+  ]);
+
+  @override
+  Stream<List<AiCharacter>> watchPublicCharacters() => Stream.value([]);
+
+  @override
+  Stream<Map<String, AiCharacterInteraction>> watchDiscoveryInteractions() =>
+      Stream.value({});
+
+  @override
+  Stream<List<AiMessage>> watchCharacterPreviewMessages(String characterId) =>
+      Stream.value([]);
+
+  @override
+  Future<void> sendToCharacter({
+    required String characterId,
+    required String text,
+  }) {
+    sends.add((characterId, text));
+    return (replies[characterId] = Completer<void>()).future;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
 
 class _Messages {
   final sources = <String, StreamController<List<String>>>{};
@@ -42,6 +82,99 @@ Widget _conversation(DiscoveryConversationCache<String> cache, String id) =>
     );
 
 void main() {
+  testWidgets('AI discovery swipes with a draft and while a reply is pending', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(400, 850);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetViewInsets);
+    final repository = _DiscoveryRepository();
+    final deck = AiDiscoveryDeck();
+    final selected = ValueNotifier<String?>('ava');
+    final drafts = <String, TextEditingController>{};
+    addTearDown(selected.dispose);
+    addTearDown(() {
+      for (final draft in drafts.values) {
+        draft.dispose();
+      }
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: ValueListenableBuilder(
+              valueListenable: selected,
+              builder: (_, id, _) => AiDiscoveryPage(
+                repository: repository,
+                recommendationDeck: deck,
+                characterId: id,
+                onCharacterChanged: (id) => selected.value = id,
+                onToggleFriend: (_, {required isSharedTemplate}) async {},
+                keyboardOpen: MediaQuery.viewInsetsOf(context).bottom > 0,
+                draftFor: (id) =>
+                    drafts.putIfAbsent(id, TextEditingController.new),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final field = find.byType(TextField);
+    String draft() => tester.widget<TextField>(field).controller!.text;
+    Future<void> swipe(double dx) async {
+      await tester.dragFrom(const Offset(200, 280), Offset(dx, 0));
+      await tester.pump();
+      // A pending reply animates its typing indicator indefinitely.
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump();
+    }
+
+    await tester.enterText(field, 'Hi Ava');
+    final focus = tester
+        .widget<EditableText>(find.byType(EditableText))
+        .focusNode;
+    tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+    await tester.pump();
+    expect(focus.hasFocus, isTrue);
+    await swipe(-240);
+    expect(selected.value, 'mason');
+    expect(focus.hasFocus, isFalse);
+    expect(draft(), isEmpty);
+    tester.view.resetViewInsets();
+    await tester.pumpAndSettle();
+    await swipe(240);
+    expect(selected.value, 'ava');
+    expect(draft(), 'Hi Ava');
+
+    await tester.tap(find.byTooltip('Send').hitTestable());
+    await tester.pump();
+    expect(repository.sends, [('ava', 'Hi Ava')]);
+    expect(tester.widget<TextField>(field).enabled, isFalse);
+
+    await swipe(-240);
+    expect(selected.value, 'mason');
+    expect(tester.widget<TextField>(field).enabled, isTrue);
+    await tester.enterText(field, 'Hi Mason');
+    await tester.tap(find.byTooltip('Send').hitTestable());
+    await tester.pump();
+    expect(repository.sends, [('ava', 'Hi Ava'), ('mason', 'Hi Mason')]);
+    repository.replies['mason']!.complete();
+    await tester.pump();
+    expect(tester.widget<TextField>(field).enabled, isTrue);
+
+    await swipe(240);
+    expect(selected.value, 'ava');
+    expect(tester.widget<TextField>(field).enabled, isFalse);
+    repository.replies['ava']!.complete();
+    await tester.pump();
+    expect(tester.widget<TextField>(field).enabled, isTrue);
+    await tester.pumpWidget(const SizedBox.shrink());
+  }, variant: const TargetPlatformVariant({TargetPlatform.iOS}));
+
   testWidgets('both neighbours preload and off-deck listeners are released', (
     tester,
   ) async {
@@ -125,7 +258,6 @@ void main() {
             frontCard: _conversation(cache, id),
             previousCard: _conversation(cache, id == 'ava' ? 'mason' : 'ava'),
             nextCard: _conversation(cache, id == 'ava' ? 'mason' : 'ava'),
-            enabled: true,
             onSwiped: (_) => front.value = id == 'ava' ? 'mason' : 'ava',
           ),
         ),

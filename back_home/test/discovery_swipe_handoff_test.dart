@@ -57,7 +57,6 @@ void main() {
                 nextCard: index == ids.length - 1
                     ? null
                     : _Card(ids[index + 1], starts),
-                enabled: true,
                 onSwiped: (direction) {
                   commits++;
                   if (delayed) {
@@ -125,7 +124,6 @@ void main() {
               previousCard: null,
               nextCard: null,
               onSwiped: (_) => commits++,
-              enabled: true,
             ),
           ),
         ),
@@ -182,7 +180,6 @@ void main() {
                   frontCard: card(index),
                   previousCard: index == 0 ? null : card(index - 1),
                   nextCard: card(index + 1),
-                  enabled: true,
                   onSwiped: (direction) {
                     currentId = deck.move(direction);
                     selection.value = deck.currentIndex;

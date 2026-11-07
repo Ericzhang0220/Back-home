@@ -158,47 +158,66 @@ class _AppKeyboardHostState extends State<AppKeyboardHost> {
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
     final visible = _installed && _control.visible;
-    final height = visible
-        ? math.min(media.size.height * 0.49, 312 + media.viewPadding.bottom)
-        : 0.0;
+    final height = math.min(
+      media.size.height * 0.49,
+      312 + media.viewPadding.bottom,
+    );
     return KeyboardStoreScope(
       store: widget.store,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          MediaQuery(
-            data: media.copyWith(
-              viewInsets: media.viewInsets.copyWith(
-                bottom: visible ? height : media.viewInsets.bottom,
-              ),
-              padding: visible
-                  ? media.padding.copyWith(bottom: 0)
-                  : media.padding,
-            ),
-            child: widget.child,
-          ),
-          if (visible)
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              height: height,
-              child: FocusScope(
-                canRequestFocus: false,
-                child: TextFieldTapRegion(
-                  child: CharacterKeyboard(
-                    skin: widget.store.activeSkin,
-                    artworkAsset: _artwork,
-                    editing: _control.editing,
-                    actionLabel: _control.actionLabel,
-                    onAction: _control.action,
-                    onHide: () => FocusManager.instance.primaryFocus?.unfocus(),
-                    onSystem: _useSystem,
+      child: TweenAnimationBuilder<double>(
+        tween: Tween(begin: 0, end: visible ? height : 0),
+        duration: media.disableAnimations
+            ? Duration.zero
+            : const Duration(milliseconds: 280),
+        curve: Curves.easeOutCubic,
+        builder: (context, revealedHeight, child) {
+          final showing = visible || revealedHeight > 0;
+          return ClipRect(
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                MediaQuery(
+                  data: media.copyWith(
+                    // Move the composer with the keyboard on every frame.
+                    viewInsets: media.viewInsets.copyWith(
+                      bottom: math.max(revealedHeight, media.viewInsets.bottom),
+                    ),
+                    padding: showing
+                        ? media.padding.copyWith(bottom: 0)
+                        : media.padding,
                   ),
+                  child: child!,
                 ),
-              ),
+                if (showing)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: revealedHeight - height,
+                    height: height,
+                    child: IgnorePointer(
+                      ignoring: !visible,
+                      child: FocusScope(
+                        canRequestFocus: false,
+                        child: TextFieldTapRegion(
+                          child: CharacterKeyboard(
+                            skin: widget.store.activeSkin,
+                            artworkAsset: _artwork,
+                            editing: _control.editing,
+                            actionLabel: _control.actionLabel,
+                            onAction: _control.action,
+                            onHide: () =>
+                                FocusManager.instance.primaryFocus?.unfocus(),
+                            onSystem: _useSystem,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
-        ],
+          );
+        },
+        child: widget.child,
       ),
     );
   }

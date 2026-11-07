@@ -462,6 +462,22 @@ class _AtmospherePainter extends CustomPainter {
         random.nextDouble() * size.width,
         random.nextDouble() * size.height,
       );
+      if (skin.motif == Icons.star_rounded) {
+        final path = Path();
+        for (var vertex = 0; vertex < 10; vertex++) {
+          final angle = -math.pi / 2 + vertex * math.pi / 5;
+          final radius = vertex.isEven ? 5.0 : 2.2;
+          final x = point.dx + math.cos(angle) * radius;
+          final y = point.dy + math.sin(angle) * radius;
+          if (vertex == 0) {
+            path.moveTo(x, y);
+          } else {
+            path.lineTo(x, y);
+          }
+        }
+        canvas.drawPath(path..close(), paint);
+        continue;
+      }
       switch (seed % 5) {
         case 0:
           canvas.drawCircle(point, 1 + random.nextDouble() * 2.5, paint);

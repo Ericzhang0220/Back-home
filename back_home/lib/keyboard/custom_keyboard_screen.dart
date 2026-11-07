@@ -61,15 +61,17 @@ class CustomKeyboardShopCard extends StatelessWidget {
           ],
         ),
       ),
-      if (store.ready && store.projects.isNotEmpty) ...[
+      if (store.ready &&
+          store.projects.any((project) => project.selected == null)) ...[
         const SizedBox(height: 20),
         const SectionHeader(
           title: 'My custom keyboards',
-          subtitle:
-              'Saved on this device. Revisit any purchase to compare its designs.',
+          subtitle: 'Finish choosing a design from an unfinished purchase.',
         ),
         const SizedBox(height: 8),
-        for (final project in store.projects.reversed)
+        for (final project in store.projects.reversed.where(
+          (project) => project.selected == null,
+        ))
           Card(
             child: ListTile(
               leading: Icon(
@@ -154,8 +156,7 @@ class _CustomKeyboardScreenState extends State<CustomKeyboardScreen> {
           title: const Text('Create your keyboard'),
           content: const Text(
             'Pay 60 Likes once for up to 3 generations. '
-            'Choose and save one keyboard. You can compare all results and '
-            'change your selection later without paying again.',
+            'Compare the results, then choose and save one keyboard.',
           ),
           actions: [
             TextButton(
@@ -226,11 +227,10 @@ class _CustomKeyboardScreenState extends State<CustomKeyboardScreen> {
         widget.store.ready) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'Keyboard saved on this device and in My custom keyboards, and applied.',
-          ),
+          content: Text('Keyboard saved to My inventory and applied.'),
         ),
       );
+      Navigator.of(context).pop();
     }
   }
 
@@ -242,7 +242,8 @@ class _CustomKeyboardScreenState extends State<CustomKeyboardScreen> {
       final project = _projectId == null
           ? null
           : store.projectById(_projectId!);
-      final locked = _working || store.busy || !store.ready;
+      final locked =
+          _working || store.busy || !store.ready || project?.selectedId != null;
       final canGenerate = project == null || project.remaining > 0;
       final characters = store.ownCharacters;
       final selectedCharacter = characters.any((c) => c.id == _characterId)
