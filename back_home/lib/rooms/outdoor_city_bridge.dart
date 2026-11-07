@@ -57,7 +57,6 @@ extension _CityBridge on CityScene {
     }
     _buildCables(mesh, start, end, towers, cableY);
     _buildTruss(mesh, start, end);
-    _bakeBridgeReflection(start, end, towers, cableY);
   }
 
   void _buildTower(_LitMesh mesh, double s) {
@@ -244,42 +243,6 @@ extension _CityBridge on CityScene {
         dark,
         glow,
       );
-  }
-
-  /// Writes the lit bridge into the river's reflection map.
-  void _bakeBridgeReflection(
-    double start,
-    double end,
-    List<double> towers,
-    double Function(double) cableY,
-  ) {
-    final span = end - start;
-    _river.setBridgeSpan(
-      _onRoad(start, -_cableAcross, 0),
-      _onRoad(end, -_cableAcross, 0),
-    );
-    const hanger = _Rgb(0.55, 0.68, 0.9);
-    const truss = _Rgb(0.42, 0.3, 0.16);
-    const towerLight = _Rgb(0.13, 0.15, 0.19);
-    for (var s = start; s < end; s += 0.6) {
-      final along = (s - start) / span;
-      final deck = _road.at(s).y;
-      final cable = cableY(s);
-      for (var y = deck; y < cable; y += 0.25) {
-        _river.plotBridge(along, y, hanger, radius: 0.2);
-      }
-      _river.plotBridge(along, cable, _led, radius: 1);
-      for (var y = deck - 0.72; y < deck; y += 0.25) {
-        _river.plotBridge(along, y, truss, radius: 1);
-      }
-    }
-    for (final tower in towers) {
-      final along = (tower - start) / span;
-      for (var y = CityScene._water + 0.5; y < _towerTop; y += 0.2) {
-        _river.plotBridge(along - 0.012, y, towerLight, radius: 1);
-        _river.plotBridge(along + 0.012, y, towerLight, radius: 1);
-      }
-    }
   }
 
   void _buildTruss(_LitMesh mesh, double start, double end) {

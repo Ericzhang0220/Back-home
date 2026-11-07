@@ -10,6 +10,7 @@ import 'ios_room_gesture_policy.dart';
 import 'room_camera_focus.dart';
 import 'room_state.dart';
 import 'sky_dome.dart';
+import 'sky_moon.dart';
 
 enum _RoomTapTarget { desk, bed, radio, window }
 
@@ -213,7 +214,8 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   OutdoorScene? _landscape;
   OutdoorEnvironment? _landscapeEnvironment;
   three.Group? _skySun;
-  three.Group? _skyMoon;
+  SkyMoon? _skyMoon;
+  final three.Vector3 _moonFacing = three.Vector3();
   _SkyLook? _activeSkyLook;
   final List<three.Group> _skyCloudGroups = [];
   final List<three.Mesh> _skyRainDrops = [];
@@ -572,6 +574,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       ..visible = widget.showFurnitureColliders;
     threeJs.scene.add(_debugCenterRay!);
     threeJs.addAnimationEvent(_animateCamera);
+    threeJs.addAnimationEvent(_updateOutdoorReflection);
     await _buildRoomShell();
     if (!mounted) {
       return;
@@ -755,6 +758,22 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     _camera.lookAt(_cameraCurrentLook);
     _updateDebugCenterRay();
     _publishSelectedScreenPosition();
+  }
+
+  // Runs between frames: the next frame's render binds its own framebuffer.
+  void _updateOutdoorReflection(double dt) {
+    final threeJs = _threeJs;
+    final landscape = _landscape;
+    final sky = _skyGroup;
+    final renderer = threeJs?.renderer;
+    if (threeJs == null ||
+        landscape == null ||
+        sky == null ||
+        renderer == null ||
+        !widget.isActive) {
+      return;
+    }
+    landscape.updateReflection(dt, renderer, threeJs.scene, _camera, [sky]);
   }
 
   /// The city's towers stand far beyond the usual depth of the moon, stars
@@ -1620,14 +1639,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       haloRadius: 3.8 * skyScale,
       opacity: look.celestialOpacity,
     )..position.z = celestialZ;
-    _skyMoon = _buildCelestialBody(
-      coreColor: look.moon,
-      haloColor: 0xDCE8FF,
-      coreRadius: 1.18 * skyScale,
-      // The tight glow of a moon over city haze, not a broad disc.
-      haloRadius: (skyScale > 1 ? 2.0 : 3.2) * skyScale,
+    _skyMoon = SkyMoon(
+      radius: 0.95 * skyScale,
       opacity: math.max(0.72, look.celestialOpacity),
-      coreOpacity: 1,
     )..position.z = celestialZ + 0.1;
     group
       ..add(_skySun!)
@@ -1703,7 +1717,6 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     required double coreRadius,
     required double haloRadius,
     required double opacity,
-    double? coreOpacity,
   }) {
     final body = three.Group();
     body.add(
@@ -1718,12 +1731,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       ),
     );
     body.add(
-      _skyDisc(
-        radius: coreRadius,
-        color: coreColor,
-        z: 0.16,
-        opacity: coreOpacity ?? opacity,
-      ),
+      _skyDisc(radius: coreRadius, color: coreColor, z: 0.16, opacity: opacity),
     );
     return body;
   }
@@ -1757,6 +1765,18 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       ..visible = look.celestialOpacity > 0.01 && moonArc.altitude > -0.055
       ..position.x = centerX + moonArc.horizontal * horizontalRadius
       ..position.y = horizonY + moonArc.altitude * verticalRadius;
+    moon
+      ..setAltitude(moonArc.altitude)
+      // Always face-on, or it would flatten to an oval off to the side.
+      ..lookAt(_moonFacing.setValues(1, _eyeHeight, wallZ + 0.6));
+
+    // Water highlights aim at whichever of the two is up.
+    final key = look.isNight ? moon : sun;
+    _landscape?.setKeyLightPosition(
+      key.position.x,
+      key.position.y,
+      key.position.z,
+    );
   }
 
   three.Group _buildCloud({

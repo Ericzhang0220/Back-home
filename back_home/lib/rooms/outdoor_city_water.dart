@@ -1,12 +1,9 @@
 part of 'outdoor_landscape.dart';
 
-/// The city's river: a glossy, moving surface drawn by a shader. Rolling swells
-/// and fine ripples bend the reflected view per pixel, so the sky, a sun or
-/// moon glitter path, and the skyline and bridge all wobble in the water.
-///
-/// Reflections are looked up, not re-rendered: the skyline is baked into two
-/// small textures on a vertical plane behind the river, and the bridge into a
-/// third along its own span, and each pixel follows its reflected ray to them.
+/// The city's river: a glossy, moving surface drawn by a shader. It mirrors the
+/// actual scene (see [_PlanarReflection]), with the mirror image broken up by
+/// layers of small drifting waves. The waves come from a filtered texture, so
+/// they stay fine and irregular up close and settle to a calm sheen far away.
 class _CityWater {
   _CityWater({
     required this.level,
@@ -15,11 +12,7 @@ class _CityWater {
     required this.nearV,
     required this.farV,
     required this.wallZ,
-  }) {
-    _skyDay.toDartList().fillRange(0, _skyDay.toDartList().length, 0);
-    _skyNight.toDartList().fillRange(0, _skyNight.toDartList().length, 0);
-    _bridge.toDartList().fillRange(0, _bridge.toDartList().length, 0);
-  }
+  });
 
   final double level;
   final double minU;
@@ -28,178 +21,93 @@ class _CityWater {
   final double farV;
   final double wallZ;
 
-  static const int _skyWidth = 512;
-  static const int _skyHeight = 112;
-  static const int _bridgeWidth = 512;
-  static const int _bridgeHeight = 72;
-  static const double _skyPlaneV = 48;
-  static const double _skyMinX = -130;
-  static const double _skyMaxX = 130;
-  static const double _skyMinY = -8;
-  static const double _skyMaxY = 42;
-  static const double _bridgeMinY = -6;
-  static const double _bridgeMaxY = 14;
-
-  final three.Uint8Array _skyDay = three.Uint8Array(_skyWidth * _skyHeight * 4);
-  final three.Uint8Array _skyNight = three.Uint8Array(
-    _skyWidth * _skyHeight * 4,
-  );
-  final three.Uint8Array _bridge = three.Uint8Array(
-    _bridgeWidth * _bridgeHeight * 4,
-  );
-  final List<_ReflectedTower> _towers = [];
-  final math.Random _speckle = math.Random(0x51EE);
-
-  three.DataTexture? _skyDayTexture;
-  three.DataTexture? _skyNightTexture;
-  three.DataTexture? _bridgeTexture;
+  late final _PlanarReflection _reflection = _PlanarReflection(level: level);
+  three.DataTexture? _waveTexture;
   three.ShaderMaterial? _material;
+  three.Mesh? _mesh;
   final three.Vector3 _deep = three.Vector3();
   final three.Vector3 _zenith = three.Vector3();
   final three.Vector3 _horizon = three.Vector3();
   final three.Vector3 _fog = three.Vector3();
-  final three.Vector3 _sunDirection = three.Vector3();
-  final three.Vector3 _sunColor = three.Vector3();
+  final three.Vector3 _keyLight = three.Vector3(0, 40, -120);
+  final three.Vector3 _keyColor = three.Vector3();
   double _time = 0;
 
-  void addTower(
-    double x,
-    double z,
-    double width,
-    double baseY,
-    double top,
-    _Rgb tint,
-    double emit,
-  ) {
-    _towers.add(_ReflectedTower(x, z, width, baseY, top, tint, emit));
-  }
+  static const int _waveSize = 256;
+  static three.Uint8Array? _waveBytes;
 
-  // --- Baking ------------------------------------------------------------------
-
-  static const double _eyeX = OutdoorScene._eyeX;
-
-  /// Where a point lands on the skyline plane, as seen from the window's
-  /// mirror image under the water: exactly what a reflected ray will hit.
-  (double, double) _projectToPlane(double x, double y, double z) {
-    final eyeZ = wallZ + 0.6;
-    final mirrorY = 2 * level - OutdoorScene._eyeY;
-    final planeZ = wallZ - _skyPlaneV;
-    final k = (planeZ - eyeZ) / (z - eyeZ);
-    return (_eyeX + (x - _eyeX) * k, mirrorY + (y - mirrorY) * k);
-  }
-
-  void _bakeSkyline() {
-    final day = _skyDay.toDartList().buffer.asUint32List(
-      _skyDay.toDartList().offsetInBytes,
-      _skyWidth * _skyHeight,
-    );
-    final night = _skyNight.toDartList().buffer.asUint32List(
-      _skyNight.toDartList().offsetInBytes,
-      _skyWidth * _skyHeight,
-    );
-    // Painted far to near, so nearer towers cover the ones behind.
-    _towers.sort((a, b) => a.z.compareTo(b.z));
-    final xScale = _skyWidth / (_skyMaxX - _skyMinX);
-    final yScale = _skyHeight / (_skyMaxY - _skyMinY);
-    for (final tower in _towers) {
-      final (left, bottom) = _projectToPlane(
-        tower.x - tower.width / 2,
-        tower.baseY,
-        tower.z,
-      );
-      final (right, top) = _projectToPlane(
-        tower.x + tower.width / 2,
-        tower.top,
-        tower.z,
-      );
-      final x0 = ((left - _skyMinX) * xScale).floor().clamp(0, _skyWidth - 1);
-      final x1 = ((right - _skyMinX) * xScale).ceil().clamp(0, _skyWidth);
-      final y0 = ((bottom - _skyMinY) * yScale).floor().clamp(
-        0,
-        _skyHeight - 1,
-      );
-      final y1 = ((top - _skyMinY) * yScale).ceil().clamp(0, _skyHeight);
-      final shade = 0.55 + _speckle.nextDouble() * 0.25;
-      final wall = _FacadeAtlas._shade(tower.tint, shade);
-      for (var y = y0; y < y1; y += 1) {
-        // Lit floors come in bands, as on the facades above.
-        final floorLit = _speckle.nextDouble() < 0.5;
-        for (var x = x0; x < x1; x += 1) {
-          final index = y * _skyWidth + x;
-          day[index] = wall;
-          final on = _speckle.nextDouble() < (floorLit ? 0.5 : 0.12);
-          night[index] = on
-              ? _FacadeAtlas._shade(
-                  const _Rgb.hex(0xFFCB80),
-                  (0.35 + _speckle.nextDouble() * 0.65) * tower.emit,
-                )
-              : 0xFF050608;
+  /// A tiling field of wave slopes in red and green: many crossing wavelengths
+  /// with no repeat within the tile, so no regular pattern shows.
+  static three.Uint8Array _buildWaves() {
+    final random = math.Random(0x7A7E);
+    final table = Float64List(_waveSize);
+    for (var i = 0; i < _waveSize; i += 1) {
+      table[i] = math.cos(i / _waveSize * math.pi * 2);
+    }
+    final waves = <(int, int, int, double, double)>[];
+    for (var i = 0; i < 40; i += 1) {
+      final k = 2.0 + 28 * math.pow(random.nextDouble(), 1.7);
+      final a = random.nextDouble() * math.pi * 2;
+      final kx = (math.cos(a) * k).round();
+      final ky = (math.sin(a) * k).round();
+      if (kx == 0 && ky == 0) {
+        continue;
+      }
+      final length = math.sqrt(kx * kx + ky * ky);
+      // Short waves are smaller but not much less steep.
+      final slope = math.pow(length, -0.35).toDouble();
+      waves.add((
+        kx,
+        ky,
+        random.nextInt(_waveSize),
+        kx / length * slope,
+        ky / length * slope,
+      ));
+    }
+    final slopes = Float64List(_waveSize * _waveSize * 2);
+    var peak = 0.0;
+    for (var y = 0; y < _waveSize; y += 1) {
+      for (var x = 0; x < _waveSize; x += 1) {
+        var sx = 0.0;
+        var sy = 0.0;
+        for (final (kx, ky, phase, dx, dy) in waves) {
+          final c = table[(kx * x + ky * y + phase) & (_waveSize - 1)];
+          sx += dx * c;
+          sy += dy * c;
         }
+        final i = (y * _waveSize + x) * 2;
+        slopes[i] = sx;
+        slopes[i + 1] = sy;
+        peak = math.max(peak, math.max(sx.abs(), sy.abs()));
       }
     }
-  }
-
-  (double, double, double, double) _bridgePlane = (0, 0, 1, 0); // x, z, dx, dz
-  double _bridgeLength = 1;
-
-  /// Sets the vertical plane the bridge's reflection is looked up on.
-  void setBridgeSpan(
-    (double, double, double) from,
-    (double, double, double) to,
-  ) {
-    final dx = to.$1 - from.$1;
-    final dz = to.$3 - from.$3;
-    _bridgeLength = math.sqrt(dx * dx + dz * dz);
-    _bridgePlane = (from.$1, from.$3, dx / _bridgeLength, dz / _bridgeLength);
-  }
-
-  /// Paints a light into the bridge's reflection map. [along] is 0..1 on the
-  /// span. [coverage] marks solid structure that hides the sky behind it.
-  void plotBridge(double along, double y, _Rgb light, {double radius = 0.5}) {
-    final bytes = _bridge.toDartList();
-    final px = along * (_bridgeWidth - 1);
-    final py =
-        (y - _bridgeMinY) / (_bridgeMaxY - _bridgeMinY) * (_bridgeHeight - 1);
-    final reach = radius.ceil();
-    for (var oy = -reach; oy <= reach; oy += 1) {
-      for (var ox = -reach; ox <= reach; ox += 1) {
-        final x = px.round() + ox;
-        final row = py.round() + oy;
-        if (x < 0 || x >= _bridgeWidth || row < 0 || row >= _bridgeHeight) {
-          continue;
-        }
-        final i = (row * _bridgeWidth + x) * 4;
-        bytes[i] = math.max(bytes[i], (light.r * 255).round());
-        bytes[i + 1] = math.max(bytes[i + 1], (light.g * 255).round());
-        bytes[i + 2] = math.max(bytes[i + 2], (light.b * 255).round());
-        bytes[i + 3] = 255;
-      }
+    final bytes = three.Uint8Array(_waveSize * _waveSize * 4);
+    final out = bytes.toDartList();
+    for (var i = 0; i < _waveSize * _waveSize; i += 1) {
+      out[i * 4] = ((slopes[i * 2] / peak * 0.5 + 0.5) * 255).round();
+      out[i * 4 + 1] = ((slopes[i * 2 + 1] / peak * 0.5 + 0.5) * 255).round();
+      out[i * 4 + 2] = 128;
+      out[i * 4 + 3] = 255;
     }
-  }
-
-  // --- Mesh --------------------------------------------------------------------
-
-  three.DataTexture _texture(three.Uint8Array data, int w, int h) {
-    return three.DataTexture(
-        data,
-        w,
-        h,
-        three.RGBAFormat,
-        three.UnsignedByteType,
-      )
-      ..wrapS = three.ClampToEdgeWrapping
-      ..wrapT = three.ClampToEdgeWrapping
-      ..magFilter = three.LinearFilter
-      ..minFilter = three.LinearMipmapLinearFilter
-      ..generateMipmaps = true
-      ..needsUpdate = true;
+    return bytes;
   }
 
   three.Mesh createMesh() {
-    _bakeSkyline();
-    _skyDayTexture = _texture(_skyDay, _skyWidth, _skyHeight);
-    _skyNightTexture = _texture(_skyNight, _skyWidth, _skyHeight);
-    _bridgeTexture = _texture(_bridge, _bridgeWidth, _bridgeHeight);
+    _waveTexture =
+        three.DataTexture(
+            _waveBytes ??= _buildWaves(),
+            _waveSize,
+            _waveSize,
+            three.RGBAFormat,
+            three.UnsignedByteType,
+          )
+          ..wrapS = three.RepeatWrapping
+          ..wrapT = three.RepeatWrapping
+          ..magFilter = three.LinearFilter
+          ..minFilter = three.LinearMipmapLinearFilter
+          ..generateMipmaps = true
+          ..anisotropy = 8
+          ..needsUpdate = true;
     final x0 = minU + 1.0;
     final x1 = maxU + 1.0;
     final zNear = wallZ - nearV;
@@ -213,38 +121,20 @@ class _CityWater {
           x0, level, zNear, x1, level, zFar, x0, level, zFar,
         ], 3),
       );
-    final (bx, bz, bdx, bdz) = _bridgePlane;
     final material = three.ShaderMaterial.fromMap({
       'uniforms': <String, dynamic>{
         'uTime': <String, dynamic>{'value': 0.0},
-        'uSkyDay': <String, dynamic>{'value': _skyDayTexture},
-        'uSkyNight': <String, dynamic>{'value': _skyNightTexture},
-        'uBridge': <String, dynamic>{'value': _bridgeTexture},
+        'uWaves': <String, dynamic>{'value': _waveTexture},
+        'uReflection': <String, dynamic>{'value': _reflection.blank},
+        'uMirror': <String, dynamic>{'value': _reflection.matrix},
         'uDeep': <String, dynamic>{'value': _deep},
         'uZenith': <String, dynamic>{'value': _zenith},
         'uHorizon': <String, dynamic>{'value': _horizon},
         'uFog': <String, dynamic>{'value': _fog},
-        'uSunDirection': <String, dynamic>{'value': _sunDirection},
-        'uSunColor': <String, dynamic>{'value': _sunColor},
+        'uKeyLight': <String, dynamic>{'value': _keyLight},
+        'uKeyColor': <String, dynamic>{'value': _keyColor},
         'uGlow': <String, dynamic>{'value': 0.0},
-        'uLit': <String, dynamic>{'value': 1.0},
         'uFogAmount': <String, dynamic>{'value': 0.0},
-        'uSkyPlaneZ': <String, dynamic>{'value': wallZ - _skyPlaneV},
-        'uSkyRect': <String, dynamic>{
-          'value': three.Vector4(
-            _skyMinX,
-            _skyMinY,
-            _skyMaxX - _skyMinX,
-            _skyMaxY - _skyMinY,
-          ),
-        },
-        'uBridgeOrigin': <String, dynamic>{
-          'value': three.Vector3(bx, bz, _bridgeLength),
-        },
-        'uBridgeAxis': <String, dynamic>{'value': three.Vector2(bdx, bdz)},
-        'uBridgeY': <String, dynamic>{
-          'value': three.Vector2(_bridgeMinY, _bridgeMaxY - _bridgeMinY),
-        },
       },
       'vertexShader': '''
 varying vec3 vWorld;
@@ -256,112 +146,84 @@ void main() {
 ''',
       'fragmentShader': '''
 uniform float uTime;
-uniform sampler2D uSkyDay;
-uniform sampler2D uSkyNight;
-uniform sampler2D uBridge;
+uniform sampler2D uWaves;
+uniform sampler2D uReflection;
+uniform mat4 uMirror;
 uniform vec3 uDeep;
 uniform vec3 uZenith;
 uniform vec3 uHorizon;
 uniform vec3 uFog;
-uniform vec3 uSunDirection;
-uniform vec3 uSunColor;
+uniform vec3 uKeyLight;
+uniform vec3 uKeyColor;
 uniform float uGlow;
-uniform float uLit;
 uniform float uFogAmount;
-uniform float uSkyPlaneZ;
-uniform vec4 uSkyRect;
-uniform vec3 uBridgeOrigin;
-uniform vec2 uBridgeAxis;
-uniform vec2 uBridgeY;
 varying vec3 vWorld;
 
-// Slope of one travelling wave.
-vec2 wave(vec2 p, vec2 dir, float freq, float speed, float amp) {
-  return dir * amp * cos(dot(p, dir) * freq + uTime * speed);
+// Three sizes of wave, turned against each other and drifting downstream at
+// different speeds, so the tile never lines up with itself.
+vec2 layer(vec2 p, float size, float c, float s, vec2 drift) {
+  vec2 q = vec2(c * p.x - s * p.y, s * p.x + c * p.y) / size + drift * uTime;
+  vec2 slope = texture2D(uWaves, q).rg - 0.5;
+  return vec2(c * slope.x + s * slope.y, -s * slope.x + c * slope.y);
 }
 
-// Small waves at the scale of the river, about a car's length: they only
-// nudge the reflection, so the water stays close to a calm mirror.
 vec2 swell(vec2 p) {
-  vec2 q = p + 0.7 * vec2(
-    sin(p.y * 0.41 + uTime * 0.07),
-    sin(p.x * 0.33 - uTime * 0.05)
-  );
-  vec2 s = wave(q, vec2(0.94, 0.34), 1.5, 0.3, 0.0065);
-  s += wave(q, vec2(-0.45, 0.89), 2.3, 0.38, 0.005);
-  s += wave(q, vec2(0.71, -0.71), 3.6, 0.5, 0.003);
-  return s;
+  return layer(p, 15.0, 0.96, 0.28, vec2(0.0065, 0.0015)) * 0.075
+       + layer(p, 6.1, 0.59, -0.81, vec2(-0.008, 0.012)) * 0.06;
 }
 
-// Finer still: these only catch the light.
 vec2 ripple(vec2 p) {
-  vec2 s = wave(p, vec2(0.2, 0.98), 5.5, 0.7, 0.012);
-  s += wave(p, vec2(-0.86, 0.5), 8.3, 0.95, 0.009);
-  s += wave(p, vec2(0.6, 0.8), 12.1, 1.3, 0.006);
-  return s;
+  return layer(p, 2.3, -0.42, 0.91, vec2(0.021, 0.024)) * 0.05
+       + layer(p, 1.37, 0.77, 0.64, vec2(-0.04, 0.033)) * 0.022;
 }
 
-// Calm water smears what it reflects downward into soft vertical streaks.
-vec3 smear(sampler2D map, vec2 uv, float bias) {
-  vec3 c = texture2D(map, uv, bias).rgb * 0.4;
-  c += texture2D(map, uv + vec2(0.0, 0.016), bias).rgb * 0.25;
-  c += texture2D(map, uv - vec2(0.0, 0.016), bias).rgb * 0.25;
-  c += texture2D(map, uv - vec2(0.0, 0.034), bias).rgb * 0.1;
-  return c;
+vec3 mirrored(vec2 uv, float lod) {
+  return texture2DLodEXT(uReflection, uv, lod).rgb;
 }
 
 void main() {
   vec3 toEye = cameraPosition - vWorld;
   float dist = length(toEye);
   vec3 V = toEye / dist;
-  // Fine ripples fade out with distance, before they could shimmer as noise.
-  float fine = smoothstep(30.0, 8.0, dist);
-  vec2 s = swell(vWorld.xz) * mix(0.35, 1.0, smoothstep(50.0, 12.0, dist));
-  vec3 N = normalize(vec3(-s.x, 1.0, -s.y));
-  float facing = max(dot(N, V), 0.0);
-  float fresnel = 0.05 + 0.95 * pow(1.0 - facing, 3.2);
-  vec3 R = reflect(-V, N);
-  R.y = abs(R.y) + 0.001;
 
-  vec3 reflected = mix(uHorizon, uZenith, clamp(R.y * 1.6, 0.0, 1.0));
-  // Skyline: follow the ray to its plane behind the river.
-  if (R.z < -0.001) {
-    float t = (uSkyPlaneZ - vWorld.z) / R.z;
-    vec3 hit = vWorld + R * t;
-    vec2 uv = (vec2(hit.x, hit.y) - uSkyRect.xy) / uSkyRect.zw;
-    if (uv.y >= 0.0 && uv.y <= 1.0) {
-      float cover = texture2D(uSkyDay, uv, 2.0).a;
-      vec3 day = smear(uSkyDay, uv, 2.0);
-      vec3 lights = smear(uSkyNight, uv, 3.0);
-      reflected = mix(reflected, day * uLit, cover * 0.9);
-      reflected += lights * uGlow * 1.25;
-    }
-  }
-  // Bridge: the same, on the vertical plane through its span.
-  vec2 axisNormal = vec2(-uBridgeAxis.y, uBridgeAxis.x);
-  float denom = dot(R.xz, axisNormal);
-  if (abs(denom) > 0.001) {
-    float t = dot(uBridgeOrigin.xy - vWorld.xz, axisNormal) / denom;
-    if (t > 0.0) {
-      vec3 hit = vWorld + R * t;
-      float along = dot(hit.xz - uBridgeOrigin.xy, uBridgeAxis) / uBridgeOrigin.z;
-      float up = (hit.y - uBridgeY.x) / uBridgeY.y;
-      if (along >= 0.0 && along <= 1.0 && up >= 0.0 && up <= 1.0) {
-        vec2 bridgeUv = vec2(along, up);
-        float solid = texture2D(uBridge, bridgeUv, 2.0).a;
-        reflected = mix(reflected, uDeep, solid * 0.4 * (1.0 - uGlow));
-        reflected += smear(uBridge, bridgeUv, 2.0) * uGlow * 0.9;
-      }
-    }
-  }
+  vec2 big = swell(vWorld.xz);
+  vec2 fine = ripple(vWorld.xz);
+  vec2 slope = big + fine;
+  vec3 N = normalize(vec3(-slope.x, 1.0, -slope.y));
+  float facing = max(dot(N, V), 0.0);
+  float fresnel = 0.09 + 0.91 * pow(1.0 - facing, 2.6);
+
+  vec3 R = reflect(-V, N);
+  R.y = abs(R.y) + 0.002;
+  // Follow the bent ray as far as a typical reflected object. On a still
+  // surface this lands exactly on the mirror image of this point.
+  vec4 clip = uMirror * vec4(vWorld + R * (7.0 + dist * 0.7), 1.0);
+  vec2 uv = clip.xy / max(clip.w, 0.001) * 0.5 + 0.5;
+
+  // Shallow views stretch what they reflect into streaks, as real water does.
+  float graze = 1.0 - V.y;
+  float reach = mix(0.0015, 0.011, graze * graze) * (1.0 + uGlow * 1.2);
+  vec2 up = vec2(0.0, reach);
+  vec3 image = mirrored(uv, 1.0) * 0.32;
+  image += (mirrored(uv + up, 1.4) + mirrored(uv - up, 1.4)) * 0.22;
+  image += (mirrored(uv + up * 2.4, 2.2) + mirrored(uv - up * 2.4, 2.2)) * 0.12;
+  // Bright windows stay bright when they're smeared.
+  float glint = max(image.r, max(image.g, image.b));
+  image *= 1.0 + uGlow * smoothstep(0.12, 0.6, glint) * 1.1;
+
+  // Rays that leave the mirror image still see the sky.
+  vec3 sky = mix(uHorizon, uZenith, clamp(R.y * 1.6, 0.0, 1.0));
+  vec2 edge = smoothstep(vec2(0.0), vec2(0.02), uv)
+            * smoothstep(vec2(0.0), vec2(0.02), 1.0 - uv);
+  vec3 reflected = mix(sky, image, edge.x * edge.y);
 
   vec3 color = mix(uDeep, reflected, fresnel);
-  // Sun or moon: broad sheen plus a tight glint riding the swell.
-  vec3 H = normalize(uSunDirection + V);
-  vec2 g = s + ripple(vWorld.xz) * fine;
-  vec3 G = normalize(vec3(-g.x, 1.0, -g.y));
-  float nh = max(dot(G, H), 0.0);
-  color += uSunColor * (pow(nh, 700.0) * 0.9 + pow(nh, 90.0) * 0.1);
+
+  // Sun or moon: a sheen plus glitter on the crests, aimed at where it hangs.
+  vec3 H = normalize(normalize(uKeyLight - vWorld) + V);
+  vec2 sparkle = big + fine;
+  float nh = max(dot(normalize(vec3(-sparkle.x, 1.0, -sparkle.y)), H), 0.0);
+  color += uKeyColor * (pow(nh, 1400.0) * 0.8 + pow(nh, 140.0) * 0.06);
 
   float far = max(0.0, dist - 9.0) / 46.0;
   float haze = (1.0 - exp(-far * far * 1.6)) * uFogAmount;
@@ -370,7 +232,7 @@ void main() {
 ''',
     });
     _material = material;
-    return three.Mesh(geometry, material)..frustumCulled = false;
+    return _mesh = three.Mesh(geometry, material)..frustumCulled = false;
   }
 
   void relight(OutdoorLight light) {
@@ -379,31 +241,47 @@ void main() {
       return;
     }
     void set(three.Vector3 target, _Rgb c) => target.setValues(c.r, c.g, c.b);
-    final lit = (light.ambientStrength + light.sunStrength * 0.7).clamp(
-      0.0,
-      1.2,
+    set(
+      _deep,
+      _Rgb.lerp(
+        const _Rgb.hex(0x050B14),
+        const _Rgb.hex(0x124268),
+        light.daylight,
+      ),
     );
-    final deep = _Rgb.lerp(
-      const _Rgb.hex(0x050B14),
-      const _Rgb.hex(0x124268),
-      light.daylight,
-    );
-    set(_deep, deep);
     set(_zenith, _Rgb.hex(light.zenith));
     set(_horizon, _Rgb.hex(light.fog));
     set(_fog, _Rgb.hex(light.fog));
-    // Behind the river from the house, so its glitter runs across the water.
-    final sx = light.sunX;
-    final sy = math.max(light.sunY, 0.14);
-    final sz = -light.sunZ.abs();
-    final length = math.sqrt(sx * sx + sy * sy + sz * sz);
-    _sunDirection.setValues(sx / length, sy / length, sz / length);
-    final sun = _Rgb.hex(light.sun);
     final strength = light.clearness * (0.3 + 0.7 * light.daylight);
-    set(_sunColor, sun.scale(strength));
+    set(_keyColor, _Rgb.hex(light.sun).scale(strength));
     material.uniforms['uGlow']['value'] = light.windowGlow;
-    material.uniforms['uLit']['value'] = lit * (0.25 + 0.75 * light.daylight);
     material.uniforms['uFogAmount']['value'] = light.fogAmount;
+  }
+
+  void setKeyLightPosition(double x, double y, double z) {
+    _keyLight.setValues(x, y, z);
+  }
+
+  void updateReflection(
+    double dt,
+    three.WebGLRenderer renderer,
+    three.Scene scene,
+    three.PerspectiveCamera camera,
+    List<three.Object3D> outdoors,
+    List<three.Object3D> movers,
+  ) {
+    final mesh = _mesh;
+    final material = _material;
+    if (mesh == null || material == null) {
+      return;
+    }
+    final texture = _reflection.update(dt, renderer, scene, camera, outdoors, [
+      mesh,
+      ...movers,
+    ]);
+    if (texture != null) {
+      material.uniforms['uReflection']['value'] = texture;
+    }
   }
 
   void animate(double dt) {
@@ -412,28 +290,7 @@ void main() {
   }
 
   void dispose() {
-    _skyDayTexture?.dispose();
-    _skyNightTexture?.dispose();
-    _bridgeTexture?.dispose();
+    _waveTexture?.dispose();
+    _reflection.dispose();
   }
-}
-
-class _ReflectedTower {
-  const _ReflectedTower(
-    this.x,
-    this.z,
-    this.width,
-    this.baseY,
-    this.top,
-    this.tint,
-    this.emit,
-  );
-
-  final double x;
-  final double z;
-  final double width;
-  final double baseY;
-  final double top;
-  final _Rgb tint;
-  final double emit;
 }

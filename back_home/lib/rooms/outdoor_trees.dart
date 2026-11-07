@@ -1,9 +1,9 @@
 part of 'outdoor_landscape.dart';
 
-/// Stylised trees shared by every scene. Crowns are built from many separate
-/// faceted leaf chunks on an open frame of branches, lit yellow on top and
-/// shaded emerald beneath; conifers from jagged, overlapping tiers. Trees
-/// spend their detail by distance from the window.
+/// Trees shared by every scene. Crowns are sprays of painted leaves carried on
+/// a frame of branches, lit yellow on top and shaded emerald beneath; conifers
+/// are needled boughs around a dark core. Trees spend their detail by distance
+/// from the window.
 extension _TreeKit on OutdoorScene {
   static const _sunlit = _Rgb.hex(0xFFF27A);
 
@@ -66,128 +66,323 @@ extension _TreeKit on OutdoorScene {
       detail,
     );
 
-    // Boughs: one crowning the tree, the rest in a ring around its shoulders,
-    // leaving the underside open so the branches show.
-    final lobeCount = switch (detail) {
-      2 => 8,
-      1 => 5,
-      _ => 4,
+    _addCrown(
+      foliage,
+      solids,
+      random,
+      center: center,
+      fork: (x, baseY + trunkHeight * 0.82, z),
+      radius: radius,
+      stretch: stretch,
+      bottom: bottom,
+      top: top,
+      scale: scale,
+      color: color,
+      bark: bark,
+      detail: detail,
+    );
+    _shadows.add(
+      _TreeShadow(x: x, z: z, radius: radius * 1.08, height: centerY - baseY),
+    );
+  }
+
+  /// A crown of real boughs: limbs fork out to tips spread over the top and
+  /// shoulders of the tree, and each tip carries sprays of leaves. The underside
+  /// stays open, so branches show and light gets between the boughs.
+  void _addCrown(
+    _LitMesh foliage,
+    _LitMesh solids,
+    math.Random random, {
+    required (double, double, double) center,
+    required (double, double, double) fork,
+    required double radius,
+    required double stretch,
+    required double bottom,
+    required double top,
+    required double scale,
+    required _Rgb color,
+    required _Rgb bark,
+    required int detail,
+  }) {
+    final (x, centerY, z) = center;
+    final limbs = switch (detail) {
+      2 => 6,
+      1 => 4,
+      _ => 0,
     };
-    final fork = (x, baseY + trunkHeight * 0.82, z);
     final spin = random.nextDouble() * math.pi * 2;
-    for (var i = 0; i < lobeCount; i += 1) {
-      final double lx;
-      final double ly;
-      final double lz;
-      if (i == 0) {
-        lx = (random.nextDouble() - 0.5) * radius * 0.25;
-        ly = radius * stretch * 0.62;
-        lz = (random.nextDouble() - 0.5) * radius * 0.25;
-      } else {
-        final a =
-            spin +
-            (i - 1) / (lobeCount - 1) * math.pi * 2 +
-            (random.nextDouble() - 0.5) * 0.5;
-        // Alternate a wide lower ring and a tighter upper one, for volume.
-        final upper = i.isEven;
-        final out =
-            radius * ((upper ? 0.4 : 0.66) + random.nextDouble() * 0.14);
-        lx = math.cos(a) * out;
-        ly =
-            radius *
-            stretch *
-            ((upper ? 0.34 : -0.06) + random.nextDouble() * 0.16);
-        lz = math.sin(a) * out;
-      }
-      final lobe = (x + lx, centerY + ly, z + lz);
-      // Visible limbs reach out from the fork to carry each bough.
-      if (detail > 0 && (detail == 2 || i <= 3)) {
-        final thick = scale * (detail == 2 ? 0.085 : 0.1);
-        final elbow = (
-          fork.$1 + lx * 0.45,
-          fork.$2 + (lobe.$2 - fork.$2) * 0.42,
-          fork.$3 + lz * 0.45,
-        );
-        _addLimb(solids, fork, elbow, thick, thick * 0.72, bark, sides: 5);
-        if (detail == 2) {
+    final elbows = <(double, double, double)>[];
+    for (var i = 0; i < limbs; i += 1) {
+      final a =
+          spin + i / limbs * math.pi * 2 + (random.nextDouble() - 0.5) * 0.5;
+      final out = radius * (0.34 + random.nextDouble() * 0.14);
+      final elbow = (
+        fork.$1 + math.cos(a) * out,
+        fork.$2 + (centerY - fork.$2) * (0.7 + random.nextDouble() * 0.5),
+        fork.$3 + math.sin(a) * out,
+      );
+      elbows.add(elbow);
+      _addLimb(
+        solids,
+        fork,
+        elbow,
+        scale * 0.1,
+        scale * 0.055,
+        bark,
+        sides: detail == 2 ? 6 : 4,
+      );
+    }
+
+    final tips = switch (detail) {
+      2 => 20,
+      1 => 11,
+      _ => 6,
+    };
+    final sprays = switch (detail) {
+      2 => 9,
+      1 => 5,
+      _ => 3,
+    };
+    final sprayHalf = switch (detail) {
+      2 => 0.27,
+      1 => 0.4,
+      _ => 0.6,
+    };
+    for (var i = 0; i < tips; i += 1) {
+      // Spiral over the crown from just below its waist up to the very top.
+      final t = (i + 0.5) / tips;
+      final rise = -0.42 + t * 1.38;
+      final ring = math.sqrt(math.max(1 - rise * rise, 0.0));
+      final a = i * 2.39996 + spin + (random.nextDouble() - 0.5) * 0.5;
+      final out = radius * ring * (0.72 + random.nextDouble() * 0.26);
+      final tip = (
+        x + math.cos(a) * out,
+        centerY + rise * radius * stretch * (0.8 + random.nextDouble() * 0.2),
+        z + math.sin(a) * out,
+      );
+      if (elbows.isNotEmpty) {
+        // Carried on a branch from the nearest limb.
+        var best = elbows.first;
+        var bestDistance = double.infinity;
+        for (final elbow in elbows) {
+          final dx = elbow.$1 - tip.$1;
+          final dy = elbow.$2 - tip.$2;
+          final dz = elbow.$3 - tip.$3;
+          final d = dx * dx + dy * dy + dz * dz;
+          if (d < bestDistance) {
+            bestDistance = d;
+            best = elbow;
+          }
+        }
+        if (detail == 2 || i.isEven) {
           _addLimb(
             solids,
-            elbow,
-            lobe,
-            thick * 0.72,
-            thick * 0.4,
+            best,
+            tip,
+            scale * 0.045,
+            scale * 0.016,
             bark,
-            sides: 5,
+            sides: 4,
           );
         }
       }
-      final chunks = switch (detail) {
-        2 => 6 + random.nextInt(2),
-        1 => 3,
-        _ => 1,
-      };
-      for (var c = 0; c < chunks; c += 1) {
-        final spread = chunks == 1 ? 0.0 : radius * 0.34;
-        final size =
-            radius *
-            switch (detail) {
-              2 => 0.25 + random.nextDouble() * 0.11,
-              1 => 0.36 + random.nextDouble() * 0.1,
-              _ => 0.56 + random.nextDouble() * 0.1,
-            };
-        final cx = lobe.$1 + (random.nextDouble() - 0.5) * 2 * spread;
+      for (var c = 0; c < sprays; c += 1) {
+        final spread = radius * sprayHalf * 1.15;
+        final cx = tip.$1 + (random.nextDouble() - 0.5) * 2 * spread;
         final cy =
-            lobe.$2 + (random.nextDouble() - 0.5) * 1.4 * spread * stretch;
-        final cz = lobe.$3 + (random.nextDouble() - 0.5) * 2 * spread;
-        _addLeafChunk(
-          foliage,
+            tip.$2 + (random.nextDouble() - 0.5) * 1.3 * spread * stretch;
+        final cz = tip.$3 + (random.nextDouble() - 0.5) * 2 * spread;
+        _addLeafCard(
           random,
           cx,
           cy,
           cz,
-          size,
+          radius * sprayHalf * (0.8 + random.nextDouble() * 0.4),
           color,
           center: center,
+          reach: radius,
           bottom: bottom,
           top: top,
-          detail: detail,
-        );
-      }
-      // Loose leaves stand off each bough and break up its outline.
-      final plates = detail == 2 ? 5 : (detail == 1 ? 2 : 0);
-      for (var c = 0; c < plates; c += 1) {
-        _addLeafPlate(
-          foliage,
-          random,
-          lobe,
-          center,
-          radius * (detail == 2 ? 0.46 : 0.56),
-          radius * (detail == 2 ? 0.26 : 0.34),
-          color,
-          bottom: bottom,
-          top: top,
+          atlasCell: c == 0
+              ? _LeafAtlas.loose
+              : (c.isEven ? _LeafAtlas.denseA : _LeafAtlas.denseB),
         );
       }
     }
-    if (detail > 0) {
-      // A dim core blocks the sky through the crown without a smooth blob.
-      _addLeafChunk(
-        foliage,
-        random,
-        x,
-        centerY + radius * stretch * 0.12,
-        z,
-        radius * 0.6,
-        _leafShade(color).scale(0.72),
-        center: center,
-        bottom: top,
-        top: top + 1,
-        detail: 0,
-      );
-    }
-    _shadows.add(
-      _TreeShadow(x: x, z: z, radius: radius * 1.08, height: centerY - baseY),
+    // A dim core blocks the sky through the middle of the crown.
+    _addLeafChunk(
+      foliage,
+      random,
+      x,
+      centerY + radius * stretch * 0.1,
+      z,
+      radius * 0.5,
+      _leafShade(color).scale(0.6),
+      center: center,
+      bottom: top,
+      top: top + 1,
+      detail: 0,
     );
+  }
+
+  /// One spray of leaves. The window is the only place the scenery is seen
+  /// from, so cards lean toward it and never turn edge-on to the viewer.
+  void _addLeafCard(
+    math.Random random,
+    double cx,
+    double cy,
+    double cz,
+    double half,
+    _Rgb color, {
+    required (double, double, double) center,
+    required double reach,
+    required double bottom,
+    required double top,
+    required int atlasCell,
+  }) {
+    var ex = OutdoorScene._eyeX - cx;
+    var ey = OutdoorScene._eyeY - cy;
+    var ez = _eyeZ - cz;
+    final el = math.sqrt(ex * ex + ey * ey + ez * ez) + 1e-6;
+    ex /= el;
+    ey /= el;
+    ez /= el;
+    final ox = (cx - center.$1) / reach;
+    final oy = (cy - center.$2) / reach;
+    final oz = (cz - center.$3) / reach;
+    var nx = ex * 0.9 + ox * 0.35 + (random.nextDouble() - 0.5) * 0.6;
+    var ny = ey * 0.9 + oy * 0.35 + (random.nextDouble() - 0.5) * 0.6;
+    var nz = ez * 0.9 + oz * 0.35 + (random.nextDouble() - 0.5) * 0.6;
+    final nl = math.sqrt(nx * nx + ny * ny + nz * nz) + 1e-6;
+    nx /= nl;
+    ny /= nl;
+    nz /= nl;
+    final (rx, ry, rz) = ny.abs() < 0.9 ? (0.0, 1.0, 0.0) : (1.0, 0.0, 0.0);
+    var tx = ry * nz - rz * ny;
+    var ty = rz * nx - rx * nz;
+    var tz = rx * ny - ry * nx;
+    final tl = math.sqrt(tx * tx + ty * ty + tz * tz) + 1e-6;
+    tx /= tl;
+    ty /= tl;
+    tz /= tl;
+    final bx = ny * tz - nz * ty;
+    final by = nz * tx - nx * tz;
+    final bz = nx * ty - ny * tx;
+    final roll = random.nextDouble() * math.pi * 2;
+    final cr = math.cos(roll) * half;
+    final sr = math.sin(roll) * half;
+
+    final heightT = ((cy - bottom) / (top - bottom)).clamp(0.0, 1.0);
+    final ramp = (heightT * 0.8 + random.nextDouble() * 0.32).clamp(0.0, 1.0);
+    final tone = ramp > 0.5
+        ? _Rgb.lerp(color, _leafLight(color), (ramp - 0.5) * 2)
+        : _Rgb.lerp(_leafShade(color), color, ramp * 2);
+    final card = tone.scale(1.25 + random.nextDouble() * 0.25);
+
+    final (u0, v0, u1, v1) = _LeafAtlas.instance.cell(atlasCell);
+    final base = _leaves.count;
+    for (final (a, b, u, v) in [
+      (-1.0, -1.0, u0, v0),
+      (1.0, -1.0, u1, v0),
+      (1.0, 1.0, u1, v1),
+      (-1.0, 1.0, u0, v1),
+    ]) {
+      final px = cx + (tx * cr + bx * sr) * a + (-tx * sr + bx * cr) * b;
+      final py = cy + (ty * cr + by * sr) * a + (-ty * sr + by * cr) * b;
+      final pz = cz + (tz * cr + bz * sr) * a + (-tz * sr + bz * cr) * b;
+      // Normals fan out from the crown, so it shades as one rounded mass.
+      var vx = (px - center.$1) / reach;
+      var vy = (py - center.$2) / reach + 0.2;
+      var vz = (pz - center.$3) / reach;
+      final vl = math.sqrt(vx * vx + vy * vy + vz * vz) + 1e-6;
+      final depth = (vl / 1.1).clamp(0.0, 1.0);
+      vx /= vl;
+      vy /= vl;
+      vz /= vl;
+      _leaves.vertex(
+        px,
+        py,
+        pz,
+        vx,
+        vy,
+        vz,
+        card,
+        ao: 0.36 + 0.38 * depth + 0.26 * ramp,
+      );
+      _leaves._uvs.addAll([u, v]);
+    }
+    _leaves.indices!.addAll([
+      base,
+      base + 1,
+      base + 2,
+      base,
+      base + 2,
+      base + 3,
+    ]);
+  }
+
+  /// A conifer bough: a needled card from the trunk to its drooping tip,
+  /// turned about its own length to show its broad side to the window.
+  void _addBough(
+    (double, double, double) root,
+    (double, double, double) tip,
+    double width,
+    _Rgb color, {
+    required double rootShade,
+    required double tipShade,
+  }) {
+    final ax = tip.$1 - root.$1;
+    final ay = tip.$2 - root.$2;
+    final az = tip.$3 - root.$3;
+    final mx = (root.$1 + tip.$1) / 2;
+    final my = (root.$2 + tip.$2) / 2;
+    final mz = (root.$3 + tip.$3) / 2;
+    final ex = OutdoorScene._eyeX - mx;
+    final ey = OutdoorScene._eyeY - my;
+    final ez = _eyeZ - mz;
+    var wx = ay * ez - az * ey;
+    var wy = az * ex - ax * ez;
+    var wz = ax * ey - ay * ex;
+    final wl = math.sqrt(wx * wx + wy * wy + wz * wz);
+    if (wl < 1e-5) {
+      return;
+    }
+    final half = width / 2 / wl;
+    wx *= half;
+    wy *= half;
+    wz *= half;
+    final al = math.sqrt(ax * ax + ay * ay + az * az) + 1e-6;
+    final nx = ax / al * 0.7;
+    final ny = 0.7;
+    final nz = az / al * 0.7;
+    final (u0, v0, u1, v1) = _LeafAtlas.instance.cell(_LeafAtlas.bough);
+    final base = _leaves.count;
+    for (final (p, side, v, ao) in [
+      (root, -1.0, v0, rootShade),
+      (root, 1.0, v0, rootShade),
+      (tip, 1.0, v1, tipShade),
+      (tip, -1.0, v1, tipShade),
+    ]) {
+      _leaves.vertex(
+        p.$1 + wx * side,
+        p.$2 + wy * side,
+        p.$3 + wz * side,
+        nx,
+        ny,
+        nz,
+        color,
+        ao: ao,
+      );
+      _leaves._uvs.addAll([side < 0 ? u0 : u1, v]);
+    }
+    _leaves.indices!.addAll([
+      base,
+      base + 1,
+      base + 2,
+      base,
+      base + 2,
+      base + 3,
+    ]);
   }
 
   void _addTrunk(
@@ -408,89 +603,7 @@ extension _TreeKit on OutdoorScene {
     }
   }
 
-  /// A single pointed leaf, folded along its spine and visible from both
-  /// sides, pointing out and away from the middle of the crown.
-  void _addLeafPlate(
-    _LitMesh mesh,
-    math.Random random,
-    (double, double, double) lobe,
-    (double, double, double) center,
-    double reach,
-    double size,
-    _Rgb color, {
-    required double bottom,
-    required double top,
-  }) {
-    // Outward from the crown, scattered, with a slight droop.
-    var dx = lobe.$1 - center.$1 + (random.nextDouble() - 0.5) * reach * 2.2;
-    var dy = lobe.$2 - center.$2 + (random.nextDouble() - 0.7) * reach * 1.4;
-    var dz = lobe.$3 - center.$3 + (random.nextDouble() - 0.5) * reach * 2.2;
-    final dl = math.sqrt(dx * dx + dy * dy + dz * dz) + 0.0001;
-    dx /= dl;
-    dy /= dl;
-    dz /= dl;
-    final base = (
-      lobe.$1 + dx * reach * 0.52,
-      lobe.$2 + dy * reach * 0.52,
-      lobe.$3 + dz * reach * 0.52,
-    );
-    // A sideways axis, with a random roll so leaves catch light differently.
-    var sx = -dz + (random.nextDouble() - 0.5) * 0.6;
-    var sy = 0.25 * (random.nextDouble() - 0.5);
-    var sz = dx + (random.nextDouble() - 0.5) * 0.6;
-    final sl = math.sqrt(sx * sx + sy * sy + sz * sz) + 0.0001;
-    sx /= sl;
-    sy /= sl;
-    sz /= sl;
-    final length = size * (0.8 + random.nextDouble() * 0.5);
-    final half = length * 0.34;
-    (double, double, double) along(double t, double side, double lift) => (
-      base.$1 + dx * length * t + sx * half * side,
-      base.$2 + dy * length * t + sy * half * side + lift * length,
-      base.$3 + dz * length * t + sz * half * side,
-    );
-    final tail = along(0, 0, 0);
-    final tip = along(1, 0, 0);
-    final left = along(0.42, -1, -0.09);
-    final right = along(0.42, 1, -0.09);
-    final heightT = ((base.$2 - bottom) / (top - bottom)).clamp(0.0, 1.0);
-    final ramp = (heightT * 0.85 + random.nextDouble() * 0.3).clamp(0.0, 1.0);
-    final leaf = ramp > 0.5
-        ? _Rgb.lerp(color, _leafLight(color), (ramp - 0.5) * 2)
-        : _Rgb.lerp(_leafShade(color), color, ramp * 2);
-    for (final (a, b, c) in [
-      (tail, right, tip),
-      (tail, tip, left),
-      (tail, tip, right),
-      (tail, left, tip),
-    ]) {
-      final n = _faceNormal([
-        a.$1,
-        a.$2,
-        a.$3,
-        b.$1,
-        b.$2,
-        b.$3,
-        c.$1,
-        c.$2,
-        c.$3,
-      ]);
-      for (final p in [a, b, c]) {
-        mesh.vertex(
-          p.$1,
-          p.$2,
-          p.$3,
-          n.$1,
-          n.$2,
-          n.$3,
-          leaf,
-          ao: 0.6 + 0.4 * ramp,
-        );
-      }
-    }
-  }
-
-  /// Low undergrowth: a few leaf chunks instead of a single blob.
+  /// Low undergrowth: a mound of leaf sprays.
   void _addShrub(
     _LitMesh foliage,
     math.Random random,
@@ -500,22 +613,27 @@ extension _TreeKit on OutdoorScene {
     double size,
     _Rgb color,
   ) {
-    final count = 2 + random.nextInt(2);
+    final near = _distanceToWindow(x, y, z) < 16;
+    final count = near ? 9 : 4;
+    final center = (x, y, z);
+    final half = size * (near ? 0.5 : 0.72);
     for (var i = 0; i < count; i += 1) {
       final a = random.nextDouble() * math.pi * 2;
-      final spread = size * 0.55 * random.nextDouble();
-      _addLeafChunk(
-        foliage,
+      final spread = size * 0.62 * math.sqrt(random.nextDouble());
+      _addLeafCard(
         random,
         x + math.cos(a) * spread,
-        y + random.nextDouble() * size * 0.5,
+        y + size * (0.12 + random.nextDouble() * 0.62),
         z + math.sin(a) * spread,
-        size * (0.45 + random.nextDouble() * 0.2),
+        half * (0.8 + random.nextDouble() * 0.4),
         color,
-        center: (x, y, z),
-        bottom: y - size * 0.4,
+        center: center,
+        reach: size,
+        bottom: y - size * 0.2,
         top: y + size,
-        detail: 1,
+        atlasCell: i == 0
+            ? _LeafAtlas.loose
+            : (i.isEven ? _LeafAtlas.denseA : _LeafAtlas.denseB),
       );
     }
   }
@@ -552,32 +670,81 @@ extension _TreeKit on OutdoorScene {
       sides: near ? 5 : 4,
     );
     final hue = random.nextDouble();
-    for (var tier = 0; tier < tierCount; tier += 1) {
-      final t = tier / tierCount;
-      final tierBase = baseY + total * (0.2 + t * 0.56);
-      final tierHeight = total * (0.46 - t * 0.14);
-      final radius = scale * (1.22 - t * 0.86);
-      // Tiers brighten toward the tip, where the light reaches.
-      final tierDark = _Rgb.lerp(dark, light, t * 0.45 + hue * 0.2);
-      final tierLight = _Rgb.lerp(
-        light,
-        _sunlit,
-        0.1 + t * 0.14,
-      ).scale(0.95 + hue * 0.15);
+    if (jagged) {
+      // A dark inner cone keeps the tree solid; boughs give it its outline.
       _addConeTier(
         foliage,
         random,
         x,
-        tierBase,
+        baseY + total * 0.2,
         z,
-        radius,
-        tierHeight,
-        tierDark,
-        tierLight,
-        teeth: teeth,
-        jagged: jagged,
-        aoBase: 0.5 + t * 0.28,
+        scale * 0.62,
+        total * 0.8,
+        _Rgb.lerp(dark, const _Rgb(0, 0, 0), 0.4),
+        dark,
+        teeth: 7,
+        jagged: false,
+        aoBase: 0.45,
       );
+      final whorls = near ? 15 : 8;
+      final perWhorl = near ? 7 : 5;
+      for (var w = 0; w < whorls; w += 1) {
+        final t = w / whorls;
+        final y = baseY + total * (0.2 + t * 0.78);
+        final twist = random.nextDouble() * math.pi * 2;
+        for (var i = 0; i < perWhorl; i += 1) {
+          final a = twist + i / perWhorl * math.pi * 2;
+          final length =
+              scale * (1.5 - 1.3 * t) * (0.85 + random.nextDouble() * 0.3);
+          final droop = 0.2 + (1 - t) * 0.42 + random.nextDouble() * 0.15;
+          final tip = (
+            x + math.cos(a) * math.cos(droop) * length,
+            y - math.sin(droop) * length,
+            z + math.sin(a) * math.cos(droop) * length,
+          );
+          final tone = _Rgb.lerp(
+            _Rgb.lerp(dark, light, 0.35 + t * 0.5 + hue * 0.15),
+            _sunlit,
+            0.05 + t * 0.1,
+          ).scale(1.35 + random.nextDouble() * 0.3);
+          _addBough(
+            (x, y, z),
+            tip,
+            length * 0.72,
+            tone,
+            rootShade: 0.42,
+            tipShade: 0.72 + t * 0.28,
+          );
+        }
+      }
+    } else {
+      for (var tier = 0; tier < tierCount; tier += 1) {
+        final t = tier / tierCount;
+        final tierBase = baseY + total * (0.2 + t * 0.56);
+        final tierHeight = total * (0.46 - t * 0.14);
+        final radius = scale * (1.22 - t * 0.86);
+        // Tiers brighten toward the tip, where the light reaches.
+        final tierDark = _Rgb.lerp(dark, light, t * 0.45 + hue * 0.2);
+        final tierLight = _Rgb.lerp(
+          light,
+          _sunlit,
+          0.1 + t * 0.14,
+        ).scale(0.95 + hue * 0.15);
+        _addConeTier(
+          foliage,
+          random,
+          x,
+          tierBase,
+          z,
+          radius,
+          tierHeight,
+          tierDark,
+          tierLight,
+          teeth: teeth,
+          jagged: false,
+          aoBase: 0.5 + t * 0.28,
+        );
+      }
     }
     if (castShadow) {
       _shadows.add(

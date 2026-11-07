@@ -13,7 +13,7 @@ import 'package:flutter/material.dart';
 ///
 /// The JSON file is re-read on every hot restart:
 /// {"env": "city", "time": 0.5, "weather": "clear", "outside": true,
-///  "yaw": 0.3, "pitch": -0.1}
+///  "yaw": 0.3, "pitch": -0.1, "zoom": 1.8}
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   const configPath = String.fromEnvironment('PREVIEW_CONFIG');
@@ -48,6 +48,7 @@ Future<void> main() async {
           skyWeather: weather,
           skyTimeOfDay: time,
           outdoorEnvironment: environment,
+          cameraZoom: (config['zoom'] as num?)?.toDouble() ?? 1,
         ),
       ),
     ),

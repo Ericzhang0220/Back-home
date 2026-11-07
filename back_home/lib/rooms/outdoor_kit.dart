@@ -3,11 +3,19 @@ part of 'outdoor_landscape.dart';
 // --- Baked-lighting mesh -------------------------------------------------------
 
 class _LitMesh {
-  _LitMesh({required this.wrap, bool indexed = false, this.water = false})
-    : indices = indexed ? <int>[] : null;
+  _LitMesh({
+    required this.wrap,
+    bool indexed = false,
+    this.water = false,
+    this.cutout,
+  }) : indices = indexed ? <int>[] : null;
 
   final double wrap;
   final bool water;
+
+  /// Alpha-tested texture for meshes of cards, such as leaf clusters.
+  final three.Texture? cutout;
+  final _uvs = <double>[];
   final List<int>? indices;
   final _positions = <double>[];
   final _normals = <double>[];
@@ -56,11 +64,21 @@ class _LitMesh {
       geometry.setIndex(indices!);
     }
     _colorAttribute = colors;
+    final map = cutout;
+    if (map != null) {
+      geometry.setAttributeFromString(
+        'uv',
+        three.Float32BufferAttribute.fromList(_uvs, 2),
+      );
+    }
     return three.Mesh(
       geometry,
       three.MeshBasicMaterial.fromMap({
         'color': 0xFFFFFF,
         'vertexColors': true,
+        'map': ?map,
+        if (map != null) 'alphaTest': 0.42,
+        if (map != null) 'side': three.DoubleSide,
       }),
     )..frustumCulled = false;
   }

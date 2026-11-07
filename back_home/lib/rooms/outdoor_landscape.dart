@@ -13,6 +13,8 @@ part 'outdoor_city_water.dart';
 part 'outdoor_forest.dart';
 part 'outdoor_island.dart';
 part 'outdoor_kit.dart';
+part 'outdoor_leaf_atlas.dart';
+part 'outdoor_reflection.dart';
 part 'outdoor_trees.dart';
 part 'outdoor_waterfall.dart';
 
@@ -126,6 +128,12 @@ abstract class OutdoorScene {
   final List<_FlowMesh> _flows = [];
   final List<_TreeShadow> _shadows = [];
   _LitMesh? _groundMesh;
+  // Leaf clusters of every tree, in one draw call.
+  late final _LitMesh _leaves = _LitMesh(
+    wrap: 0.4,
+    indexed: true,
+    cutout: _LeafAtlas.instance.texture,
+  );
   Float32List? _groundShadow;
   int _groundCols = 0;
   int _groundRows = 0;
@@ -173,6 +181,7 @@ abstract class OutdoorScene {
     _built = true;
     _buildGround();
     _populate();
+    _addMesh(_leaves);
   }
 
   /// Scales the aerial haze; dense, close scenery reads better with less.
@@ -233,6 +242,19 @@ abstract class OutdoorScene {
   }
 
   void _onAnimate(double dt) {}
+
+  /// Refreshes any mirrored view of the scenery, between rendered frames.
+  /// [outdoors] are the scene's other nodes that a reflection should show.
+  void updateReflection(
+    double dt,
+    three.WebGLRenderer renderer,
+    three.Scene scene,
+    three.Camera camera,
+    List<three.Object3D> outdoors,
+  ) {}
+
+  /// Where the sun or moon currently hangs, for highlights that track it.
+  void setKeyLightPosition(double x, double y, double z) {}
 
   void _addMesh(_LitMesh mesh) {
     if (mesh.count == 0) {

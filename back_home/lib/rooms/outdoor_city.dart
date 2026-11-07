@@ -514,7 +514,6 @@ class CityScene extends OutdoorScene {
       );
     }
     _towerTops.add((tower.v, top));
-    _river.addTower(x, z, tower.width, base, top, tint, emit);
   }
 
   /// A patch of the atlas sized to a face, so windows keep a real-world size.
@@ -1202,6 +1201,32 @@ class CityScene extends OutdoorScene {
         ..y = car.forward ? p.heading : p.heading + math.pi
         ..z = car.forward ? p.slope : -p.slope;
     }
+  }
+
+  @override
+  void updateReflection(
+    double dt,
+    three.WebGLRenderer renderer,
+    three.Scene scene,
+    three.Camera camera,
+    List<three.Object3D> outdoors,
+  ) {
+    if (camera is! three.PerspectiveCamera) {
+      return;
+    }
+    _river.updateReflection(
+      dt,
+      renderer,
+      scene,
+      camera,
+      [group, ...outdoors],
+      [for (final car in _cars) car.mesh],
+    );
+  }
+
+  @override
+  void setKeyLightPosition(double x, double y, double z) {
+    _river.setKeyLightPosition(x, y, z);
   }
 
   @override
