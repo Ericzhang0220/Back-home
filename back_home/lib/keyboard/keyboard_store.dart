@@ -1,29 +1,42 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../rooms/room_state.dart';
+import '../rooms/shop_wallet.dart';
 import '../chat/ai_chat_repository.dart';
 import '../chat/ai_models.dart';
 import 'custom_keyboard.dart';
 import 'keyboard_catalog.dart';
 
-/// Local Likes purchases, sharing the room's existing wallet. One saved record
-/// contains the keyboard inventory, application scope, and the wallet balance.
+/// Stores device inventory and coordinates purchases against the account wallet.
 class KeyboardStore extends ChangeNotifier {
   KeyboardStore(
     this.room, {
     Future<SharedPreferences> Function()? preferences,
     Stream<List<AiCharacter>> Function(String uid)? characters,
+    ShopWallet? wallet,
   }) : _preferences = preferences ?? SharedPreferences.getInstance,
-       _characters = characters {
+       _characters = characters,
+       _wallet = wallet {
     room.addListener(_roomChanged);
   }
 
   final RoomEditorController room;
+  final ShopWallet? _wallet;
+  StreamSubscription<int>? _walletSubscription;
+  int? _latestCloudBalance;
+  int _walletRevision = 0;
+  bool _walletReady = false;
+  bool _refreshingWallet = false;
+  String? walletError;
+  bool get usesCloudWallet => _wallet != null && _account != 'signed-out';
+  bool get walletReady => !usesCloudWallet || _walletReady;
+  String get _pendingKey => '${_key}_pending_debit';
   final Future<SharedPreferences> Function() _preferences;
   final Stream<List<AiCharacter>> Function(String uid)? _characters;
   StreamSubscription<List<AiCharacter>>? _characterSubscription;
@@ -76,6 +89,12 @@ class KeyboardStore extends ChangeNotifier {
   Future<void> loadForAccount(String uid) async {
     final generation = ++_generation;
     ready = false;
+    _walletReady = false;
+    walletError = null;
+    _latestCloudBalance = null;
+    _walletRevision = 0;
+    unawaited(_walletSubscription?.cancel());
+    _walletSubscription = null;
     charactersReady = false;
     characterError = null;
     _ownCharacters = [];
@@ -120,7 +139,7 @@ class KeyboardStore extends ChangeNotifier {
       final balance = data['likes'];
       room.restoreInventory(data['furniture'] as Map<String, dynamic>?);
       _lastFurniture = jsonEncode(room.inventoryRecord);
-      room.restoreLikesBalance(balance is int && balance >= 0 ? balance : 238);
+      room.restoreLikesBalance(usesCloudWallet ? 0 : _legacyBalance(balance));
       _lastBalance = room.likesBalance;
       ready = true;
       final characterStream =
@@ -150,6 +169,168 @@ class KeyboardStore extends ChangeNotifier {
       ready = false;
     }
     if (!_disposed && generation == _generation) notifyListeners();
+    if (!_disposed && generation == _generation && ready && usesCloudWallet) {
+      await refreshWallet();
+    }
+  }
+
+  int _legacyBalance(Object? value) =>
+      value is int && value >= 0 && value <= 9007199254740991 ? value : 238;
+
+  Future<void> refreshWallet() async {
+    if (!ready || !usesCloudWallet || busy || _refreshingWallet) return;
+    _walletReady = false;
+    final generation = _generation;
+    final account = _account;
+    final prefs = _prefs!;
+    final wallet = _wallet!;
+    final key = _key;
+    final pendingKey = _pendingKey;
+    bool isCurrent() => !_disposed && generation == _generation;
+    _refreshingWallet = true;
+    walletError = null;
+    notifyListeners();
+    try {
+      final raw = prefs.getString(key);
+      final local = raw == null
+          ? <String, dynamic>{}
+          : jsonDecode(raw) as Map<String, dynamic>;
+      final revision = _walletRevision;
+      var balance = await wallet.initialize(
+        account,
+        _legacyBalance(local['likes']),
+      );
+      if (!isCurrent()) return;
+      final pendingRaw = prefs.getString(pendingKey);
+      if (pendingRaw != null) {
+        final pending = jsonDecode(pendingRaw) as Map<String, dynamic>;
+        final result = await wallet.debit(
+          account,
+          pending['id'] as String,
+          pending['cost'] as int,
+        );
+        if (!isCurrent()) return;
+        balance = result.likes;
+        if (result.charged) {
+          final record = pending['record'] as Map<String, dynamic>;
+          await _writeRecord(prefs, key, record);
+          if (!isCurrent()) return;
+          _restorePurchaseRecord(record);
+        }
+        await _removePending(prefs, pendingKey);
+        if (!isCurrent()) return;
+      } else if (local.containsKey('likes')) {
+        local.remove('likes');
+        await _writeRecord(prefs, key, local);
+        if (!isCurrent()) return;
+      }
+      _walletReady = true;
+      _applyCloudBalance(
+        _walletRevision == revision
+            ? balance
+            : (_latestCloudBalance ?? balance),
+      );
+      _walletSubscription ??= wallet
+          .watch(account)
+          .listen(
+            (balance) {
+              if (!isCurrent()) return;
+              _walletRevision++;
+              _latestCloudBalance = balance;
+              if (!busy && _walletReady) _applyCloudBalance(balance);
+            },
+            onError: (Object _) {
+              if (!isCurrent()) return;
+              _walletSubscription = null;
+              walletError = 'Could not sync your Likes balance. Tap Retry.';
+              _walletReady = false;
+              notifyListeners();
+            },
+            cancelOnError: true,
+          );
+    } catch (_) {
+      if (!isCurrent()) return;
+      _walletReady = false;
+      walletError = 'Could not load your Likes balance. Tap Retry.';
+    } finally {
+      _refreshingWallet = false;
+      if (isCurrent()) {
+        notifyListeners();
+      } else if (!_disposed && ready && usesCloudWallet) {
+        unawaited(refreshWallet());
+      }
+    }
+  }
+
+  void _applyCloudBalance(int value) {
+    _lastBalance = value;
+    room.restoreLikesBalance(value);
+  }
+
+  void _restorePurchaseRecord(Map<String, dynamic> record) {
+    _projects = [
+      for (final item in record['customProjects'] as List)
+        CustomKeyboardProject.fromJson(Map<String, dynamic>.from(item as Map)),
+    ];
+    _owned = Set<String>.from(record['owned'] as List);
+    activeId = record['active'] as String;
+    scope = KeyboardUseScope.values.byName(record['scope'] as String);
+    enabled = record['enabled'] as bool;
+    final furniture = record['furniture'] as Map<String, dynamic>;
+    _lastFurniture = jsonEncode(furniture);
+    room.restoreInventory(furniture);
+  }
+
+  Future<void> _writeRecord(
+    SharedPreferences prefs,
+    String key,
+    Map<String, dynamic> record,
+  ) async {
+    if (!await prefs.setString(key, jsonEncode(record))) {
+      throw StateError('Could not save shop data.');
+    }
+  }
+
+  Future<void> _removePending(SharedPreferences prefs, String key) async {
+    if (!await prefs.remove(key)) {
+      throw StateError('Could not clear saved debit.');
+    }
+  }
+
+  Future<String?> _commitCloudDebit(int cost) async {
+    final prefs = _prefs!;
+    final pendingKey = _pendingKey;
+    final key = _key;
+    final record = _record();
+    final random = Random.secure();
+    final id = List.generate(
+      16,
+      (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
+    var recorded = false;
+    try {
+      // Save the intended inventory before authorizing the cloud debit.
+      // Retrying the same receipt after an interruption cannot charge twice.
+      await _pendingSave;
+      await _writeRecord(prefs, pendingKey, {
+        'id': id,
+        'cost': cost,
+        'record': record,
+      });
+      recorded = true;
+      final revision = _walletRevision;
+      final result = await _wallet!.debit(_account, id, cost);
+      if (_walletRevision == revision) _latestCloudBalance = result.likes;
+      if (result.charged) await _writeRecord(prefs, key, record);
+      await _removePending(prefs, pendingKey);
+      return result.charged ? null : 'Not enough Likes for this purchase.';
+    } catch (_) {
+      if (recorded) {
+        _walletReady = false;
+        walletError = 'A purchase needs to finish syncing. Tap Retry.';
+      }
+      rethrow;
+    }
   }
 
   Map<String, dynamic> _record() => {
@@ -158,7 +339,7 @@ class KeyboardStore extends ChangeNotifier {
     'active': activeId,
     'scope': scope.name,
     'enabled': enabled,
-    'likes': room.likesBalance,
+    if (!usesCloudWallet) 'likes': room.likesBalance,
     'furniture': room.inventoryRecord,
   };
 
@@ -177,7 +358,7 @@ class KeyboardStore extends ChangeNotifier {
   }
 
   void _roomChanged() {
-    if (!ready || busy) return;
+    if (!ready || busy || (usesCloudWallet && !_walletReady)) return;
     final furniture = jsonEncode(room.inventoryRecord);
     if (_lastBalance == room.likesBalance && _lastFurniture == furniture) {
       return;
@@ -189,78 +370,82 @@ class KeyboardStore extends ChangeNotifier {
 
   Future<String?> buyOrApply(
     KeyboardSkin skin,
-    KeyboardUseScope useScope,
+    KeyboardUseScope? useScope,
   ) async {
     if (!keyboardSkins.any((item) => identical(item, skin)) &&
         !identical(_customSkin(skin.id), skin)) {
       return 'Unknown keyboard.';
     }
-    if (!ready || busy) return 'The shop is still loading. Please try again.';
     final cost = _owned.contains(skin.id) ? 0 : skin.price;
-    if (room.likesBalance < cost) return 'Not enough Likes for this keyboard.';
-    final oldOwned = Set<String>.of(_owned);
-    final oldActive = activeId;
-    final oldScope = scope;
-    final oldEnabled = enabled;
-    _purchaseComplete = Completer<void>();
-    busy = true;
-    room.shopPurchaseLocked = true;
-    _owned.add(skin.id);
-    activeId = skin.id;
-    scope = useScope;
-    enabled = true;
-    room.restoreLikesBalance(room.likesBalance - cost);
-    notifyListeners();
-    try {
-      await _save();
-      return null;
-    } catch (_) {
-      _owned = oldOwned;
-      activeId = oldActive;
-      scope = oldScope;
-      enabled = oldEnabled;
-      if (!_disposed) room.restoreLikesBalance(room.likesBalance + cost);
-      return 'Could not save. Your Likes were returned. Please try again.';
-    } finally {
-      busy = false;
-      room.shopPurchaseLocked = false;
-      _lastBalance = room.likesBalance;
-      _purchaseComplete?.complete();
-      _purchaseComplete = null;
-      if (!_disposed) notifyListeners();
-    }
+    return _customMutation(() {
+      _owned.add(skin.id);
+      if (useScope != null) {
+        activeId = skin.id;
+        scope = useScope;
+        enabled = true;
+      }
+    }, cost: cost);
   }
 
-  /// Buying, consuming an attempt, and saving selection each commit atomically
-  /// with the local wallet. Failed writes restore the entire previous state.
-  Future<String?> _customMutation(void Function() change) async {
+  Future<RoomActionResult> purchaseFurniture(RoomItemDefinition item) async {
+    final error = await _customMutation(() {
+      room.addPurchasedItem(item.id);
+    }, cost: item.price);
+    return error == null
+        ? RoomActionResult.success('${item.title} added to your inventory.')
+        : RoomActionResult.failure(error);
+  }
+
+  /// Commits a purchase and restores the previous inventory on failure.
+  Future<String?> _customMutation(
+    void Function() change, {
+    int cost = 0,
+  }) async {
     if (!ready || busy) return 'The shop is still loading. Please try again.';
-    final oldProjects = List<CustomKeyboardProject>.of(_projects);
-    final oldOwned = Set<String>.of(_owned);
-    final oldActive = activeId;
-    final oldScope = scope;
-    final oldEnabled = enabled;
+    if (usesCloudWallet && !_walletReady) {
+      return walletError ?? 'Likes are still syncing. Please try again.';
+    }
+    if (room.likesBalance < cost) return 'Not enough Likes for this purchase.';
+    final oldRecord = _record();
     final oldBalance = room.likesBalance;
     _purchaseComplete = Completer<void>();
     busy = true;
     room.shopPurchaseLocked = true;
+    var error = false;
     try {
       change();
+      if (cost > 0 && !usesCloudWallet) {
+        room.restoreLikesBalance(oldBalance - cost);
+      }
       notifyListeners();
-      await _save();
+      if (cost > 0 && usesCloudWallet) {
+        final message = await _commitCloudDebit(cost);
+        if (message != null) {
+          error = true;
+          return message;
+        }
+      } else {
+        await _save();
+      }
       return null;
     } catch (_) {
-      _projects = oldProjects;
-      _owned = oldOwned;
-      activeId = oldActive;
-      scope = oldScope;
-      enabled = oldEnabled;
-      if (!_disposed) room.restoreLikesBalance(oldBalance);
-      return 'Could not save this change. Your balance and generation allowance were restored. Please try again.';
+      error = true;
+      return walletError ?? 'Could not save this change. Please try again.';
     } finally {
+      if (!_disposed) {
+        if (error) {
+          _restorePurchaseRecord(oldRecord);
+          room.restoreLikesBalance(oldBalance);
+        }
+        final balance = _latestCloudBalance;
+        if (usesCloudWallet && _walletReady && balance != null) {
+          _applyCloudBalance(balance);
+        }
+        _lastBalance = room.likesBalance;
+        _lastFurniture = jsonEncode(room.inventoryRecord);
+      }
       busy = false;
       room.shopPurchaseLocked = false;
-      _lastBalance = room.likesBalance;
       _purchaseComplete?.complete();
       _purchaseComplete = null;
       if (!_disposed) notifyListeners();
@@ -281,8 +466,7 @@ class KeyboardStore extends ChangeNotifier {
         id = '$id-new';
       }
       _projects.add(CustomKeyboardProject.forCharacter(id, character));
-      room.restoreLikesBalance(room.likesBalance - customKeyboardPrice);
-    });
+    }, cost: customKeyboardPrice);
   }
 
   Future<String?> generateKeyboard(String projectId, String style) async {
@@ -308,7 +492,7 @@ class KeyboardStore extends ChangeNotifier {
   Future<String?> saveCustomKeyboard(
     String projectId,
     String resultId,
-    KeyboardUseScope useScope,
+    KeyboardUseScope? useScope,
   ) async {
     if (!ready || busy) return 'The shop is still loading. Please try again.';
     final project = projectById(projectId);
@@ -321,14 +505,16 @@ class KeyboardStore extends ChangeNotifier {
     return _customMutation(() {
       _projects[_projects.indexOf(project)] = project.select(resultId);
       _owned.add(resultId);
-      activeId = resultId;
-      scope = useScope;
-      enabled = true;
+      if (useScope != null) {
+        activeId = resultId;
+        scope = useScope;
+        enabled = true;
+      }
     });
   }
 
   Future<void> useSystemKeyboard() async {
-    if (!ready || busy) return;
+    if (!ready || busy || !walletReady) return;
     _purchaseComplete = Completer<void>();
     busy = true;
     final previous = enabled;
@@ -351,6 +537,7 @@ class KeyboardStore extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    unawaited(_walletSubscription?.cancel());
     unawaited(_characterSubscription?.cancel());
     ++_generation;
     room.removeListener(_roomChanged);

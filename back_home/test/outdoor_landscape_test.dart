@@ -36,6 +36,46 @@ void main() {
     daylight: 0,
   );
 
+  test('a rebuilt landscape gets its own native texture buffers', () {
+    List<three.Texture> texturesFor(OutdoorScene landscape) {
+      final textures = <three.Texture>{};
+      landscape.group.traverse((object) {
+        final material = object.material;
+        final map = material?.map;
+        if (map != null) textures.add(map);
+        if (material is three.ShaderMaterial) {
+          for (final uniform in material.uniforms.values) {
+            if (uniform is Map && uniform['value'] is three.DataTexture) {
+              textures.add(uniform['value'] as three.DataTexture);
+            }
+          }
+        }
+      });
+      return textures.toList();
+    }
+
+    for (final environment in [
+      OutdoorEnvironment.island,
+      OutdoorEnvironment.city,
+    ]) {
+      final first = OutdoorScene.build(environment, wallZ: -8)..relight(noon);
+      final firstTextures = texturesFor(first);
+      expect(firstTextures, isNotEmpty);
+      for (final texture in firstTextures) {
+        texture.dispose();
+      }
+      first.dispose();
+
+      final second = OutdoorScene.build(environment, wallZ: -8)..relight(noon);
+      final secondTextures = texturesFor(second);
+      expect(secondTextures, hasLength(firstTextures.length));
+      for (final texture in secondTextures) {
+        expect((texture.image.data as three.Uint8Array).disposed, isFalse);
+      }
+      second.dispose();
+    }
+  });
+
   for (final environment in OutdoorEnvironment.values) {
     test('${environment.name} relights and animates with valid colours', () {
       final scene = OutdoorScene.build(environment, wallZ: -8);

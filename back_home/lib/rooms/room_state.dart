@@ -1,6 +1,9 @@
 import 'dart:collection';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+
+import 'room_placement.dart';
 
 part 'furniture_catalog.dart';
 
@@ -127,12 +130,14 @@ class PlacedRoomItem {
     required this.origin,
     int rotationQuarterTurns = 0,
     double? rotationDegrees,
+    this.elevation = 0,
   }) : rotationDegrees = rotationDegrees ?? rotationQuarterTurns * 90.0;
 
   final String instanceId;
   final String definitionId;
   final GridPoint origin;
   final double rotationDegrees;
+  final double elevation;
 
   int get rotationQuarterTurns => (rotationDegrees / 90).round() % 4;
 
@@ -142,11 +147,13 @@ class PlacedRoomItem {
     GridPoint? origin,
     int? rotationQuarterTurns,
     double? rotationDegrees,
+    double? elevation,
   }) {
     return PlacedRoomItem(
       instanceId: instanceId ?? this.instanceId,
       definitionId: definitionId ?? this.definitionId,
       origin: origin ?? this.origin,
+      elevation: elevation ?? this.elevation,
       rotationDegrees:
           rotationDegrees ??
           (rotationQuarterTurns == null
@@ -284,7 +291,8 @@ class RoomEditorController extends ChangeNotifier {
   }
 
   RoomEditorController.editing(RoomEditorController source)
-    : _catalog = List<RoomItemDefinition>.of(source._catalog),
+    : viewPose = source.viewPose,
+      _catalog = List<RoomItemDefinition>.of(source._catalog),
       _ownedCounts = Map<String, int>.of(source._ownedCounts),
       _placedItems = [
         for (final item in source._placedItems)
@@ -316,8 +324,11 @@ class RoomEditorController extends ChangeNotifier {
   int _nextInstanceId = 7;
   String? _selectedItemId;
 
+  RoomViewPose viewPose = defaultRoomViewPose;
+
   int get likesBalance => _likesBalance;
   Map<String, dynamic> get inventoryRecord => {
+    'placementVersion': 2,
     'owned': Map<String, int>.of(_ownedCounts),
     'nextId': _nextInstanceId,
     'placed': [
@@ -328,6 +339,7 @@ class RoomEditorController extends ChangeNotifier {
           'x': item.origin.x,
           'z': item.origin.z,
           'rotation': item.rotationDegrees,
+          'elevation': item.elevation,
         },
     ],
   };
@@ -356,17 +368,21 @@ class RoomEditorController extends ChangeNotifier {
             (counts[definition] ?? 0)) {
           continue;
         }
-        items.add(
-          PlacedRoomItem(
-            instanceId: item['id'] as String,
-            definitionId: definition,
-            origin: GridPoint(
-              (item['x'] as num).toDouble(),
-              (item['z'] as num).toDouble(),
-            ),
-            rotationDegrees: (item['rotation'] as num).toDouble(),
-          ),
-        );
+        final degrees = (item['rotation'] as num).toDouble();
+        var origin = GridPoint((item['x'] as num).toDouble(), (item['z'] as num).toDouble());
+        if (data['placementVersion'] != 2) {
+          final design = definitionFor(definition);
+          final oldSize = design.footprintForRotation((degrees / 90).round() % 4);
+          origin = GridPoint(origin.x + (oldSize.width - design.width) / 2,
+            origin.z + (oldSize.depth - design.depth) / 2);
+        }
+        items.add(PlacedRoomItem(
+          instanceId: item['id'] as String,
+          definitionId: definition,
+          origin: origin,
+          rotationDegrees: degrees,
+          elevation: (item['elevation'] as num?)?.toDouble() ?? 0,
+        ));
       }
       nextId = data['nextId'] as int;
     }
@@ -438,46 +454,88 @@ class RoomEditorController extends ChangeNotifier {
     return definitionFor(definitionId).footprintForRotation(quarterTurns);
   }
 
-  GridPoint clampOrigin(
-    String definitionId,
-    int quarterTurns,
-    GridPoint origin,
-  ) {
-    final footprint = footprintForDefinition(definitionId, quarterTurns);
-    final clampedX = origin.x.clamp(
-      0.0,
-      roomWidth.toDouble() - footprint.width,
+  static const _wallClearance = .21;
+  static const _ceiling = 4.8;
+
+  GridPoint clampOrigin(String definitionId, int quarterTurns, GridPoint origin, {double? rotationDegrees}) {
+    final box = roomPlacementBox(definitionFor(definitionId), origin, rotationDegrees ?? quarterTurns * 90, 0);
+    return GridPoint(
+      origin.x + box.x.clamp(_wallClearance + box.extentX, roomWidth - _wallClearance - box.extentX) - box.x,
+      origin.z + box.z.clamp(_wallClearance + box.extentZ, roomDepth - _wallClearance - box.extentZ) - box.z,
     );
-    final clampedZ = origin.z.clamp(
-      0.0,
-      roomDepth.toDouble() - footprint.depth,
-    );
-    return GridPoint(clampedX.toDouble(), clampedZ.toDouble());
   }
+
+  RoomPlacementBox placementBox(PlacedRoomItem item) =>
+      roomPlacementBox(definitionFor(item.definitionId), item.origin, item.rotationDegrees, item.elevation);
 
   bool canOccupy({
     required String definitionId,
     required GridPoint origin,
     required int rotationQuarterTurns,
+    double? rotationDegrees,
+    double elevation = 0,
     String? ignoringInstanceId,
   }) {
-    final footprint = footprintForDefinition(
-      definitionId,
-      rotationQuarterTurns,
-    );
-
-    if (origin.x < 0 ||
-        origin.z < 0 ||
-        origin.x + footprint.width > roomWidth ||
-        origin.z + footprint.depth > roomDepth) {
+    final box = roomPlacementBox(definitionFor(definitionId), origin,
+      rotationDegrees ?? rotationQuarterTurns * 90, elevation);
+    const tolerance = .001;
+    if (elevation < 0 || box.bottom < -.025 || box.top > _ceiling + tolerance ||
+        box.x - box.extentX < _wallClearance - tolerance ||
+        box.x + box.extentX > roomWidth - _wallClearance + tolerance ||
+        box.z - box.extentZ < _wallClearance - tolerance ||
+        box.z + box.extentZ > roomDepth - _wallClearance + tolerance) {
       return false;
     }
-
-    return true;
+    return !_placedItems.any((item) =>
+      item.instanceId != ignoringInstanceId && box.overlaps(placementBox(item)));
   }
 
-  GridPoint? findFirstOpenSpot(String definitionId, {int quarterTurns = 0}) {
-    return centerOriginFor(definitionId, quarterTurns: quarterTurns);
+  GridPoint? findFirstOpenSpot(String definitionId, {int quarterTurns = 0, GridPoint? preferredOrigin}) {
+    GridPoint? tryOrigin(GridPoint candidate) {
+      final origin = clampOrigin(definitionId, quarterTurns, candidate);
+      return canOccupy(definitionId: definitionId, origin: origin, rotationQuarterTurns: quarterTurns)
+          ? origin : null;
+    }
+    if (preferredOrigin != null) {
+      final preferred = tryOrigin(preferredOrigin);
+      if (preferred != null) return preferred;
+    }
+    final design = definitionFor(definitionId);
+    final forwardX = math.sin(viewPose.yaw);
+    final forwardZ = -math.cos(viewPose.yaw);
+    GridPoint atDistance(double distance, double lateral) => GridPoint(
+      viewPose.x + roomWidth / 2 + distance * forwardX - lateral * forwardZ - design.width / 2,
+      viewPose.z + roomDepth / 2 + distance * forwardZ + lateral * forwardX - design.depth / 2,
+    );
+    final minimumDistance = math.max(2.4, math.max(design.width, design.depth) * .65 + .9);
+    for (var distance = minimumDistance; distance <= 8; distance += .5) {
+      for (final lateral in [0.0, -.45, .45, -.9, .9, -1.4, 1.4]) {
+        final origin = tryOrigin(atDistance(distance, lateral));
+        if (origin == null) continue;
+        final dx = origin.x + design.width / 2 - roomWidth / 2 - viewPose.x;
+        final dz = origin.z + design.depth / 2 - roomDepth / 2 - viewPose.z;
+        if (dx * forwardX + dz * forwardZ >= minimumDistance - .1 &&
+            (dx * forwardZ - dz * forwardX).abs() <= distance * .48) {
+          return origin;
+        }
+      }
+    }
+    // When the camera faces a nearby wall, find a nearby open spot to frame.
+    final candidates = [
+      for (var z = 0.0; z <= roomDepth; z += .5)
+        for (var x = 0.0; x <= roomWidth; x += .5) GridPoint(x, z),
+    ];
+    final ideal = atDistance(minimumDistance, 0);
+    double distanceToIdeal(GridPoint point) =>
+        (point.x - ideal.x) * (point.x - ideal.x) + (point.z - ideal.z) * (point.z - ideal.z);
+    candidates.sort((a, b) => distanceToIdeal(a).compareTo(distanceToIdeal(b)));
+    for (final candidate in candidates) {
+      final origin = tryOrigin(candidate);
+      if (origin == null) continue;
+      final box = roomPlacementBox(design, origin, quarterTurns * 90, 0);
+      if (!box.blocksEye(viewPose.x, viewPose.y, viewPose.z, .35)) return origin;
+    }
+    return null;
   }
 
   void selectItem(String? instanceId) {
@@ -499,7 +557,6 @@ class RoomEditorController extends ChangeNotifier {
         for (final item in edited._placedItems)
           item.copyWith(origin: item.origin.copyWith()),
       ]);
-    _likesBalance = edited._likesBalance;
     _nextInstanceId = edited._nextInstanceId;
     _selectedItemId = edited._selectedItemId;
     notifyListeners();
@@ -538,35 +595,8 @@ class RoomEditorController extends ChangeNotifier {
     String definitionId, {
     GridPoint? preferredOrigin,
     int rotationQuarterTurns = 0,
-  }) {
-    final definition = definitionFor(definitionId);
-
-    if (availableToPlace(definitionId) <= 0) {
-      return RoomActionResult.failure(
-        'Buy ${definition.title} from the shop first.',
-      );
-    }
-
-    final origin = clampOrigin(
-      definitionId,
-      rotationQuarterTurns,
-      preferredOrigin ?? centerOriginFor(definitionId),
-    );
-    final item = PlacedRoomItem(
-      instanceId: 'item-${_nextInstanceId++}',
-      definitionId: definitionId,
-      origin: origin,
-      rotationQuarterTurns: rotationQuarterTurns,
-    );
-
-    _placedItems.add(item);
-    _selectedItemId = item.instanceId;
-    notifyListeners();
-    return RoomActionResult.success(
-      '${definition.title} ready to place.',
-      instanceId: item.instanceId,
-    );
-  }
+  }) => addOwnedItem(definitionId,
+    preferredOrigin: preferredOrigin, rotationQuarterTurns: rotationQuarterTurns);
 
   bool isPlacedItemValid(String instanceId) {
     final item = placedItemById(instanceId);
@@ -590,6 +620,13 @@ class RoomEditorController extends ChangeNotifier {
     return true;
   }
 
+  /// Records a furniture purchase coordinated by the shop wallet.
+  void addPurchasedItem(String definitionId) {
+    definitionFor(definitionId);
+    _ownedCounts[definitionId] = ownedCount(definitionId) + 1;
+    notifyListeners();
+  }
+
   RoomActionResult purchaseItem(String definitionId) {
     if (shopPurchaseLocked) {
       return RoomActionResult.failure('Another purchase is being saved.');
@@ -602,8 +639,7 @@ class RoomEditorController extends ChangeNotifier {
     }
 
     _likesBalance -= definition.price;
-    _ownedCounts[definitionId] = ownedCount(definitionId) + 1;
-    notifyListeners();
+    addPurchasedItem(definitionId);
     return RoomActionResult.success(
       '${definition.title} added to your inventory.',
     );
@@ -622,19 +658,7 @@ class RoomEditorController extends ChangeNotifier {
       );
     }
 
-    final clampedPreferred = preferredOrigin == null
-        ? null
-        : clampOrigin(definitionId, rotationQuarterTurns, preferredOrigin);
-
-    final origin =
-        clampedPreferred != null &&
-            canOccupy(
-              definitionId: definitionId,
-              origin: clampedPreferred,
-              rotationQuarterTurns: rotationQuarterTurns,
-            )
-        ? clampedPreferred
-        : findFirstOpenSpot(definitionId, quarterTurns: rotationQuarterTurns);
+    final origin = findFirstOpenSpot(definitionId, quarterTurns: rotationQuarterTurns, preferredOrigin: preferredOrigin);
 
     if (origin == null) {
       return RoomActionResult.failure(
@@ -696,7 +720,7 @@ class RoomEditorController extends ChangeNotifier {
     );
   }
 
-  RoomActionResult movePlacedItem(String instanceId, GridPoint origin) {
+  RoomActionResult movePlacedItem(String instanceId, GridPoint origin, {double? elevation}) {
     final itemIndex = _placedItems.indexWhere(
       (item) => item.instanceId == instanceId,
     );
@@ -711,24 +735,30 @@ class RoomEditorController extends ChangeNotifier {
       item.definitionId,
       item.rotationQuarterTurns,
       origin,
+      rotationDegrees: item.rotationDegrees,
     );
 
+    final height = math.max(0.0, elevation ?? item.elevation);
     if (!canOccupy(
       definitionId: item.definitionId,
       origin: clampedOrigin,
       rotationQuarterTurns: item.rotationQuarterTurns,
+      rotationDegrees: item.rotationDegrees,
+      elevation: item.elevation,
+      rotationDegrees: item.rotationDegrees,
+      elevation: height,
       ignoringInstanceId: instanceId,
     )) {
       return const RoomActionResult.failure(
-        'That tile is blocked by another item.',
+        'Furniture must fit without overlapping another item.',
       );
     }
 
-    if (item.origin == clampedOrigin) {
+    if (item.origin == clampedOrigin && item.elevation == height) {
       return const RoomActionResult.success('Furniture stayed in place.');
     }
 
-    _placedItems[itemIndex] = item.copyWith(origin: clampedOrigin);
+    _placedItems[itemIndex] = item.copyWith(origin: clampedOrigin, elevation: height);
     notifyListeners();
     return const RoomActionResult.success('Furniture moved.');
   }
@@ -753,10 +783,15 @@ class RoomEditorController extends ChangeNotifier {
     }
 
     final nextDegrees = (item.rotationDegrees + deltaDegrees) % 360;
-
-    _placedItems[itemIndex] = item.copyWith(
-      rotationDegrees: nextDegrees < 0 ? nextDegrees + 360 : nextDegrees,
-    );
+    if (!canOccupy(
+      definitionId: item.definitionId, origin: item.origin,
+      rotationQuarterTurns: item.rotationQuarterTurns,
+      rotationDegrees: nextDegrees, elevation: item.elevation,
+      ignoringInstanceId: instanceId,
+    )) {
+      return const RoomActionResult.failure('No room to rotate here.');
+    }
+    _placedItems[itemIndex] = item.copyWith(rotationDegrees: nextDegrees);
     notifyListeners();
     return RoomActionResult.success('${definition.title} rotated.');
   }

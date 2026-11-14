@@ -1,20 +1,27 @@
+import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
 import '../rooms/isometric_room_view.dart';
+import '../rooms/furniture_preview.dart';
 import '../rooms/room_gl_gate.dart';
 import '../rooms/room_state.dart';
 
 class RoomEditScreen extends StatefulWidget {
+  static const routeName = '/room/edit';
+
   const RoomEditScreen({
     super.key,
     required this.controller,
     this.initialDefinitionId,
+    this.initiallyShowStorage = false,
   });
 
   final RoomEditorController controller;
   final String? initialDefinitionId;
+  final bool initiallyShowStorage;
 
   @override
   State<RoomEditScreen> createState() => _RoomEditScreenState();
@@ -34,6 +41,9 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
   final List<RoomEditSnapshot> _redoStack = [];
   bool _restoringHistory = false;
   bool _rotationMode = false;
+  Timer? _storedFeedbackTimer;
+  bool _showStoredFeedback = false;
+  int _placementViewRevision = 0;
 
   bool get _canUndo => _undoStack.length > 1;
   bool get _canRedo => _redoStack.isNotEmpty;
@@ -56,21 +66,11 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
     super.initState();
     _draftController = RoomEditorController.editing(widget.controller);
     final initialDefinitionId = widget.initialDefinitionId;
-    if (initialDefinitionId != null) {
-      final result = _draftController.addOwnedItemForEditing(
-        initialDefinitionId,
-        preferredOrigin: _draftController.centerOriginFor(initialDefinitionId),
-      );
-      if (!result.isSuccess) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) {
-            return;
-          }
-          ScaffoldMessenger.of(context)
-            ..hideCurrentSnackBar()
-            ..showSnackBar(SnackBar(content: Text(result.message)));
-        });
-      }
+    if (initialDefinitionId != null) _placeFromStorage(initialDefinitionId);
+    if (widget.initiallyShowStorage) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_openStorage());
+      });
     }
     _undoStack.add(_draftController.createEditSnapshot());
     _draftController.addListener(_handleDraftChanged);
@@ -85,17 +85,28 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
     // torn down, so the screen behind us rebuilds against a clean slate with no
     // second context alive.
     RoomGlGate.release(_glToken);
+    _storedFeedbackTimer?.cancel();
     _draftController.removeListener(_handleDraftChanged);
     _draftController.dispose();
     super.dispose();
   }
 
-  void _cancel() {
-    Navigator.of(context).pop();
-  }
+  Future<void> _showEditError(String message) => showDialog<void>(
+    context: context,
+    useRootNavigator: false,
+    builder: (context) => AlertDialog(
+      title: const Text('Could not edit room'),
+      content: Text(message),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('OK'),
+        ),
+      ],
+    ),
+  );
 
   Future<void> _save() async {
-    final messenger = ScaffoldMessenger.of(context);
     if (!_draftController.hasValidLayout) {
       for (final item in _draftController.placedItems) {
         if (!_draftController.isPlacedItemValid(item.instanceId)) {
@@ -103,17 +114,12 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
           break;
         }
       }
-      messenger
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          const SnackBar(
-            content: Text('Move highlighted furniture to an open spot first.'),
-          ),
-        );
+      await _showEditError('Move highlighted furniture to an open spot first.');
       return;
     }
     final confirmed = await showDialog<bool>(
       context: context,
+      useRootNavigator: false,
       builder: (context) {
         return AlertDialog(
           title: const Text('Save room layout?'),
@@ -136,63 +142,118 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
     }
     widget.controller.applyEditSession(_draftController);
     Navigator.of(context).pop();
-    messenger
-      ..hideCurrentSnackBar()
-      ..showSnackBar(const SnackBar(content: Text('Room layout saved.')));
   }
 
-  void _deleteSelected() {
+  void _storeSelected() {
     final selectedItemId = _draftController.selectedItemId;
-    if (selectedItemId == null) {
+    if (selectedItemId == null) return;
+    final result = _draftController.storePlacedItem(selectedItemId);
+    if (!result.isSuccess) return;
+    _storedFeedbackTimer?.cancel();
+    setState(() => _showStoredFeedback = true);
+    _storedFeedbackTimer = Timer(const Duration(milliseconds: 1000), () {
+      if (mounted) setState(() => _showStoredFeedback = false);
+    });
+  }
+
+  Future<void> _openStorage() async {
+    final items = _draftController.ownedCatalog;
+    final definitionId = await showModalBottomSheet<String>(
+      context: context,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (context) => SizedBox(
+        height: MediaQuery.sizeOf(context).height * .58,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+              child: Text('Storage', style: Theme.of(context).textTheme.titleLarge),
+            ),
+            if (items.isEmpty)
+              const Expanded(child: Center(child: Text('No furniture yet.')))
+            else
+              Expanded(
+                child: ListView.builder(
+                  itemCount: items.length,
+                  itemBuilder: (context, index) {
+                    final item = items[index];
+                    final stored = _draftController.availableToPlace(item.id);
+                    return ListTile(
+                      leading: FurnitureThumbnail(definition: item, size: 44),
+                      title: Text(item.title),
+                      subtitle: Text('In storage: $stored · In room: ${_draftController.placedCount(item.id)}'),
+                      trailing: TextButton(
+                        onPressed: stored > 0 ? () => Navigator.pop(context, item.id) : null,
+                        child: const Text('Place'),
+                      ),
+                    );
+                  },
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || definitionId == null) return;
+    _placeFromStorage(definitionId);
+    setState(() => _placementViewRevision++);
+  }
+
+  void _placeFromStorage(String definitionId) {
+    final result = _draftController.addOwnedItemForEditing(definitionId);
+    if (!result.isSuccess) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_showEditError(result.message));
+      });
       return;
     }
-    _rotationMode = false;
-    _draftController.storePlacedItem(selectedItemId);
+    final item = _draftController.placedItemById(result.instanceId!)!;
+    final bounds = _draftController.placementBox(item);
+    final view = _draftController.viewPose;
+    final x = bounds.x - RoomEditorController.roomWidth / 2;
+    final z = bounds.z - RoomEditorController.roomDepth / 2;
+    final centerY = (bounds.bottom + bounds.top) / 2;
+    final dx = x - view.x;
+    final dz = z - view.z;
+    final distance = math.sqrt(dx * dx + dz * dz);
+
+    // Aim at the model's center so a low piece is visible above the controls.
+    _draftController.viewPose = (
+      x: view.x, y: view.y, z: view.z,
+      yaw: distance > .1 ? math.atan2(dx, -dz) : view.yaw,
+      pitch: ((centerY - view.y) / math.max(distance, .1)).clamp(-1.2, .75).toDouble(),
+    );
   }
 
   void _toggleRotationMode() {
-    if (!_canRotate) {
-      return;
-    }
-    setState(() {
-      _rotationMode = !_rotationMode;
-    });
+    setState(() => _rotationMode = !_rotationMode);
   }
 
   void _rotateSelectedBy(double deltaDegrees) {
     final selectedItemId = _draftController.selectedItemId;
-    if (selectedItemId == null) {
-      return;
-    }
-    final result = _draftController.rotatePlacedItem(
-      selectedItemId,
-      deltaDegrees: deltaDegrees,
-    );
-    if (!result.isSuccess) {
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text(result.message)));
-    }
+    if (!_rotationMode || selectedItemId == null || !_canRotate) return;
+    final result = _draftController.rotatePlacedItem(selectedItemId, deltaDegrees: deltaDegrees);
+    if (!result.isSuccess) _showBlocked(result.message);
   }
 
-  void _moveSelectedBy(double deltaX, double deltaZ) {
-    final selectedItemId = _draftController.selectedItemId;
-    if (selectedItemId == null) {
-      return;
-    }
-    final item = _draftController.placedItemById(selectedItemId);
-    if (item == null) {
-      return;
-    }
+  void _moveSelectedBy(double deltaX, double deltaZ, {double lift = 0}) {
+    if (_rotationMode) return;
+    final item = _draftController.placedItemById(_draftController.selectedItemId ?? '');
+    if (item == null) return;
     final result = _draftController.movePlacedItem(
-      selectedItemId,
+      item.instanceId,
       GridPoint(item.origin.x + deltaX, item.origin.z + deltaZ),
+      elevation: item.elevation + lift,
     );
-    if (!result.isSuccess) {
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text(result.message)));
-    }
+    if (!result.isSuccess) _showBlocked(result.message);
+  }
+
+  void _showBlocked(String message) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message), duration: const Duration(milliseconds: 900)));
   }
 
   void _undo() {
@@ -226,9 +287,6 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
     if (_restoringHistory) {
       return;
     }
-    if (_rotationMode && !_canRotate) {
-      _rotationMode = false;
-    }
 
     final current = _draftController.createEditSnapshot();
     if (!_samePlacedLayout(_undoStack.last, current)) {
@@ -251,7 +309,8 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
       if (left.instanceId != right.instanceId ||
           left.definitionId != right.definitionId ||
           left.origin != right.origin ||
-          left.rotationDegrees != right.rotationDegrees) {
+          left.rotationDegrees != right.rotationDegrees ||
+          left.elevation != right.elevation) {
         return false;
       }
     }
@@ -261,7 +320,6 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
   @override
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
-    final compactToolbar = media.size.width < 560;
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -273,6 +331,7 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
               isActive: true,
               canMoveFurniture: true,
               rotateSelectedWithDrag: _rotationMode,
+              placementViewRevision: _placementViewRevision,
               onRotateSelectedBy: _rotateSelectedBy,
             ),
           ),
@@ -314,95 +373,48 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
                     padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
                     child: Row(
                       children: [
-                        IconButton.filledTonal(
-                          onPressed: _cancel,
-                          icon: const Icon(Icons.close_rounded),
-                        ),
-                        const SizedBox(width: 8),
-                        IconButton.filledTonal(
-                          onPressed: _canUndo ? _undo : null,
-                          icon: const Icon(Icons.undo_rounded),
-                        ),
-                        const SizedBox(width: 8),
-                        IconButton.filledTonal(
-                          onPressed: _canRedo ? _redo : null,
-                          icon: const Icon(Icons.redo_rounded),
-                        ),
-                        const Spacer(),
-                        if (compactToolbar)
-                          IconButton.filledTonal(
-                            onPressed: _canDelete ? _deleteSelected : null,
-                            icon: const Icon(Icons.delete_rounded),
-                          )
-                        else
-                          FilledButton.tonalIcon(
-                            onPressed: _canDelete ? _deleteSelected : null,
-                            icon: const Icon(Icons.delete_rounded),
-                            label: const Text('Delete'),
-                          ),
-                        const SizedBox(width: 8),
-                        if (compactToolbar)
-                          IconButton(
-                            onPressed: _canRotate ? _toggleRotationMode : null,
-                            icon: const Icon(
-                              Icons.rotate_90_degrees_ccw_rounded,
+                        Expanded(
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Badge(
+                              isLabelVisible: _showStoredFeedback,
+                              label: const Text('+1'),
+                              child: _ToolbarIcon(
+                                icon: Icons.inventory_2_outlined,
+                                label: 'Storage',
+                                onPressed: _openStorage,
+                                highlighted: _showStoredFeedback,
+                              ),
                             ),
-                            style:
-                                (_rotationMode
-                                        ? IconButton.styleFrom(
-                                            backgroundColor: Theme.of(
-                                              context,
-                                            ).colorScheme.primary,
-                                            foregroundColor: Theme.of(
-                                              context,
-                                            ).colorScheme.onPrimary,
-                                          )
-                                        : IconButton.styleFrom(
-                                            backgroundColor: Theme.of(
-                                              context,
-                                            ).colorScheme.secondaryContainer,
-                                            foregroundColor: Theme.of(
-                                              context,
-                                            ).colorScheme.onSecondaryContainer,
-                                          ))
-                                    .copyWith(
-                                      padding: const WidgetStatePropertyAll(
-                                        EdgeInsets.all(8),
-                                      ),
-                                    ),
-                          )
-                        else
-                          _rotationMode
-                              ? FilledButton.icon(
-                                  onPressed: _canRotate
-                                      ? _toggleRotationMode
-                                      : null,
-                                  icon: const Icon(
-                                    Icons.rotate_90_degrees_ccw_rounded,
-                                  ),
-                                  label: const Text('Rotate'),
-                                )
-                              : FilledButton.tonalIcon(
-                                  onPressed: _canRotate
-                                      ? _toggleRotationMode
-                                      : null,
-                                  icon: const Icon(
-                                    Icons.rotate_90_degrees_ccw_rounded,
-                                  ),
-                                  label: const Text('Rotate'),
-                                ),
-                        const SizedBox(width: 8),
-                        if (compactToolbar)
-                          IconButton.filled(
-                            onPressed: _save,
-                            icon: const Icon(Icons.check_rounded),
-                          )
-                        else
-                          FilledButton.icon(
-                            onPressed: _save,
-                            icon: const Icon(Icons.check_rounded),
-                            label: const Text('Save'),
                           ),
+                        ),
+                        _ToolbarIcon(
+                          onPressed: _canUndo ? _undo : null,
+                          icon: Icons.undo_rounded,
+                          label: 'Undo',
+                        ),
+                        _ToolbarIcon(
+                          onPressed: _canRedo ? _redo : null,
+                          icon: Icons.redo_rounded,
+                          label: 'Redo',
+                        ),
+                        _ToolbarIcon(
+                          onPressed: _canDelete ? _storeSelected : null,
+                          icon: Icons.delete_rounded,
+                          label: 'Store selected furniture',
+                        ),
+                        _ToolbarIcon(
+                          onPressed: _toggleRotationMode,
+                          icon: _rotationMode ? Icons.rotate_90_degrees_ccw_rounded : Icons.open_with_rounded,
+                          label: _rotationMode ? 'Rotate mode. Switch to move' : 'Move mode. Switch to rotate',
+                          highlighted: _rotationMode,
+                        ),
+                        _ToolbarIcon(
+                          onPressed: _save,
+                          icon: Icons.check_rounded,
+                          label: 'Save',
+                          highlighted: true,
+                        ),
                       ],
                     ),
                   ),
@@ -424,6 +436,8 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
                     onMoveDown: () => _moveSelectedBy(0, _moveNudgeAmount),
                     onMoveLeft: () => _moveSelectedBy(-_moveNudgeAmount, 0),
                     onMoveRight: () => _moveSelectedBy(_moveNudgeAmount, 0),
+                    onRaise: () => _moveSelectedBy(0, 0, lift: _moveNudgeAmount),
+                    onLower: () => _moveSelectedBy(0, 0, lift: -_moveNudgeAmount),
                     onCounterClockwise: () =>
                         _rotateSelectedBy(-_rotationNudgeDegrees),
                     onClockwise: () => _rotateSelectedBy(_rotationNudgeDegrees),
@@ -432,6 +446,40 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _ToolbarIcon extends StatelessWidget {
+  const _ToolbarIcon({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+    this.highlighted = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onPressed;
+  final bool highlighted;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox.square(
+      dimension: 48,
+      child: Center(
+        child: highlighted
+            ? IconButton.filled(
+                tooltip: label,
+                onPressed: onPressed,
+                icon: Icon(icon),
+              )
+            : IconButton.filledTonal(
+                tooltip: label,
+                onPressed: onPressed,
+                icon: Icon(icon),
+              ),
       ),
     );
   }
@@ -447,6 +495,8 @@ class _BottomEditToolbar extends StatelessWidget {
     required this.onMoveRight,
     required this.onCounterClockwise,
     required this.onClockwise,
+    required this.onRaise,
+    required this.onLower,
   });
 
   final bool rotationMode;
@@ -457,6 +507,7 @@ class _BottomEditToolbar extends StatelessWidget {
   final VoidCallback onMoveRight;
   final VoidCallback onCounterClockwise;
   final VoidCallback onClockwise;
+  final VoidCallback onRaise, onLower;
 
   @override
   Widget build(BuildContext context) {
@@ -466,7 +517,7 @@ class _BottomEditToolbar extends StatelessWidget {
         filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: const Color(0xFFF8EFE4).withValues(alpha: 0.9),
+            color: const Color(0xFFF8EFE4).withValues(alpha: 0.66),
             borderRadius: BorderRadius.circular(28),
             border: Border.all(color: Colors.white.withValues(alpha: 0.34)),
           ),
@@ -478,11 +529,13 @@ class _BottomEditToolbar extends StatelessWidget {
                     children: [
                       _EditToolbarButton(
                         icon: Icons.rotate_left_rounded,
+                        label: 'Rotate left',
                         onPressed: canRotate ? onCounterClockwise : null,
                       ),
                       const SizedBox(width: 14),
                       _EditToolbarButton(
                         icon: Icons.rotate_right_rounded,
+                        label: 'Rotate right',
                         onPressed: canRotate ? onClockwise : null,
                       ),
                     ],
@@ -492,6 +545,7 @@ class _BottomEditToolbar extends StatelessWidget {
                     children: [
                       _EditToolbarButton(
                         icon: Icons.keyboard_arrow_left_rounded,
+                        label: 'Move left',
                         onPressed: onMoveLeft,
                       ),
                       const SizedBox(width: 10),
@@ -500,11 +554,13 @@ class _BottomEditToolbar extends StatelessWidget {
                         children: [
                           _EditToolbarButton(
                             icon: Icons.keyboard_arrow_up_rounded,
+                        label: 'Move forward',
                             onPressed: onMoveUp,
                           ),
                           const SizedBox(height: 8),
                           _EditToolbarButton(
                             icon: Icons.keyboard_arrow_down_rounded,
+                        label: 'Move backward',
                             onPressed: onMoveDown,
                           ),
                         ],
@@ -512,7 +568,17 @@ class _BottomEditToolbar extends StatelessWidget {
                       const SizedBox(width: 10),
                       _EditToolbarButton(
                         icon: Icons.keyboard_arrow_right_rounded,
+                        label: 'Move right',
                         onPressed: onMoveRight,
+                      ),
+                      const SizedBox(width: 12),
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _EditToolbarButton(icon: Icons.vertical_align_top, label: 'Raise furniture', onPressed: onRaise),
+                          const SizedBox(height: 8),
+                          _EditToolbarButton(icon: Icons.vertical_align_bottom, label: 'Lower furniture', onPressed: onLower),
+                        ],
                       ),
                     ],
                   ),
@@ -524,17 +590,24 @@ class _BottomEditToolbar extends StatelessWidget {
 }
 
 class _EditToolbarButton extends StatelessWidget {
-  const _EditToolbarButton({required this.icon, required this.onPressed});
+  const _EditToolbarButton({required this.icon, required this.label, required this.onPressed});
 
   final IconData icon;
+  final String label;
   final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
     return IconButton.filledTonal(
+      tooltip: label,
       onPressed: onPressed,
       icon: Icon(icon),
-      style: IconButton.styleFrom(fixedSize: const Size(46, 46), iconSize: 28),
+      style: IconButton.styleFrom(
+        fixedSize: const Size(44, 44),
+        iconSize: 25,
+        backgroundColor: Colors.white.withValues(alpha: .5),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
     );
   }
 }

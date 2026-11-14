@@ -54,6 +54,19 @@ class WeatherSettingsControls extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        ChoiceChip(
+          avatar: const Icon(Icons.my_location_rounded, size: 18),
+          label: const Text('Auto'),
+          selected: weatherAuto,
+          onSelected: (_) => onWeatherAuto(),
+        ),
+        const Padding(
+          padding: EdgeInsets.only(top: 2, bottom: 10),
+          child: Text(
+            'Use your local weather and current time.',
+            style: TextStyle(fontSize: 13),
+          ),
+        ),
         Wrap(
           spacing: 8,
           runSpacing: 4,
@@ -72,12 +85,6 @@ class WeatherSettingsControls extends StatelessWidget {
           spacing: 8,
           runSpacing: 4,
           children: [
-            ChoiceChip(
-              avatar: const Icon(Icons.my_location_rounded, size: 18),
-              label: const Text('Auto'),
-              selected: weatherAuto,
-              onSelected: (_) => onWeatherAuto(),
-            ),
             for (final weather in SkyWeather.values)
               ChoiceChip(
                 label: Text(_weatherLabel(weather)),

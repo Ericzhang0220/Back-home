@@ -637,12 +637,12 @@ double _fbm(double x, double y) {
 /// haze stay as they are, and it fades out with distance.
 class _GroundDetail {
   static const int _size = 512;
-  static three.DataTexture? _texture;
+  static final Uint8List _pixels = _paint();
 
   static three.ShaderMaterial material() {
-    final texture = _texture ??=
+    final texture =
         three.DataTexture(
-            _paint(),
+            three.Uint8Array.fromList(_pixels),
             _size,
             _size,
             three.RGBAFormat,
@@ -655,7 +655,7 @@ class _GroundDetail {
           ..generateMipmaps = true
           ..anisotropy = 8
           ..needsUpdate = true;
-    return three.ShaderMaterial.fromMap({
+    final material = three.ShaderMaterial.fromMap({
       'uniforms': <String, dynamic>{
         'uDetail': <String, dynamic>{'value': texture},
       },
@@ -705,6 +705,8 @@ void main() {
 }
 ''',
     });
+    material.addEventListener('dispose', (_) => texture.dispose());
+    return material;
   }
 
   static double _hash(int x, int y, int seed) {
@@ -729,7 +731,7 @@ void main() {
     return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
   }
 
-  static three.Uint8Array _paint() {
+  static Uint8List _paint() {
     const n = _size;
     final random = math.Random(0x6A55);
     final grass = Float64List(n * n);
@@ -786,14 +788,13 @@ void main() {
         list.fold<double>(0, (sum, value) => sum + value) / list.length;
     final grassShift = 0.5 - mean(grass);
     final stoneShift = 0.5 - mean(stone);
-    final bytes = three.Uint8Array(n * n * 4);
-    final out = bytes.toDartList();
+    final out = Uint8List(n * n * 4);
     for (var i = 0; i < n * n; i += 1) {
       out[i * 4] = ((grass[i] + grassShift).clamp(0.0, 1.0) * 255).round();
       out[i * 4 + 1] = ((stone[i] + stoneShift).clamp(0.0, 1.0) * 255).round();
       out[i * 4 + 2] = 128;
       out[i * 4 + 3] = 255;
     }
-    return bytes;
+    return out;
   }
 }

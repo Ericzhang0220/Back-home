@@ -28,6 +28,62 @@ void main() {
   setUp(() => IsometricRoomView.rendererEnabled = false);
   tearDown(() => IsometricRoomView.rendererEnabled = true);
 
+  testWidgets('long-press owns the room until Weather is dismissed', (
+    tester,
+  ) async {
+    final controller = RoomEditorController();
+    final settings = AppSettingsController();
+    final music = BackgroundMusicController(settingsController: settings);
+    addTearDown(controller.dispose);
+    addTearDown(settings.dispose);
+    addTearDown(music.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: RoomScreen(
+            controller: controller,
+            settingsController: settings,
+            musicController: music,
+            onOpenShop: () {},
+            isActive: true,
+            isChromeVisible: false,
+            isChromeInteractive: false,
+            onRevealChrome: () {},
+            onSubviewChanged: (_) {},
+          ),
+        ),
+      ),
+    );
+    const scenePoint = Offset(400, 80);
+    IsometricRoomView view() =>
+        tester.widget<IsometricRoomView>(find.byType(IsometricRoomView));
+    view().onTapWindow!();
+    await tester.pump();
+
+    final hold = await tester.startGesture(scenePoint);
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(view().gesturesEnabled, isFalse);
+    await hold.up();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Weather').hitTestable(), findsOneWidget);
+    expect(view().outsideView, isTrue);
+
+    await tester.longPressAt(scenePoint);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Weather').hitTestable(), findsOneWidget);
+
+    await tester.tapAt(scenePoint);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Weather').hitTestable(), findsNothing);
+    expect(view().gesturesEnabled, isTrue);
+    expect(view().outsideView, isTrue);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   for (final window in [true, false]) {
     testWidgets(
       'double-tapping after the ${window ? 'window' : 'desk'} shortcut keeps the current view',

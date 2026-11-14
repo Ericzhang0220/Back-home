@@ -10,6 +10,7 @@ import 'custom_keyboard_screen.dart';
 import 'keyboard_editing.dart';
 import 'keyboard_panel.dart';
 import 'keyboard_store.dart';
+import 'keyboard_use_dialog.dart';
 import 'keyboard_thumbnail.dart';
 
 export 'keyboard_thumbnail.dart';
@@ -220,6 +221,7 @@ class _KeyboardPreviewScreenState extends State<KeyboardPreviewScreen> {
   late final KeyboardEditing editing;
   bool _loading = true;
   bool _buying = false;
+  String? _purchaseError;
   @override
   void initState() {
     super.initState();
@@ -248,77 +250,30 @@ class _KeyboardPreviewScreenState extends State<KeyboardPreviewScreen> {
   Future<void> _purchase() async {
     if (_buying) return;
     final store = widget.store;
+    final account = store.accountId;
+    final route = ModalRoute.of(context);
     final owned = store.owned.contains(widget.skin.id);
-    final scope = await showDialog<KeyboardUseScope>(
-      context: context,
-      builder: (context) {
-        var scope = KeyboardUseScope.aiOnly;
-        return StatefulBuilder(
-          builder: (context, update) => AlertDialog(
-            title: Text(owned ? 'Apply keyboard' : 'Buy keyboard'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '${widget.skin.name}\n${owned ? 'Already owned · no extra charge' : '${widget.skin.price} Likes'}',
-                ),
-                const SizedBox(height: 20),
-                const Text('Use this keyboard for'),
-                const SizedBox(height: 10),
-                ChoiceChip(
-                  label: const Text('AI chats only'),
-                  selected: scope == KeyboardUseScope.aiOnly,
-                  onSelected: (_) =>
-                      update(() => scope = KeyboardUseScope.aiOnly),
-                ),
-                const SizedBox(height: 8),
-                ChoiceChip(
-                  label: const Text('All app pages'),
-                  selected: scope == KeyboardUseScope.allPages,
-                  onSelected: (_) =>
-                      update(() => scope = KeyboardUseScope.allPages),
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  'You can change the scope later without paying again.',
-                  style: TextStyle(
-                    fontFamilyFallback: ['ChetCJK'],
-                    fontSize: 12,
-                    color: AppColors.muted,
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(context, scope),
-                child: Text(owned ? 'Apply' : 'Buy & apply'),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-    if (scope == null || !mounted) return;
-    setState(() => _buying = true);
-    final error = await store.buyOrApply(widget.skin, scope);
+    setState(() {
+      _buying = true;
+      _purchaseError = null;
+    });
+    var error = owned ? null : await store.buyOrApply(widget.skin, null);
     if (!mounted) return;
-    setState(() => _buying = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          error ??
-              (scope == KeyboardUseScope.aiOnly
-                  ? 'Applied to AI chats.'
-                  : 'Applied across Chet.'),
-        ),
-      ),
-    );
+    if (error == null &&
+        store.accountId == account &&
+        route?.isCurrent == true) {
+      error = await offerKeyboardUse(
+        context,
+        store,
+        widget.skin,
+        newlyOwned: !owned,
+      );
+    }
+    if (!mounted) return;
+    setState(() {
+      _buying = false;
+      _purchaseError = error;
+    });
   }
 
   @override
@@ -444,6 +399,11 @@ class _KeyboardPreviewScreenState extends State<KeyboardPreviewScreen> {
                                   ),
                                 ),
                               ),
+                              if (_purchaseError case final error?)
+                                Text(
+                                  error,
+                                  style: TextStyle(color: widget.skin.ink),
+                                ),
                             ],
                           ),
                         ),

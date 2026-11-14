@@ -48,10 +48,8 @@ class _FacadeAtlas {
     _Rgb.hex(0xFF4A3D),
   ];
 
-  final three.Uint8Array night = three.Uint8Array(width * height * 4);
-  final three.Uint8Array day = three.Uint8Array(
-    (width ~/ 2) * (height ~/ 2) * 4,
-  );
+  final Uint8List _night = Uint8List(width * height * 4);
+  final Uint8List _day = Uint8List((width ~/ 2) * (height ~/ 2) * 4);
 
   /// Atlas rectangle for a [cols] x [rows] patch of windows in [style].
   (double, double, double, double) patch(
@@ -96,8 +94,8 @@ class _FacadeAtlas {
   );
 
   void _paint() {
-    final nightPixels = night.toDartList().buffer.asUint32List(
-      night.toDartList().offsetInBytes,
+    final nightPixels = _night.buffer.asUint32List(
+      _night.offsetInBytes,
       width * height,
     );
     // Painted at full size, then halved: the day map needs far less detail.
@@ -321,8 +319,8 @@ class _FacadeAtlas {
   void _halveInto(Uint32List source) {
     final halfWidth = width ~/ 2;
     final halfHeight = height ~/ 2;
-    final out = day.toDartList().buffer.asUint32List(
-      day.toDartList().offsetInBytes,
+    final out = _day.buffer.asUint32List(
+      _day.offsetInBytes,
       halfWidth * halfHeight,
     );
     for (var y = 0; y < halfHeight; y += 1) {
@@ -351,9 +349,9 @@ class _FacadeAtlas {
     }
   }
 
-  three.DataTexture _texture(three.Uint8Array data, int w, int h) {
+  three.DataTexture _texture(Uint8List data, int w, int h) {
     return three.DataTexture(
-        data,
+        three.Uint8Array.fromList(data),
         w,
         h,
         three.RGBAFormat,
@@ -368,8 +366,8 @@ class _FacadeAtlas {
       ..needsUpdate = true;
   }
 
-  three.DataTexture dayTexture() => _texture(day, width ~/ 2, height ~/ 2);
-  three.DataTexture nightTexture() => _texture(night, width, height);
+  three.DataTexture dayTexture() => _texture(_day, width ~/ 2, height ~/ 2);
+  three.DataTexture nightTexture() => _texture(_night, width, height);
 }
 
 /// Building faces drawn with the atlas. Sun and sky are baked per vertex like

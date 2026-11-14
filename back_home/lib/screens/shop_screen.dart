@@ -8,9 +8,12 @@ import '../rooms/furniture_preview.dart';
 import '../rooms/room_state.dart';
 import '../rooms/shop_popularity.dart';
 import '../widgets/app_ui.dart';
+import '../widgets/swipe_back_page_route.dart';
 import 'room_edit_screen.dart';
 
 class ShopScreen extends StatefulWidget {
+  static const routeName = '/shop';
+
   const ShopScreen({
     super.key,
     required this.controller,
@@ -31,6 +34,7 @@ class _ShopScreenState extends State<ShopScreen> {
   bool _popularityAvailable = false;
   final _scroll = ScrollController();
   final _sales = ShopPopularity();
+  bool _buying = false;
 
   @override
   void initState() {
@@ -103,11 +107,6 @@ class _ShopScreenState extends State<ShopScreen> {
                                     icon: const Icon(Icons.edit_outlined),
                                     label: const Text('Edit room'),
                                   ),
-                                IconButton.filledTonal(
-                                  tooltip: 'Close shop',
-                                  onPressed: () => Navigator.of(context).pop(),
-                                  icon: const Icon(Icons.close_rounded),
-                                ),
                               ],
                             ),
                             const SizedBox(height: 12),
@@ -185,13 +184,16 @@ class _ShopScreenState extends State<ShopScreen> {
                                     size: 20,
                                   ),
                                   const SizedBox(width: 8),
-                                  Text(
-                                    '${widget.controller.likesBalance} Likes',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w700,
+                                  Expanded(
+                                    child: Text(
+                                      keyboards?.walletReady == false
+                                          ? 'Syncing Likes…'
+                                          : '${widget.controller.likesBalance} Likes',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                      ),
                                     ),
                                   ),
-                                  const Spacer(),
                                   Text(
                                     _showKeyboards
                                         ? 'Balance'
@@ -203,6 +205,18 @@ class _ShopScreenState extends State<ShopScreen> {
                                 ],
                               ),
                             ),
+                            if (keyboards?.walletError != null)
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(keyboards!.walletError!),
+                                  ),
+                                  TextButton(
+                                    onPressed: keyboards.refreshWallet,
+                                    child: const Text('Retry'),
+                                  ),
+                                ],
+                              ),
                             if (!_showKeyboards) ...[
                               const SizedBox(height: 14),
                               Row(
@@ -313,7 +327,8 @@ class _ShopScreenState extends State<ShopScreen> {
                                 canBuy:
                                     widget.controller.likesBalance >=
                                         items[index].price &&
-                                    !widget.controller.shopPurchaseLocked,
+                                    !widget.controller.shopPurchaseLocked &&
+                                    (keyboards?.walletReady ?? true),
                                 onTap: () => _openProduct(items[index]),
                                 onBuy: () => _buy(items[index]),
                               ),
@@ -400,11 +415,30 @@ class _ShopScreenState extends State<ShopScreen> {
     );
   }
 
-  void _buy(RoomItemDefinition item) {
-    final result = widget.controller.purchaseItem(item.id);
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(result.message)));
+  Future<void> _buy(
+    RoomItemDefinition item, {
+    BuildContext? previewContext,
+  }) async {
+    if (_buying) return;
+    _buying = true;
+    try {
+      await _purchaseAndOfferPlacement(item, previewContext ?? context);
+    } finally {
+      _buying = false;
+    }
+  }
+
+  Future<void> _purchaseAndOfferPlacement(
+    RoomItemDefinition item,
+    BuildContext purchaseContext,
+  ) async {
+    final route = ModalRoute.of(purchaseContext);
+    final store = KeyboardStoreScope.maybeOf(context);
+    final account = store?.accountId;
+    final result = store != null && identical(store.room, widget.controller)
+        ? await store.purchaseFurniture(item)
+        : widget.controller.purchaseItem(item.id);
+    if (!mounted) return;
     if (result.isSuccess) {
       unawaited(
         _sales
@@ -415,13 +449,53 @@ class _ShopScreenState extends State<ShopScreen> {
             ),
       );
     }
+    if (!purchaseContext.mounted ||
+        route?.isCurrent != true ||
+        store?.accountId != account) {
+      return;
+    }
+    final placeNow = await showDialog<bool>(
+      context: purchaseContext,
+      useRootNavigator: false,
+      builder: (context) => AlertDialog(
+        title: Text(
+          result.isSuccess ? 'Place in your room?' : 'Could not buy furniture',
+        ),
+        content: Text(result.message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(result.isSuccess ? 'Later' : 'OK'),
+          ),
+          if (result.isSuccess)
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Place now'),
+            ),
+        ],
+      ),
+    );
+    if (placeNow != true ||
+        !mounted ||
+        !purchaseContext.mounted ||
+        route?.isCurrent != true ||
+        store?.accountId != account) {
+      return;
+    }
+    if (purchaseContext == context) {
+      await _openEditor(context, initialDefinitionId: item.id);
+    } else {
+      Navigator.pop(purchaseContext, item.id);
+    }
   }
 
   Future<void> _openEditor(
     BuildContext context, {
     String? initialDefinitionId,
   }) => Navigator.of(context).push<void>(
-    MaterialPageRoute(
+    SwipeBackPageRoute<void>(
+      settings: const RouteSettings(name: RoomEditScreen.routeName),
+      maxDragStartX: 44,
       builder: (_) => RoomEditScreen(
         controller: widget.controller,
         initialDefinitionId: initialDefinitionId,
@@ -432,137 +506,151 @@ class _ShopScreenState extends State<ShopScreen> {
   Future<void> _openProduct(RoomItemDefinition initial) async {
     var selected = initial;
     final related = _items(initial.visualKind);
-    await showModalBottomSheet<void>(
+    ModalRoute<dynamic>? previewRoute;
+    final itemToPlace = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (sheetContext) => StatefulBuilder(
-        builder: (context, updateSheet) => FractionallySizedBox(
-          heightFactor: .9,
-          child: AnimatedBuilder(
-            animation: widget.controller,
-            builder: (context, _) => CustomScrollView(
-              slivers: [
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-                  sliver: SliverToBoxAdapter(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                selected.title,
-                                style: Theme.of(context).textTheme.titleLarge,
+      builder: (sheetContext) {
+        previewRoute = ModalRoute.of(sheetContext);
+        return StatefulBuilder(
+          builder: (context, updateSheet) => FractionallySizedBox(
+            heightFactor: .9,
+            child: AnimatedBuilder(
+              animation: widget.controller,
+              builder: (context, _) => CustomScrollView(
+                slivers: [
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+                    sliver: SliverToBoxAdapter(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  selected.title,
+                                  style: Theme.of(context).textTheme.titleLarge,
+                                ),
                               ),
+                              IconButton(
+                                tooltip: 'Close preview',
+                                onPressed: () => Navigator.pop(sheetContext),
+                                icon: const Icon(Icons.close),
+                              ),
+                            ],
+                          ),
+                          DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: selected.tint,
+                              borderRadius: BorderRadius.circular(24),
                             ),
-                            IconButton(
-                              tooltip: 'Close preview',
-                              onPressed: () => Navigator.pop(sheetContext),
-                              icon: const Icon(Icons.close),
+                            child: FurniturePreviewStage(
+                              definition: selected,
+                              bakeKinds: const [],
+                              height: 240,
                             ),
-                          ],
-                        ),
-                        DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: selected.tint,
-                            borderRadius: BorderRadius.circular(24),
                           ),
-                          child: FurniturePreviewStage(
-                            definition: selected,
-                            bakeKinds: const [],
-                            height: 240,
+                          const SizedBox(height: 12),
+                          Text(selected.description),
+                          const SizedBox(height: 6),
+                          Text(
+                            '${selected.width} × ${selected.depth} floor tiles · Drag to rotate',
+                            style: const TextStyle(
+                              color: AppColors.muted,
+                              fontSize: 12,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 12),
-                        Text(selected.description),
-                        const SizedBox(height: 6),
-                        Text(
-                          '${selected.width} × ${selected.depth} floor tiles · Drag to rotate',
-                          style: const TextStyle(
-                            color: AppColors.muted,
-                            fontSize: 12,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: FilledButton(
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: FilledButton(
+                                  onPressed:
+                                      widget.controller.likesBalance >=
+                                              selected.price &&
+                                          !widget.controller.shopPurchaseLocked
+                                      ? () => _buy(
+                                          selected,
+                                          previewContext: sheetContext,
+                                        )
+                                      : null,
+                                  child: Text('Buy · ${selected.price} Likes'),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              OutlinedButton(
                                 onPressed:
-                                    widget.controller.likesBalance >=
-                                            selected.price &&
-                                        !widget.controller.shopPurchaseLocked
-                                    ? () => _buy(selected)
-                                    : null,
-                                child: Text('Buy · ${selected.price} Likes'),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            OutlinedButton(
-                              onPressed:
-                                  widget.controller.availableToPlace(
+                                    widget.controller.availableToPlace(
+                                          selected.id,
+                                        ) >
+                                        0
+                                    ? () => Navigator.pop(
+                                        sheetContext,
                                         selected.id,
-                                      ) >
-                                      0
-                                  ? () async {
-                                      Navigator.pop(sheetContext);
-                                      await _openEditor(
-                                        this.context,
-                                        initialDefinitionId: selected.id,
-                                      );
-                                    }
-                                  : null,
-                              child: const Text('Place'),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 24),
-                        Text(
-                          'More ${initial.visualKind.label.toLowerCase()}',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '${related.length} styles & finishes',
-                          style: const TextStyle(color: AppColors.muted),
-                        ),
-                      ],
+                                      )
+                                    : null,
+                                child: const Text('Place'),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 24),
+                          Text(
+                            'More ${initial.visualKind.label.toLowerCase()}',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '${related.length} styles & finishes',
+                            style: const TextStyle(color: AppColors.muted),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
-                  sliver: SliverList.builder(
-                    itemCount: related.length,
-                    itemBuilder: (context, index) {
-                      final item = related[index];
-                      return ListTile(
-                        key: ValueKey('related-${item.id}'),
-                        contentPadding: const EdgeInsets.symmetric(vertical: 6),
-                        leading: FurnitureThumbnail(definition: item, size: 64),
-                        title: Text(item.title),
-                        subtitle: Text('${item.price} Likes'),
-                        selected: selected.id == item.id,
-                        onTap: () {
-                          updateSheet(() => selected = item);
-                          Scrollable.of(context).position.animateTo(
-                            0,
-                            duration: const Duration(milliseconds: 250),
-                            curve: Curves.easeOut,
-                          );
-                        },
-                      );
-                    },
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
+                    sliver: SliverList.builder(
+                      itemCount: related.length,
+                      itemBuilder: (context, index) {
+                        final item = related[index];
+                        return ListTile(
+                          key: ValueKey('related-${item.id}'),
+                          contentPadding: const EdgeInsets.symmetric(
+                            vertical: 6,
+                          ),
+                          leading: FurnitureThumbnail(
+                            definition: item,
+                            size: 64,
+                          ),
+                          title: Text(item.title),
+                          subtitle: Text('${item.price} Likes'),
+                          selected: selected.id == item.id,
+                          onTap: () {
+                            updateSheet(() => selected = item);
+                            Scrollable.of(context).position.animateTo(
+                              0,
+                              duration: const Duration(milliseconds: 250),
+                              curve: Curves.easeOut,
+                            );
+                          },
+                        );
+                      },
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
+    if (itemToPlace == null) return;
+    await previewRoute?.completed;
+    if (mounted && ModalRoute.of(context)?.isCurrent == true) {
+      await _openEditor(context, initialDefinitionId: itemToPlace);
+    }
   }
 }
 

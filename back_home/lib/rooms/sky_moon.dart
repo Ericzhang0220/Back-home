@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:three_js/three_js.dart' as three;
 
@@ -24,9 +25,10 @@ class SkyMoon extends three.Group {
           -reach, -reach, reach, reach, -reach, reach,
         ], 2),
       );
+    final texture = _createSurfaceTexture();
     final material = three.ShaderMaterial.fromMap({
       'uniforms': <String, dynamic>{
-        'uMap': <String, dynamic>{'value': _surfaceTexture},
+        'uMap': <String, dynamic>{'value': texture},
         'uTint': <String, dynamic>{'value': _tint},
         'uOpacity': <String, dynamic>{'value': opacity},
       },
@@ -90,6 +92,7 @@ void main() {
 }
 ''',
     });
+    material.addEventListener('dispose', (_) => texture.dispose());
     add(three.Mesh(geometry, material)..frustumCulled = false);
   }
 
@@ -107,11 +110,11 @@ void main() {
   // --- Surface -----------------------------------------------------------------
 
   static const int _mapSize = 256;
-  static three.DataTexture? _sharedTexture;
+  static final Uint8List _pixels = _paintSurface();
 
-  static three.DataTexture get _surfaceTexture => _sharedTexture ??=
+  static three.DataTexture _createSurfaceTexture() =>
       three.DataTexture(
-          _paintSurface(),
+          three.Uint8Array.fromList(_pixels),
           _mapSize,
           _mapSize,
           three.RGBAFormat,
@@ -150,7 +153,7 @@ void main() {
     (0.6, -0.04, 0.016, 0.16, 0.14), // Langrenus side
   ];
 
-  static three.Uint8Array _paintSurface() {
+  static Uint8List _paintSurface() {
     const n = _mapSize;
     final random = math.Random(0x300);
     final albedo = List<double>.filled(n * n, 0);
@@ -264,14 +267,13 @@ void main() {
       crater(cx, cy, radius, strength * 0.6);
     }
 
-    final bytes = three.Uint8Array(n * n * 4);
-    final out = bytes.toDartList();
+    final out = Uint8List(n * n * 4);
     for (var i = 0; i < n * n; i += 1) {
       out[i * 4] = (albedo[i].clamp(0.0, 1.0) * 255).round();
       out[i * 4 + 1] = (height[i].clamp(0.0, 1.0) * 255).round();
       out[i * 4 + 3] = 255;
     }
-    return bytes;
+    return out;
   }
 
   static double _smooth(double a, double b, double x) {

@@ -22,6 +22,49 @@ service cloud.firestore {
       allow create, update: if isOwner(uid);
       allow delete: if false;
 
+      // The shop has one balance per account. Client writes can initialize the
+      // wallet once or debit it with a new receipt in the same transaction.
+      match /shop/wallet {
+        function walletPath() {
+          return /databases/$(database)/documents/users/$(uid)/shop/wallet;
+        }
+        function debitPath(debitId) {
+          return /databases/$(database)/documents/users/$(uid)/shop/wallet/debits/$(debitId);
+        }
+        function validLikes(value) {
+          return value is int && value >= 0 && value <= 9007199254740991;
+        }
+        function validDebitId(value) {
+          return value is string && value.matches('^[a-f0-9]{32}$');
+        }
+
+        allow get: if isOwner(uid);
+        allow create: if isOwner(uid)
+                      && request.resource.data.keys().hasOnly(['likes'])
+                      && validLikes(request.resource.data.likes);
+        allow update: if isOwner(uid)
+                      && request.resource.data.diff(resource.data)
+                           .affectedKeys().hasOnly(['likes', 'lastDebitId'])
+                      && validLikes(request.resource.data.likes)
+                      && request.resource.data.likes < resource.data.likes
+                      && validDebitId(request.resource.data.lastDebitId)
+                      && !exists(debitPath(request.resource.data.lastDebitId))
+                      && getAfter(debitPath(request.resource.data.lastDebitId)).data.cost
+                           == resource.data.likes - request.resource.data.likes;
+
+        match /debits/{debitId} {
+          allow get: if isOwner(uid);
+          allow create: if isOwner(uid)
+                        && validDebitId(debitId)
+                        && request.resource.data.keys().hasOnly(['cost'])
+                        && request.resource.data.cost is int
+                        && request.resource.data.cost > 0
+                        && getAfter(walletPath()).data.lastDebitId == debitId
+                        && get(walletPath()).data.likes - getAfter(walletPath()).data.likes
+                             == request.resource.data.cost;
+        }
+      }
+
       // Private mood journal.
       match /moodEntries/{entryId} {
         allow read, write: if isOwner(uid);

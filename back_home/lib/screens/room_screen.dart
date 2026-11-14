@@ -134,10 +134,9 @@ class _RoomScreenState extends State<RoomScreen> {
     super.dispose();
   }
 
-  void _togglePanel() {
-    setState(() {
-      _panelOpen = !_panelOpen;
-    });
+  void _openPanel() {
+    if (_panelOpen) return;
+    setState(() => _panelOpen = true);
   }
 
   void _closePanel() {
@@ -301,8 +300,8 @@ class _RoomScreenState extends State<RoomScreen> {
       builder: (context, _) {
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onDoubleTap: _handleDoubleTap,
-          onLongPress: _togglePanel,
+          onDoubleTap: _panelOpen ? null : _handleDoubleTap,
+          onLongPress: _openPanel,
           child: Stack(
             children: [
               Positioned.fill(
@@ -322,6 +321,7 @@ class _RoomScreenState extends State<RoomScreen> {
                       controller: widget.controller,
                       isActive: widget.isActive,
                       canMoveFurniture: false,
+                      gesturesEnabled: !_panelOpen,
                       deskFocused: _deskFocused,
                       nightMode: _nightMode,
                       outsideView: _outsideView,
@@ -411,12 +411,6 @@ class _RoomScreenState extends State<RoomScreen> {
                         ),
                       ),
                     ),
-                    // const SizedBox(width: 12),
-                    // _SceneButton(
-                    //   icon: _panelOpen ? Icons.close_rounded : Icons.tune_rounded,
-                    //   onTap: _togglePanel,
-                    //   highlighted: true,
-                    // ),
                   ],
                 ),
               ),

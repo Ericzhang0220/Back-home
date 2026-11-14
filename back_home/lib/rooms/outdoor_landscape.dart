@@ -134,7 +134,7 @@ abstract class OutdoorScene {
   late final _LitMesh _leaves = _LitMesh(
     wrap: 0.4,
     indexed: true,
-    cutout: _LeafAtlas.instance.texture,
+    cutout: _LeafAtlas.instance.createTexture(),
   );
   Float32List? _groundShadow;
   int _groundCols = 0;

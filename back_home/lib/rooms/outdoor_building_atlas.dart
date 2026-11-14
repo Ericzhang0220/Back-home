@@ -25,7 +25,8 @@ class _BuildingAtlas {
     _ => 3.0,
   };
 
-  late final three.DataTexture texture = _build();
+  // The renderer frees native buffers when it closes. Keep only Dart pixels.
+  late final Uint8List _pixels = _paintPixels();
 
   (double, double, double, double) cell(int index) {
     final u = (index % 2) * 0.5;
@@ -33,9 +34,23 @@ class _BuildingAtlas {
     return (u, v, u + 0.5, v + 0.5);
   }
 
-  three.DataTexture _build() {
-    final bytes = three.Uint8Array(_size * _size * 4);
-    final out = bytes.toDartList();
+  three.DataTexture createTexture() =>
+      three.DataTexture(
+          three.Uint8Array.fromList(_pixels),
+          _size,
+          _size,
+          three.RGBAFormat,
+          three.UnsignedByteType,
+        )
+        ..wrapS = three.ClampToEdgeWrapping
+        ..wrapT = three.ClampToEdgeWrapping
+        ..magFilter = three.LinearFilter
+        ..minFilter = three.LinearMipmapLinearFilter
+        ..generateMipmaps = true
+        ..needsUpdate = true;
+
+  Uint8List _paintPixels() {
+    final out = Uint8List(_size * _size * 4);
     final random = math.Random(0xB01D);
     _paint(out, plaster, (x, y) {
       final mottle =
@@ -106,19 +121,7 @@ class _BuildingAtlas {
       final joint = within < 0.05 || within > 0.95 ? 0.5 : 1.0;
       return (0.72 + (_hash(board, 9) - 0.5) * 0.2 + grain * 0.22) * joint;
     });
-    return three.DataTexture(
-        bytes,
-        _size,
-        _size,
-        three.RGBAFormat,
-        three.UnsignedByteType,
-      )
-      ..wrapS = three.ClampToEdgeWrapping
-      ..wrapT = three.ClampToEdgeWrapping
-      ..magFilter = three.LinearFilter
-      ..minFilter = three.LinearMipmapLinearFilter
-      ..generateMipmaps = true
-      ..needsUpdate = true;
+    return out;
   }
 
   void _paint(Uint8List out, int cell, double Function(double x, double y) at) {

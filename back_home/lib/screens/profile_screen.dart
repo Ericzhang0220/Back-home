@@ -82,23 +82,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
             ],
           ),
-          trailing: IconButton(
-            icon: const SettingsGearIcon(),
-            tooltip: 'Profile settings',
-            onPressed: _openSettings,
-          ),
-          children: [
-            if (KeyboardStoreScope.maybeOf(context) case final store?)
-              ListTile(
-                leading: const Icon(Icons.inventory_2_outlined),
-                title: const Text('My inventory'),
-                subtitle: const Text('Your keyboards and furniture'),
-                onTap: () => Navigator.of(context).push(
-                  SwipeBackPageRoute<void>(
-                    builder: (_) => InventoryScreen(store: store),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (KeyboardStoreScope.maybeOf(context) case final store?)
+                IconButton(
+                  icon: const Icon(Icons.inventory_2_outlined),
+                  tooltip: 'My inventory',
+                  onPressed: () => Navigator.of(context).push(
+                    SwipeBackPageRoute<void>(
+                      builder: (_) => InventoryScreen(store: store),
+                    ),
                   ),
                 ),
+              IconButton(
+                icon: const SettingsGearIcon(),
+                tooltip: 'Profile settings',
+                onPressed: _openSettings,
               ),
+            ],
+          ),
+          children: [
             if (currentUser == null)
               _ProfileIdentityHeader(
                 key: const ValueKey('profile-identity-signed-out'),

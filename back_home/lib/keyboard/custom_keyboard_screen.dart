@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../widgets/app_ui.dart';
 import 'custom_keyboard.dart';
-import 'keyboard_catalog.dart';
 import 'keyboard_store.dart';
+import 'keyboard_use_dialog.dart';
 import 'keyboard_thumbnail.dart';
 
 class CustomKeyboardShopCard extends StatelessWidget {
@@ -110,7 +110,6 @@ class _CustomKeyboardScreenState extends State<CustomKeyboardScreen> {
   String? _chosenId;
   String? _error;
   bool _working = false;
-  KeyboardUseScope _scope = KeyboardUseScope.aiOnly;
 
   @override
   void initState() {
@@ -124,7 +123,6 @@ class _CustomKeyboardScreenState extends State<CustomKeyboardScreen> {
         project?.selectedId ??
         (project?.results.length == 1 ? project!.results.first.skin.id : null);
     _style.text = project?.results.lastOrNull?.style ?? '';
-    _scope = widget.store.scope;
   }
 
   @override
@@ -212,19 +210,33 @@ class _CustomKeyboardScreenState extends State<CustomKeyboardScreen> {
       _working = true;
       _error = null;
     });
-    final error = await widget.store.saveCustomKeyboard(
-      _projectId!,
-      _chosenId!,
-      _scope,
+    final store = widget.store;
+    final route = ModalRoute.of(context);
+    final error = await store.saveCustomKeyboard(_projectId!, _chosenId!, null);
+    if (!mounted) return;
+    if (error != null ||
+        store.accountId != _account ||
+        !store.ready ||
+        route?.isCurrent != true) {
+      setState(() {
+        _working = false;
+        _error = error;
+      });
+      return;
+    }
+    final skin = store.projectById(_projectId!)!.selected!.skin;
+    final applyError = await offerKeyboardUse(
+      context,
+      store,
+      skin,
+      newlyOwned: true,
     );
     if (!mounted) return;
     setState(() {
       _working = false;
-      _error = error;
+      _error = applyError;
     });
-    if (error == null &&
-        widget.store.accountId == _account &&
-        widget.store.ready) {
+    if (applyError == null && route?.isCurrent == true) {
       Navigator.of(context).pop();
     }
   }
@@ -415,32 +427,6 @@ class _CustomKeyboardScreenState extends State<CustomKeyboardScreen> {
                           ),
                         ),
                       const SizedBox(height: 8),
-                      const Text('Use this keyboard for'),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        children: [
-                          ChoiceChip(
-                            label: const Text('AI chats only'),
-                            selected: _scope == KeyboardUseScope.aiOnly,
-                            onSelected: locked
-                                ? null
-                                : (_) => setState(
-                                    () => _scope = KeyboardUseScope.aiOnly,
-                                  ),
-                          ),
-                          ChoiceChip(
-                            label: const Text('All app pages'),
-                            selected: _scope == KeyboardUseScope.allPages,
-                            onSelected: locked
-                                ? null
-                                : (_) => setState(
-                                    () => _scope = KeyboardUseScope.allPages,
-                                  ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
                       FilledButton.icon(
                         onPressed: locked || _chosenId == null ? null : _save,
                         icon: const Icon(Icons.save_alt_rounded),

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
@@ -11,12 +12,14 @@ import 'auth/app_auth_controller.dart';
 import 'auth/display_name_dialog.dart';
 import 'audio/background_music_controller.dart';
 import 'rooms/room_state.dart';
+import 'rooms/shop_wallet.dart';
 import 'screens/achievements_screen.dart';
 import 'screens/chat_screen.dart';
 import 'screens/hall_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/profile_screen.dart';
+import 'screens/room_edit_screen.dart';
 import 'screens/room_screen.dart';
 import 'screens/shop_screen.dart';
 import 'settings/app_settings_controller.dart';
@@ -52,7 +55,12 @@ class _BackHomeAppState extends State<BackHomeApp> {
         ? AppAuthController.offline()
         : AppAuthController();
     _shopRoomController = RoomEditorController();
-    _keyboards = KeyboardStore(_shopRoomController);
+    _keyboards = KeyboardStore(
+      _shopRoomController,
+      wallet: _useOfflineAuth
+          ? null
+          : FirestoreShopWallet(FirebaseFirestore.instance),
+    );
     _authController.addListener(_syncKeyboardAccount);
     _syncKeyboardAccount();
     _musicController = BackgroundMusicController(
@@ -236,11 +244,23 @@ class _AppShellState extends State<AppShell> {
   static const _shellPageRoute = '/shell';
   final _pageNavigator = GlobalKey<NavigatorState>();
   bool _showingDetail = false;
+  bool _shopNavigationAllowed = false;
   double _navDragDistance = 0;
-  late final _pageObserver = _ShellNavigationObserver((showingDetail) {
-    if (mounted && _showingDetail != showingDetail) {
-      setState(() => _showingDetail = showingDetail);
+  late final _pageObserver = _ShellNavigationObserver((routeName) {
+    if (!mounted) return;
+    final showingDetail = routeName != _shellPageRoute;
+    final shopNavigationAllowed =
+        routeName == ShopScreen.routeName ||
+        routeName == RoomEditScreen.routeName;
+    if (_showingDetail == showingDetail &&
+        _shopNavigationAllowed == shopNavigationAllowed) {
+      return;
     }
+    setState(() {
+      _showingDetail = showingDetail;
+      _shopNavigationAllowed = shopNavigationAllowed;
+      if (_shopOpen && !shopNavigationAllowed) _navVisible = false;
+    });
   });
   static const List<AppTab> _navigationTabs = [
     AppTab.room,
@@ -278,6 +298,8 @@ class _AppShellState extends State<AppShell> {
   Timer? _navHideTimer;
   bool _navVisible = false;
   bool _shopOpen = false;
+  bool get _canShowNav =>
+      (!_shopOpen || _shopNavigationAllowed) && _currentTab != AppTab.home;
 
   /// Guards the welcome prompt so a skipped name is not asked for again until
   /// the next launch.
@@ -333,7 +355,7 @@ class _AppShellState extends State<AppShell> {
   }
 
   void _revealNav() {
-    if (_shopOpen || _currentTab == AppTab.home) return;
+    if (!_canShowNav) return;
     if (!_navVisible) {
       setState(() => _navVisible = true);
     }
@@ -438,7 +460,8 @@ class _AppShellState extends State<AppShell> {
       _navVisible = false;
     });
     try {
-      final route = MaterialPageRoute<void>(
+      final route = SwipeBackPageRoute<void>(
+        settings: const RouteSettings(name: ShopScreen.routeName),
         builder: (_) => ShopScreen(controller: _roomController),
       );
       await _pageNavigator.currentState!.push(route);
@@ -566,7 +589,7 @@ class _AppShellState extends State<AppShell> {
     final useCompactRoomNav =
         isRoomTab && MediaQuery.orientationOf(context) == Orientation.landscape;
     final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
-    final canShowNav = !_shopOpen && _currentTab != AppTab.home;
+    final canShowNav = _canShowNav;
     final navShown = canShowNav && _navVisible && !keyboardOpen;
     final revealZoneBottom = math.max(
       MediaQuery.paddingOf(context).bottom,
@@ -598,6 +621,7 @@ class _AppShellState extends State<AppShell> {
           canShowNav &&
           !navShown &&
           !keyboardOpen &&
+          !_shopOpen &&
           (!isRoomTab || _showingDetail),
       bottomGap: revealZoneBottom,
       zoneHeight: _navRevealZoneHeight,
@@ -680,16 +704,15 @@ class _AppShellState extends State<AppShell> {
 
 class _ShellNavigationObserver extends NavigatorObserver {
   _ShellNavigationObserver(this.onChanged);
-  final ValueChanged<bool> onChanged;
+  final ValueChanged<String?> onChanged;
   int _revision = 0;
 
   @override
   void didChangeTop(Route<dynamic> topRoute, Route<dynamic>? previousTopRoute) {
     final revision = ++_revision;
-    final showingDetail =
-        topRoute.settings.name != _AppShellState._shellPageRoute;
+    final routeName = topRoute.settings.name;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (revision == _revision) onChanged(showingDetail);
+      if (revision == _revision) onChanged(routeName);
     });
   }
 }

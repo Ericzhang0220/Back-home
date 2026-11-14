@@ -139,6 +139,8 @@ void main() {
       await tester.tap(find.text('Buy · 55 Likes'));
       await tester.pumpAndSettle();
       expect(room.ownedCount('studio-table-0-0'), 1);
+      await tester.tap(find.text('Later'));
+      await tester.pumpAndSettle();
       await tester.drag(
         find.byType(CustomScrollView).last,
         const Offset(0, -400),

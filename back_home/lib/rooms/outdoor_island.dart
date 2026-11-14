@@ -14,7 +14,7 @@ class IslandScene extends OutdoorScene {
   late final _LitMesh _masonry = _LitMesh(
     wrap: 0.15,
     indexed: true,
-    cutout: _BuildingAtlas.instance.texture,
+    cutout: _BuildingAtlas.instance.createTexture(),
   );
 
   @override

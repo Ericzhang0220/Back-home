@@ -2,8 +2,16 @@ import 'package:flutter/material.dart';
 
 /// Allows a right swipe across the page to use the same back action as the OS.
 class SwipeBackPageRoute<T> extends MaterialPageRoute<T> {
-  SwipeBackPageRoute({required WidgetBuilder builder, super.settings})
-    : super(builder: (context) => _SwipeBackPage(child: builder(context)));
+  SwipeBackPageRoute({
+    required WidgetBuilder builder,
+    super.settings,
+    double? maxDragStartX,
+  }) : super(
+         builder: (context) => _SwipeBackPage(
+           maxDragStartX: maxDragStartX,
+           child: builder(context),
+         ),
+       );
 
   // The page-wide recognizer handles edge swipes too, so only one can pop.
   @override
@@ -11,9 +19,10 @@ class SwipeBackPageRoute<T> extends MaterialPageRoute<T> {
 }
 
 class _SwipeBackPage extends StatefulWidget {
-  const _SwipeBackPage({required this.child});
+  const _SwipeBackPage({required this.child, this.maxDragStartX});
 
   final Widget child;
+  final double? maxDragStartX;
 
   @override
   State<_SwipeBackPage> createState() => _SwipeBackPageState();
@@ -27,9 +36,12 @@ class _SwipeBackPageState extends State<_SwipeBackPage> {
   Widget build(BuildContext context) {
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
-      onHorizontalDragStart: (_) {
+      onHorizontalDragStart: (details) {
         _distance = 0;
+        final maxDragStartX = widget.maxDragStartX;
         _enabled =
+            (maxDragStartX == null ||
+                details.localPosition.dx <= maxDragStartX) &&
             ModalRoute.of(context)?.isCurrent == true &&
             Navigator.of(context).canPop();
       },

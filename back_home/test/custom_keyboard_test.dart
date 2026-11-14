@@ -282,6 +282,9 @@ void main() {
       await tester.ensureVisible(find.text('Save selected keyboard'));
       await tester.tap(find.text('Save selected keyboard'));
       await tester.pumpAndSettle();
+      expect(find.text('Use this keyboard now?'), findsOneWidget);
+      await tester.tap(find.text('AI chats only'));
+      await tester.pumpAndSettle();
       expect(store.activeSkin.id, store.projects.single.results[1].skin.id);
       expect(store.projects.single.selectedId, store.activeId);
       expect(room.likesBalance, 178);

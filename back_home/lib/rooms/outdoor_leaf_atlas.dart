@@ -44,7 +44,8 @@ class _LeafAtlas {
       math.pow(math.sin(math.pi * math.pow(i / 64, 0.68)), 0.8).toDouble(),
   ]);
 
-  late final three.DataTexture texture = _build();
+  // The renderer frees native buffers when it closes. Keep only Dart pixels.
+  late final Uint8List _pixels = _paintPixels();
 
   /// The cell's corners in texture coordinates: left, bottom, right, top.
   (double, double, double, double) cell(int index) {
@@ -53,9 +54,23 @@ class _LeafAtlas {
     return (u, v, u + 0.5, v + 1 / 4);
   }
 
-  three.DataTexture _build() {
-    final bytes = three.Uint8Array(_width * _height * 4);
-    final out = bytes.toDartList();
+  three.DataTexture createTexture() =>
+      three.DataTexture(
+          three.Uint8Array.fromList(_pixels),
+          _width,
+          _height,
+          three.RGBAFormat,
+          three.UnsignedByteType,
+        )
+        ..wrapS = three.ClampToEdgeWrapping
+        ..wrapT = three.ClampToEdgeWrapping
+        ..magFilter = three.LinearFilter
+        ..minFilter = three.LinearMipmapLinearFilter
+        ..generateMipmaps = true
+        ..needsUpdate = true;
+
+  Uint8List _paintPixels() {
+    final out = Uint8List(_width * _height * 4);
     // Empty texels keep a mid tone, so filtering leaves no bright or black
     // fringe around the cut-out edge.
     for (var i = 0; i < out.length; i += 4) {
@@ -71,19 +86,7 @@ class _LeafAtlas {
     _paintSpray(out, far, math.Random(0xFA12), count: 4300, leaf: 12);
     _paintBark(out, bark, math.Random(0xBA4C), birch: false);
     _paintBark(out, birchBark, math.Random(0xB14C), birch: true);
-    return three.DataTexture(
-        bytes,
-        _width,
-        _height,
-        three.RGBAFormat,
-        three.UnsignedByteType,
-      )
-      ..wrapS = three.ClampToEdgeWrapping
-      ..wrapT = three.ClampToEdgeWrapping
-      ..magFilter = three.LinearFilter
-      ..minFilter = three.LinearMipmapLinearFilter
-      ..generateMipmaps = true
-      ..needsUpdate = true;
+    return out;
   }
 
   void _paintSpray(

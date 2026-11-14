@@ -133,12 +133,12 @@ class _MirrorWater {
   // --- Waves ---------------------------------------------------------------
 
   static const int _waveSize = 256;
-  static three.Uint8Array? _waveBytes;
+  static final Uint8List _waveBytes = _buildWaves();
 
   /// A tiling field: wave slopes in red and green from many crossing
   /// wavelengths, so no regular pattern shows, and in blue a softer noise that
   /// foam is cut from.
-  static three.Uint8Array _buildWaves() {
+  static Uint8List _buildWaves() {
     final random = math.Random(0x7A7E);
     final table = Float64List(_waveSize);
     for (var i = 0; i < _waveSize; i += 1) {
@@ -201,8 +201,7 @@ class _MirrorWater {
         foamPeak = math.max(foamPeak, foam.abs());
       }
     }
-    final bytes = three.Uint8Array(_waveSize * _waveSize * 4);
-    final out = bytes.toDartList();
+    final out = Uint8List(_waveSize * _waveSize * 4);
     for (var i = 0; i < _waveSize * _waveSize; i += 1) {
       out[i * 4] = ((values[i * 3] / slopePeak * 0.5 + 0.5) * 255).round();
       out[i * 4 + 1] = ((values[i * 3 + 1] / slopePeak * 0.5 + 0.5) * 255)
@@ -211,7 +210,7 @@ class _MirrorWater {
           .round();
       out[i * 4 + 3] = 255;
     }
-    return bytes;
+    return out;
   }
 
   // --- Mesh ----------------------------------------------------------------
@@ -219,7 +218,7 @@ class _MirrorWater {
   three.Mesh createMesh() {
     _waveTexture =
         three.DataTexture(
-            _waveBytes ??= _buildWaves(),
+            three.Uint8Array.fromList(_waveBytes),
             _waveSize,
             _waveSize,
             three.RGBAFormat,

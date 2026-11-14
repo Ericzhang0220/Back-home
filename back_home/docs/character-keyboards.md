@@ -30,9 +30,9 @@ Letters remain real interactive controls rather than a flattened image.
   or a cloud/public marketplace listing. Saving early preserves unused attempts;
   changing the saved favorite from the same purchase is free and replaces its
   previous selection. A separate new purchase creates another keyboard.
-- Purchase, attempts and selections commit with the wallet in the same local
-  record. Failed writes roll back the corresponding change. Closing the screen
-  or restarting the app preserves purchased attempts and generated alternatives.
+- A purchase debits the account wallet before its local inventory is finalized.
+  If confirmation is interrupted, the app uses the saved debit receipt to
+  recover the purchase. Generation attempts and selections are saved locally.
 
 ## Buying and applying
 
@@ -46,11 +46,12 @@ Letters remain real interactive controls rather than a flattened image.
   also offers a persistent switch back to the system keyboard. The keyboard
   toolbar's system-keyboard button switches only the current input session.
 - Password fields remain native so device password/autofill support is retained.
-- Ownership, scope, active skin and the shared Likes wallet are stored together
-  in one local SharedPreferences record per signed-in account. Concurrent shop
-  purchases are locked; a failed purchase save rolls back the debit and grant.
-  This uses the existing local Likes economy, not money, StoreKit, a server-side
-  ledger, or cross-device purchase restoration.
+- The signed-in account's shop balance lives in Firestore at
+  `users/<UID>/shop/wallet` in the integer `likes` field. The first migration
+  uses the device's existing balance if a cloud wallet is absent. A project
+  administrator can edit the field in the Firebase console for testing.
+- Furniture and keyboard purchases debit that same balance. Inventory, scope,
+  and the active keyboard are saved on the device per account.
 
 ## Input
 

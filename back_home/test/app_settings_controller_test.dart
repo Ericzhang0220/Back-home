@@ -88,6 +88,14 @@ void main() {
 
     expect(find.text('Auto'), findsOneWidget);
     expect(find.text('Live'), findsNothing);
+    expect(
+      tester.getTopLeft(find.text('Auto')).dy,
+      lessThan(tester.getTopLeft(find.text('Island')).dy),
+    );
+    expect(
+      tester.getTopLeft(find.text('Auto')).dy,
+      lessThan(tester.getTopLeft(find.text('Clear')).dy),
+    );
   });
 
   test('scenery choice is independent of weather and persists', () async {

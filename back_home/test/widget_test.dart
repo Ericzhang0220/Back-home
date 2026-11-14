@@ -8,13 +8,15 @@ import 'package:back_home/rooms/furniture_preview.dart';
 import 'package:back_home/rooms/isometric_room_view.dart';
 import 'package:back_home/rooms/room_state.dart';
 import 'package:back_home/screens/chat_screen.dart';
+import 'package:back_home/screens/profile_screen.dart';
+import 'package:back_home/screens/room_edit_screen.dart';
 import 'package:back_home/screens/shop_screen.dart';
 import 'package:back_home/theme/app_theme.dart';
 import 'package:back_home/widgets/app_ui.dart';
 import 'package:back_home/widgets/bottom_navigation_reveal.dart';
 
 void main() {
-  testWidgets('shop and keyboard previews never reveal the shell navigation', (
+  testWidgets('shop and editor can reveal navigation while previews hide it', (
     tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(430, 844));
@@ -29,14 +31,38 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
     await tester.tap(find.byIcon(Icons.shopping_bag_rounded));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
     expect(find.byType(ShopScreen), findsOneWidget);
-    expect(find.byType(NavigationBar), findsNothing);
-    await tester.dragFrom(const Offset(195, 794), const Offset(0, -90));
+    expect(find.byType(NavigationBar).hitTestable(), findsNothing);
+    final reveal = tester.widget<BottomNavigationReveal>(
+      find.byType(BottomNavigationReveal),
+    );
+    expect(reveal.enabled, isTrue);
+    final shellRect = tester.getRect(find.byType(BottomNavigationReveal));
+    final swipeStart = Offset(
+      shellRect.center.dx,
+      shellRect.bottom - reveal.bottomGap - 15,
+    );
+    await tester.dragFrom(swipeStart, const Offset(0, -90));
+    await tester.pumpAndSettle();
+    expect(find.byType(NavigationBar).hitTestable(), findsOneWidget);
+    await tester.drag(find.byType(NavigationBar), const Offset(0, 65));
+    await tester.pumpAndSettle();
+    tester
+        .state<ScrollableState>(find.byType(Scrollable).first)
+        .position
+        .jumpTo(0);
     await tester.pump();
+    await tester.tap(find.text('Edit room'));
     await tester.pump(const Duration(milliseconds: 500));
-    expect(find.byType(NavigationBar), findsNothing);
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.byType(RoomEditScreen), findsOneWidget);
+    await tester.dragFrom(const Offset(8, 420), const Offset(180, 0));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.byType(RoomEditScreen), findsNothing);
+    await tester.ensureVisible(find.text('Keyboards'));
+    await tester.pump();
     await tester.tap(find.text('Keyboards'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
@@ -50,7 +76,7 @@ void main() {
     await tester.tapAt(const Offset(180, 350));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
-    await tester.dragFrom(const Offset(195, 794), const Offset(0, -90));
+    await tester.dragFrom(swipeStart, const Offset(0, -90));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
     expect(find.byType(NavigationBar), findsNothing);
@@ -63,18 +89,40 @@ void main() {
       isFalse,
     );
     await tester.binding.handlePopRoute();
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 500));
-    expect(find.byType(NavigationBar), findsNothing);
-    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.byType(NavigationBar).hitTestable(), findsNothing);
+    await tester.dragFrom(const Offset(8, 420), const Offset(180, 0));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
     await tester.pump();
     expect(find.byType(ShopScreen), findsNothing);
-    await tester.dragFrom(const Offset(195, 794), const Offset(0, -90));
+    await tester.dragFrom(swipeStart, const Offset(0, -90));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump();
+    expect(find.byType(NavigationBar).hitTestable(), findsOneWidget);
+    await tester.tapAt(const Offset(200, 400));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tapAt(const Offset(200, 400));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.byIcon(Icons.shopping_bag_rounded));
+    await tester.pumpAndSettle();
+    expect(find.byType(ShopScreen), findsOneWidget);
+    await tester.tap(find.text('Edit room'));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.byType(RoomEditScreen), findsOneWidget);
+    await tester.dragFrom(swipeStart, const Offset(0, -90));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
     expect(find.byType(NavigationBar).hitTestable(), findsOneWidget);
+    await tester.tap(find.widgetWithText(NavigationDestination, 'Profile'));
+    for (var frame = 0; frame < 5; frame++) {
+      await tester.pump(const Duration(milliseconds: 300));
+    }
+    expect(find.byType(ProfileScreen), findsOneWidget);
+    expect(find.byType(ShopScreen), findsNothing);
+    expect(find.byType(RoomEditScreen), findsNothing);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
@@ -151,7 +199,6 @@ void main() {
               key: ValueKey('next-card'),
               color: Colors.blue,
             ),
-            enabled: true,
             onSwiped: (direction) => swipeDirection = direction,
           ),
         ),
@@ -251,8 +298,8 @@ void main() {
       isTrue,
     );
 
-    // 400 ms has elapsed since opening Chat. Chrome starts hiding at 4 seconds.
-    await tester.pump(const Duration(milliseconds: 3599));
+    // 400 ms has elapsed since opening Chat. Its navigation hides at 2.9 seconds.
+    await tester.pump(const Duration(milliseconds: 2499));
     expect(
       tester.widget<ChatScreen>(find.byType(ChatScreen)).navVisible,
       isTrue,
@@ -435,8 +482,6 @@ void main() {
     'a page opened from Room can double tap without changing Room gestures',
     (tester) async {
       await tester.pumpWidget(const BackHomeApp());
-      final size = tester.view.physicalSize / tester.view.devicePixelRatio;
-      final bottom = Offset(size.width / 2, size.height - 50);
       await tester.ensureVisible(find.text('Low'));
       await tester.tap(find.text('Low'));
       await tester.pump();
@@ -664,7 +709,7 @@ void main() {
     expect(find.text('More beds'), findsOneWidget);
   });
 
-  testWidgets('shop buy adds inventory without opening the editor', (
+  testWidgets('shop purchases can be stored or placed in the editor', (
     WidgetTester tester,
   ) async {
     final controller = RoomEditorController();
@@ -681,9 +726,40 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.byType(ShopScreen), findsOneWidget);
+    expect(find.text('Place in your room?'), findsOneWidget);
+    await tester.tap(find.text('Later'));
+    await tester.pumpAndSettle();
     expect(find.text('Save'), findsNothing);
     expect(controller.ownedCount('sunset-bed'), 2);
     expect(controller.availableToPlace('sunset-bed'), 1);
     expect(controller.placedItems.length, initialPlacedCount);
+
+    controller.restoreLikesBalance(238);
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('product-sunset-bed')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.text('Buy · ${controller.definitionFor('sunset-bed').price} Likes'),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Place now'));
+    for (var frame = 0; frame < 8; frame++) {
+      await tester.pump(const Duration(milliseconds: 300));
+    }
+    expect(find.byType(RoomEditScreen), findsOneWidget);
+    final draft = tester
+        .widget<IsometricRoomView>(
+          find.descendant(
+            of: find.byType(RoomEditScreen),
+            matching: find.byType(IsometricRoomView),
+          ),
+        )
+        .controller;
+    expect(
+      draft.placedItemById(draft.selectedItemId!)?.definitionId,
+      'sunset-bed',
+    );
+    expect(controller.placedItems.length, initialPlacedCount);
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 }
