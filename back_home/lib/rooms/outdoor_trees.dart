@@ -112,85 +112,6 @@ extension _TreeKit on OutdoorScene {
     required int detail,
   }) {
     final (x, centerY, z) = center;
-    // The trunk carries on up through the crown as a tapering leader; the
-    // main limbs leave it at staggered heights and curve up and out, and
-    // twigs leave the limbs partway along. Every branch starts inside its
-    // parent at a matching thickness, so the wood reads as one piece.
-    final limbCount = switch (detail) {
-      2 => 6,
-      1 => 4,
-      _ => 0,
-    };
-    final spin = random.nextDouble() * math.pi * 2;
-    final limbs =
-        <
-          (
-            (double, double, double),
-            (double, double, double),
-            (double, double, double),
-            double,
-            double,
-          )
-        >[];
-    if (detail > 0) {
-      final leaderLength = centerY + radius * stretch * 0.45 - fork.$2;
-      final leaderEnd = (
-        x + (random.nextDouble() - 0.5) * radius * 0.2,
-        centerY + radius * stretch * 0.45,
-        z + (random.nextDouble() - 0.5) * radius * 0.2,
-      );
-      final leaderBend = (
-        fork.$1 + rise.$1 * leaderLength * 0.45,
-        fork.$2 + rise.$2 * leaderLength * 0.45,
-        fork.$3 + rise.$3 * leaderLength * 0.45,
-      );
-      final leaderTip = scale * 0.025;
-      _addBranch(
-        fork,
-        leaderBend,
-        leaderEnd,
-        trunkRadius,
-        leaderTip,
-        color: bark,
-        barkCell: barkCell,
-        sides: detail == 2 ? 12 : 8,
-        rings: detail == 2 ? 7 : 4,
-      );
-      for (var k = 0; k < limbCount; k += 1) {
-        final along = 0.06 + 0.6 * k / math.max(1, limbCount - 1);
-        final start = _curvePoint(fork, leaderBend, leaderEnd, along);
-        final parent = trunkRadius + (leaderTip - trunkRadius) * along;
-        final a = spin + k * 2.39996 + (random.nextDouble() - 0.5) * 0.4;
-        final length = radius * (0.62 + random.nextDouble() * 0.2);
-        final lift = length * (0.3 + random.nextDouble() * 0.25) * stretch;
-        final end = (
-          start.$1 + math.cos(a) * length * 0.9,
-          start.$2 + lift,
-          start.$3 + math.sin(a) * length * 0.9,
-        );
-        // Leaves the leader fairly flat, then sweeps upward.
-        final bend = (
-          start.$1 + math.cos(a) * length * 0.5,
-          start.$2 + lift * 0.15,
-          start.$3 + math.sin(a) * length * 0.5,
-        );
-        final r0 = parent * 0.72;
-        final r1 = scale * 0.022;
-        limbs.add((start, bend, end, r0, r1));
-        _addBranch(
-          start,
-          bend,
-          end,
-          r0,
-          r1,
-          color: bark,
-          barkCell: barkCell,
-          sides: detail == 2 ? 8 : 6,
-          rings: detail == 2 ? 6 : 3,
-        );
-      }
-    }
-
     // Farther crowns take fewer, larger cards painted with smaller leaves, so
     // a leaf is the same size on every tree.
     final cells = switch (detail) {
@@ -200,61 +121,64 @@ extension _TreeKit on OutdoorScene {
     };
     final cardHalf = _LeafAtlas.cardHalf(cells.last);
     final coverage = radius / cardHalf;
-    final tips = (coverage * coverage * 2.4).round().clamp(4, 26);
+    final wanted = (coverage * coverage * 2.4).round().clamp(4, 26);
     final spread = radius * (detail == 2 ? 0.34 : 0.42);
-    final sprays = ((spread / cardHalf) * (spread / cardHalf) * 5)
-        .round()
-        .clamp(2, 9);
-    for (var i = 0; i < tips; i += 1) {
-      // Spiral over the crown from just below its waist up to the very top.
-      final t = (i + 0.5) / tips;
-      final rise = -0.42 + t * 1.38;
-      final ring = math.sqrt(math.max(1 - rise * rise, 0.0));
-      final a = i * 2.39996 + spin + (random.nextDouble() - 0.5) * 0.5;
-      final out = radius * ring * (0.72 + random.nextDouble() * 0.26);
-      final tip = (
-        x + math.cos(a) * out,
-        centerY + rise * radius * stretch * (0.8 + random.nextDouble() * 0.2),
-        z + math.sin(a) * out,
-      );
-      if (limbs.isNotEmpty && (detail == 2 || i.isEven)) {
-        // Carried on a twig from the nearest point along a limb.
-        var best = limbs.first;
-        var bestAlong = 1.0;
-        var bestDistance = double.infinity;
-        for (final limb in limbs) {
-          for (final along in const [0.45, 0.65, 0.85, 1.0]) {
-            final p = _curvePoint(limb.$1, limb.$2, limb.$3, along);
-            final dx = p.$1 - tip.$1;
-            final dy = p.$2 - tip.$2;
-            final dz = p.$3 - tip.$3;
-            final d = dx * dx + dy * dy + dz * dz;
-            if (d < bestDistance) {
-              bestDistance = d;
-              best = limb;
-              bestAlong = along;
-            }
-          }
-        }
-        final start = _curvePoint(best.$1, best.$2, best.$3, bestAlong);
-        final parent = best.$4 + (best.$5 - best.$4) * bestAlong;
-        final sag = math.sqrt(bestDistance) * 0.12;
-        _addBranch(
-          start,
-          (
-            (start.$1 + tip.$1) / 2,
-            (start.$2 + tip.$2) / 2 + sag,
-            (start.$3 + tip.$3) / 2,
-          ),
-          tip,
-          math.max(parent * 0.8, scale * 0.014),
-          scale * 0.008,
-          color: bark,
+    final baseSprays = (spread / cardHalf) * (spread / cardHalf) * 5;
+    final spin = random.nextDouble() * math.pi * 2;
+    final tipList = <(double, double, double)>[];
+    if (detail > 0) {
+      // The wood is grown, not placed: the trunk splits into a few scaffold
+      // limbs, each of which forks again and again into thinner branches,
+      // and the leaves hang from the last twigs. Every branch wanders a
+      // little and grows toward its own part of the crown.
+      final levels = detail == 2 ? 3 : 2;
+      final scaffolds = 3 + random.nextInt(2);
+      for (var k = 0; k < scaffolds; k += 1) {
+        final leader = k == 0;
+        _growBranch(
+          random,
+          tipList,
+          from: fork,
+          parentRadius: trunkRadius,
+          startRadius: trunkRadius * (leader ? 0.8 : 0.62),
+          azimuth:
+              spin +
+              k / scaffolds * math.pi * 2 +
+              (random.nextDouble() - 0.5) * 0.5,
+          elevation: leader ? 1.3 : 0.2 + random.nextDouble() * 0.4,
+          reach: leader ? 0.55 : 0.5,
+          level: 0,
+          levels: levels,
+          center: center,
+          radius: radius,
+          stretch: stretch,
+          scale: scale,
+          bark: bark,
           barkCell: barkCell,
-          sides: detail == 2 ? 5 : 4,
-          rings: detail == 2 ? 3 : 2,
+          detail: detail,
         );
       }
+    } else {
+      for (var i = 0; i < wanted; i += 1) {
+        // Spiral over the crown from just below its waist up to the top.
+        final t = (i + 0.5) / wanted;
+        final rise = -0.42 + t * 1.38;
+        final ring = math.sqrt(math.max(1 - rise * rise, 0.0));
+        final a = i * 2.39996 + spin + (random.nextDouble() - 0.5) * 0.5;
+        final out = radius * ring * (0.72 + random.nextDouble() * 0.26);
+        tipList.add((
+          x + math.cos(a) * out,
+          centerY + rise * radius * stretch * (0.8 + random.nextDouble() * 0.2),
+          z + math.sin(a) * out,
+        ));
+      }
+    }
+    final tips = tipList.length;
+    final sprays = (baseSprays * wanted / math.max(1, tips)).round().clamp(
+      2,
+      12,
+    );
+    for (final tip in tipList) {
       for (var c = 0; c < sprays; c += 1) {
         final cx = tip.$1 + (random.nextDouble() - 0.5) * 2 * spread;
         final cy =
@@ -312,8 +236,7 @@ extension _TreeKit on OutdoorScene {
   }
 
   /// A branch as one smooth, tapering tube along a curve from [from] past
-  /// [bend] to [to], wrapped in bark. Its rings turn with the curve, so a
-  /// branch bends rather than kinking from one straight piece to the next.
+  /// [bend] to [to], wrapped in bark.
   void _addBranch(
     (double, double, double) from,
     (double, double, double) bend,
@@ -325,34 +248,221 @@ extension _TreeKit on OutdoorScene {
     required int sides,
     required int rings,
   }) {
+    _addTube(
+      [
+        for (var i = 0; i <= rings; i += 1)
+          _curvePoint(from, bend, to, i / rings),
+      ],
+      [
+        for (var i = 0; i <= rings; i += 1)
+          fromRadius + (toRadius - fromRadius) * math.pow(i / rings, 0.85),
+      ],
+      color: color,
+      barkCell: barkCell,
+      sides: sides,
+    );
+  }
+
+  /// One branch and, recursively, everything that grows from it. It aims at
+  /// a point in its own part of the crown, wanders a little on the way, and
+  /// starts tucked inside its parent so the two read as one piece of wood.
+  /// One child carries on its line; the others split off to either side.
+  void _growBranch(
+    math.Random random,
+    List<(double, double, double)> tips, {
+    required (double, double, double) from,
+    required double parentRadius,
+    required double startRadius,
+    required double azimuth,
+    required double elevation,
+    required double reach,
+    required int level,
+    required int levels,
+    required (double, double, double) center,
+    required double radius,
+    required double stretch,
+    required double scale,
+    required _Rgb bark,
+    required int barkCell,
+    required int detail,
+  }) {
+    final ce = math.cos(elevation);
+    final target = (
+      center.$1 + math.cos(azimuth) * ce * radius * reach,
+      center.$2 + math.sin(elevation) * radius * stretch * reach,
+      center.$3 + math.sin(azimuth) * ce * radius * reach,
+    );
+    var dx = target.$1 - from.$1;
+    var dy = target.$2 - from.$2;
+    var dz = target.$3 - from.$3;
+    final distance = math.sqrt(dx * dx + dy * dy + dz * dz);
+    if (distance < 0.05) {
+      return;
+    }
+    dx /= distance;
+    dy /= distance;
+    dz /= distance;
+    final start = (
+      from.$1 - dx * parentRadius * 0.5,
+      from.$2 - dy * parentRadius * 0.5,
+      from.$3 - dz * parentRadius * 0.5,
+    );
+    // Rises a little more than a straight line would, then settles.
+    final bend = (
+      start.$1 +
+          (target.$1 - start.$1) * 0.45 +
+          (random.nextDouble() - 0.5) * distance * 0.22,
+      start.$2 + (target.$2 - start.$2) * 0.45 + distance * 0.1,
+      start.$3 +
+          (target.$3 - start.$3) * 0.45 +
+          (random.nextDouble() - 0.5) * distance * 0.22,
+    );
+    final count = level == 0 ? 7 : (level == 1 ? 6 : 5);
+    // A gentle S-bend off the straight line, never a zigzag: two sideways
+    // offsets, one bowing the whole branch and one rippling along it.
+    final bow = distance * (0.05 + random.nextDouble() * 0.04);
+    final ripple = distance * 0.03;
+    final (ax, ay, az) = dy.abs() < 0.9 ? (0.0, 1.0, 0.0) : (1.0, 0.0, 0.0);
+    var px = ay * dz - az * dy;
+    var py = az * dx - ax * dz;
+    var pz = ax * dy - ay * dx;
+    final pl = math.sqrt(px * px + py * py + pz * pz) + 1e-9;
+    px /= pl;
+    py /= pl;
+    pz /= pl;
+    final qx = dy * pz - dz * py;
+    final qy = dz * px - dx * pz;
+    final qz = dx * py - dy * px;
+    final turn = random.nextDouble() * math.pi * 2;
+    final turn2 = random.nextDouble() * math.pi * 2;
+    final points = <(double, double, double)>[];
+    for (var i = 0; i <= count; i += 1) {
+      final t = i / count;
+      final p = _curvePoint(start, bend, target, t);
+      final b = math.sin(math.pi * t) * bow;
+      final r = math.sin(2 * math.pi * t) * ripple;
+      final ox =
+          (px * math.cos(turn) + qx * math.sin(turn)) * b +
+          (px * math.cos(turn2) + qx * math.sin(turn2)) * r;
+      final oy =
+          (py * math.cos(turn) + qy * math.sin(turn)) * b +
+          (py * math.cos(turn2) + qy * math.sin(turn2)) * r;
+      final oz =
+          (pz * math.cos(turn) + qz * math.sin(turn)) * b +
+          (pz * math.cos(turn2) + qz * math.sin(turn2)) * r;
+      points.add((p.$1 + ox, p.$2 + oy, p.$3 + oz));
+    }
+    final terminal = level == levels - 1;
+    final endRadius = terminal
+        ? scale * 0.008
+        : math.max(startRadius * 0.55, scale * 0.012);
+    double radiusAt(double t) =>
+        startRadius + (endRadius - startRadius) * math.pow(t, 0.9);
+    _addTube(
+      points,
+      [
+        for (var i = 0; i <= count; i += 1)
+          // A slight swelling where it leaves its parent.
+          radiusAt(i / count) * (i == 0 ? 1.12 : 1),
+      ],
+      color: bark,
+      barkCell: barkCell,
+      sides: switch (level) {
+        0 => detail == 2 ? 10 : 7,
+        1 => detail == 2 ? 7 : 5,
+        _ => 5,
+      },
+    );
+    if (terminal) {
+      tips.add(target);
+      return;
+    }
+    final children = level == 0
+        ? 2 + random.nextInt(2)
+        : 2 + (random.nextDouble() < 0.3 ? 1 : 0);
+    for (var k = 0; k < children; k += 1) {
+      final apical = k == 0;
+      final along = apical ? 1.0 : 0.45 + random.nextDouble() * 0.4;
+      final index = along * count;
+      final i0 = index.floor().clamp(0, count);
+      final i1 = math.min(i0 + 1, count);
+      final f = index - i0;
+      final a = points[i0];
+      final b = points[i1];
+      final at = (
+        a.$1 + (b.$1 - a.$1) * f,
+        a.$2 + (b.$2 - a.$2) * f,
+        a.$3 + (b.$3 - a.$3) * f,
+      );
+      final here = radiusAt(along);
+      final side = k.isOdd ? 1.0 : -1.0;
+      final nextTerminal = level + 1 == levels - 1;
+      _growBranch(
+        random,
+        tips,
+        from: at,
+        parentRadius: here,
+        startRadius: here * (apical ? 0.8 : 0.62),
+        azimuth:
+            azimuth +
+            (apical
+                ? (random.nextDouble() - 0.5) * 0.6
+                : side * (0.45 + random.nextDouble() * 0.5)),
+        elevation: (elevation + (random.nextDouble() - 0.5) * 0.9).clamp(
+          -0.3,
+          1.35,
+        ),
+        reach: nextTerminal
+            ? 0.86 + random.nextDouble() * 0.12
+            : 0.72 + random.nextDouble() * 0.1,
+        level: level + 1,
+        levels: levels,
+        center: center,
+        radius: radius,
+        stretch: stretch,
+        scale: scale,
+        bark: bark,
+        barkCell: barkCell,
+        detail: detail,
+      );
+    }
+  }
+
+  /// A tube through [points] with a radius at each, wrapped in bark. Its
+  /// rings turn smoothly from one point to the next without twisting.
+  void _addTube(
+    List<(double, double, double)> points,
+    List<double> radii, {
+    required _Rgb color,
+    required int barkCell,
+    required int sides,
+  }) {
     final (u0, v0, u1, v1) = _LeafAtlas.instance.cell(barkCell);
     var length = 0.0;
-    var last = from;
-    for (var i = 1; i <= 8; i += 1) {
-      final p = _curvePoint(from, bend, to, i / 8);
-      final dx = p.$1 - last.$1;
-      final dy = p.$2 - last.$2;
-      final dz = p.$3 - last.$3;
+    for (var i = 1; i < points.length; i += 1) {
+      final dx = points[i].$1 - points[i - 1].$1;
+      final dy = points[i].$2 - points[i - 1].$2;
+      final dz = points[i].$3 - points[i - 1].$3;
       length += math.sqrt(dx * dx + dy * dy + dz * dz);
-      last = p;
     }
     if (length < 1e-4) {
       return;
     }
     final vSpan = math.min(length / 2.4, 0.96);
     final tint = color.scale(1.25);
-    // A frame carried along the curve without twisting.
     var nx = 0.0;
     var ny = 0.0;
     var nz = 0.0;
+    var travelled = 0.0;
     final base = _leaves.count;
-    for (var i = 0; i <= rings; i += 1) {
-      final t = i / rings;
-      final c = _curvePoint(from, bend, to, t);
-      // Tangent of the curve at t.
-      var tx = 2 * (1 - t) * (bend.$1 - from.$1) + 2 * t * (to.$1 - bend.$1);
-      var ty = 2 * (1 - t) * (bend.$2 - from.$2) + 2 * t * (to.$2 - bend.$2);
-      var tz = 2 * (1 - t) * (bend.$3 - from.$3) + 2 * t * (to.$3 - bend.$3);
+    final last = points.length - 1;
+    for (var i = 0; i <= last; i += 1) {
+      final c = points[i];
+      final prev = points[math.max(0, i - 1)];
+      final next = points[math.min(last, i + 1)];
+      var tx = next.$1 - prev.$1;
+      var ty = next.$2 - prev.$2;
+      var tz = next.$3 - prev.$3;
       final tl = math.sqrt(tx * tx + ty * ty + tz * tz) + 1e-9;
       tx /= tl;
       ty /= tl;
@@ -363,6 +473,10 @@ extension _TreeKit on OutdoorScene {
         ny = az * tx - ax * tz;
         nz = ax * ty - ay * tx;
       } else {
+        final dx = c.$1 - prev.$1;
+        final dy = c.$2 - prev.$2;
+        final dz = c.$3 - prev.$3;
+        travelled += math.sqrt(dx * dx + dy * dy + dz * dz);
         final along = nx * tx + ny * ty + nz * tz;
         nx -= tx * along;
         ny -= ty * along;
@@ -375,7 +489,8 @@ extension _TreeKit on OutdoorScene {
       final bx = ty * nz - tz * ny;
       final by = tz * nx - tx * nz;
       final bz = tx * ny - ty * nx;
-      final r = fromRadius + (toRadius - fromRadius) * math.pow(t, 0.85);
+      final r = radii[i];
+      final t = travelled / length;
       for (var j = 0; j <= sides; j += 1) {
         final a = j / sides * math.pi * 2;
         final ca = math.cos(a);
@@ -400,7 +515,7 @@ extension _TreeKit on OutdoorScene {
       }
     }
     final stride = sides + 1;
-    for (var i = 0; i < rings; i += 1) {
+    for (var i = 0; i < last; i += 1) {
       for (var j = 0; j < sides; j += 1) {
         final a = base + i * stride + j;
         _leaves.indices!.addAll([

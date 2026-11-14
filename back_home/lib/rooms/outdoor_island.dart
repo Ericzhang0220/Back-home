@@ -1209,57 +1209,415 @@ class IslandScene extends OutdoorScene {
     );
   }
 
+  /// A painted quad on the buildings' atlas. Its picture is laid on in world
+  /// units along a->b and a->d, from a random spot in the cell.
+  void _paintedQuad(
+    (double, double, double) a,
+    (double, double, double) b,
+    (double, double, double) c,
+    (double, double, double) d,
+    (double, double, double) normal,
+    int cell,
+    _Rgb color,
+    math.Random random,
+  ) {
+    final span = _BuildingAtlas.span(cell);
+    final (u0, v0, u1, v1) = _BuildingAtlas.instance.cell(cell);
+    double length((double, double, double) p, (double, double, double) q) {
+      final dx = q.$1 - p.$1;
+      final dy = q.$2 - p.$2;
+      final dz = q.$3 - p.$3;
+      return math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    final wide = math.min(length(a, b) / span, 0.96);
+    final tall = math.min(length(a, d) / span, 0.96);
+    final su = random.nextDouble() * (0.98 - wide);
+    final sv = random.nextDouble() * (0.98 - tall);
+    final base = _masonry.count;
+    for (final (p, fu, fv) in [
+      (a, 0.0, 0.0),
+      (b, 1.0, 0.0),
+      (c, 1.0, 1.0),
+      (d, 0.0, 1.0),
+    ]) {
+      _masonry.vertex(
+        p.$1,
+        p.$2,
+        p.$3,
+        normal.$1,
+        normal.$2,
+        normal.$3,
+        color.scale(1.18),
+        ao: 1,
+      );
+      _masonry._uvs.addAll([
+        u0 + (u1 - u0) * (0.01 + su + fu * wide),
+        v0 + (v1 - v0) * (0.01 + sv + fv * tall),
+      ]);
+    }
+    _masonry.indices!.addAll([
+      base,
+      base + 1,
+      base + 2,
+      base,
+      base + 2,
+      base + 3,
+    ]);
+  }
+
+  /// A round band of stone (or slate) between two heights and radii.
+  void _paintedRing(
+    double x,
+    double z,
+    double y0,
+    double y1,
+    double r0,
+    double r1,
+    int sides,
+    int cell,
+    _Rgb color,
+    math.Random random, {
+    bool inward = false,
+  }) {
+    for (var j = 0; j < sides; j += 1) {
+      final a0 = j / sides * math.pi * 2;
+      final a1 = (j + 1) / sides * math.pi * 2;
+      final am = (a0 + a1) / 2;
+      final slope = (r0 - r1) / math.max(y1 - y0, 0.01);
+      var nx = math.cos(am);
+      var ny = slope;
+      var nz = math.sin(am);
+      final nl = math.sqrt(nx * nx + ny * ny + nz * nz);
+      final sign = inward ? -1.0 : 1.0;
+      nx = nx / nl * sign;
+      ny = ny / nl * sign;
+      nz = nz / nl * sign;
+      _paintedQuad(
+        (x + math.cos(a0) * r0, y0, z + math.sin(a0) * r0),
+        (x + math.cos(a1) * r0, y0, z + math.sin(a1) * r0),
+        (x + math.cos(a1) * r1, y1, z + math.sin(a1) * r1),
+        (x + math.cos(a0) * r1, y1, z + math.sin(a0) * r1),
+        (nx, ny, nz),
+        cell,
+        color.scale(0.94 + random.nextDouble() * 0.1),
+        random,
+      );
+    }
+  }
+
+  /// An old stone watchtower: a battered footing, courses of rubble stone
+  /// tied by projecting bands, a corbelled walkway with battlements, a slate
+  /// cone and a pennant above. Arrow slits and a lit window in stone frames,
+  /// an arched door toward the village, and ivy climbing the wall.
   void _addTower(_LitMesh mesh, {required double u, required double v}) {
+    final random = math.Random(0x70E4);
     final x = _worldX(u);
     final z = _worldZ(v);
     final ground = height(u, v);
-    const stone = _Rgb.hex(0xC9B998);
-    const towerHeight = 7.5;
-    _addPrism(
+    const wall = _Rgb.hex(0xC4B396);
+    const footingStone = _Rgb.hex(0xA3957D);
+    const band = _Rgb.hex(0xD8CAB0);
+    const slate = _Rgb.hex(0x5A636D);
+    const timber = _Rgb.hex(0x6B4A33);
+    const sides = 18;
+    const bottomRadius = 1.55;
+    const topRadius = 1.38;
+    final base = ground - 0.2;
+    final top = base + 7.4;
+    double radiusAt(double y) =>
+        bottomRadius + (topRadius - bottomRadius) * ((y - base) / (top - base));
+
+    // Footing, sloped out at the ground.
+    _paintedRing(
+      x,
+      z,
+      ground - 0.7,
+      ground + 0.75,
+      1.82,
+      1.6,
+      sides,
+      _BuildingAtlas.stone,
+      footingStone,
+      random,
+    );
+    // The wall, in lifts of stone.
+    for (var y = ground + 0.75; y < top - 0.01; y += 1.7) {
+      final y1 = math.min(y + 1.7, top);
+      _paintedRing(
+        x,
+        z,
+        y,
+        y1,
+        radiusAt(y),
+        radiusAt(y1),
+        sides,
+        _BuildingAtlas.stone,
+        wall,
+        random,
+      );
+    }
+    // Projecting string courses.
+    for (final y in [ground + 2.9, ground + 5.3]) {
+      final r = radiusAt(y) + 0.07;
+      _paintedRing(
+        x,
+        z,
+        y,
+        y + 0.16,
+        r,
+        r,
+        sides,
+        _BuildingAtlas.stone,
+        band,
+        random,
+      );
+    }
+    // Corbels carrying the walkway, then its parapet with battlements.
+    for (var j = 0; j < sides; j += 1) {
+      final a = (j + 0.5) / sides * math.pi * 2;
+      _addBox(
+        mesh,
+        x + math.cos(a) * (topRadius + 0.12),
+        top - 0.2,
+        z + math.sin(a) * (topRadius + 0.12),
+        width: 0.2,
+        height: 0.36,
+        depth: 0.26,
+        yaw: -a + math.pi / 2,
+        color: band.scale(0.85),
+      );
+    }
+    const walk = topRadius + 0.3;
+    _paintedRing(
+      x,
+      z,
+      top,
+      top + 0.85,
+      walk,
+      walk,
+      sides,
+      _BuildingAtlas.stone,
+      wall,
+      random,
+    );
+    _paintedRing(
+      x,
+      z,
+      top,
+      top + 0.85,
+      walk - 0.2,
+      walk - 0.2,
+      sides,
+      _BuildingAtlas.stone,
+      wall.scale(0.8),
+      random,
+      inward: true,
+    );
+    // Underside of the overhang, in shadow.
+    _paintedRing(
+      x,
+      z,
+      top - 0.02,
+      top,
+      topRadius,
+      walk,
+      sides,
+      _BuildingAtlas.stone,
+      wall.scale(0.6),
+      random,
+      inward: true,
+    );
+    for (var j = 0; j < sides; j += 2) {
+      final a = (j + 0.5) / sides * math.pi * 2;
+      _addBox(
+        mesh,
+        x + math.cos(a) * (walk - 0.1),
+        top + 1.12,
+        z + math.sin(a) * (walk - 0.1),
+        width: 0.42,
+        height: 0.55,
+        depth: 0.22,
+        yaw: -a + math.pi / 2,
+        color: wall.scale(0.97),
+      );
+    }
+    // Slate cone rising from inside the battlements.
+    const cone = 10;
+    for (var j = 0; j < cone; j += 1) {
+      final a0 = j / cone * math.pi * 2;
+      final a1 = (j + 1) / cone * math.pi * 2;
+      final am = (a0 + a1) / 2;
+      final r = walk - 0.3;
+      final apex = (x, top + 3.0, z);
+      final n = (math.cos(am) * 0.8, 0.6, math.sin(am) * 0.8);
+      _paintedQuad(
+        (x + math.cos(a0) * r, top + 0.55, z + math.sin(a0) * r),
+        (x + math.cos(a1) * r, top + 0.55, z + math.sin(a1) * r),
+        apex,
+        apex,
+        n,
+        _BuildingAtlas.tiles,
+        slate.scale(0.92 + random.nextDouble() * 0.12),
+        random,
+      );
+    }
+    // A pennant on a pole at the very top.
+    _addBox(
       mesh,
       x,
-      ground - 0.4,
+      top + 3.45,
       z,
-      bottomRadius: 1.55,
-      topRadius: 1.35,
-      height: towerHeight,
-      sides: 8,
-      color: stone,
+      width: 0.05,
+      height: 1.0,
+      depth: 0.05,
+      color: const _Rgb.hex(0x2F2D2B),
     );
-    final top = ground - 0.4 + towerHeight;
-    // Crenellations around the top.
-    for (var i = 0; i < 8; i += 1) {
-      if (i.isOdd) {
-        continue;
-      }
-      final a = (i + 0.5) / 8 * math.pi * 2;
+    _addTriangle(mesh, (x, top + 3.9, z), (x, top + 3.6, z), (
+      x + 0.7,
+      top + 3.78,
+      z + 0.05,
+    ), const _Rgb.hex(0xB8322A));
+    _addTriangle(mesh, (x, top + 3.9, z), (x + 0.7, top + 3.78, z + 0.05), (
+      x,
+      top + 3.6,
+      z,
+    ), const _Rgb.hex(0xA02A24));
+
+    // Openings: each a dark recess in a frame of dressed stone.
+    void opening(double a, double y, double w, double h, {bool lit = false}) {
+      final r = radiusAt(y) + 0.02;
+      final px = x + math.cos(a) * r;
+      final pz = z + math.sin(a) * r;
+      final yaw = -a + math.pi / 2;
       _addBox(
         mesh,
-        x + math.cos(a) * 1.3,
-        top + 0.3,
-        z + math.sin(a) * 1.3,
-        width: 0.55,
-        height: 0.6,
-        depth: 0.4,
-        yaw: -a + math.pi / 2,
-        color: stone.scale(0.95),
-      );
-    }
-    // Dark arched openings facing the house.
-    const opening = _Rgb.hex(0x2F2A26);
-    for (final y in [top - 1.4, top - 3.6]) {
-      _addBox(
-        mesh,
-        x,
+        px,
         y,
-        z + 1.36,
-        width: 0.5,
-        height: 1.0,
+        pz,
+        width: w,
+        height: h,
+        depth: 0.1,
+        yaw: yaw,
+        color: const _Rgb.hex(0x29241F),
+        emissive: lit ? _warmWindow : null,
+      );
+      final fx = x + math.cos(a) * (r + 0.04);
+      final fz = z + math.sin(a) * (r + 0.04);
+      final c = math.cos(yaw);
+      final s = math.sin(yaw);
+      for (final side in const [-1.0, 1.0]) {
+        _addBox(
+          mesh,
+          fx + c * side * (w / 2 + 0.07),
+          y,
+          fz - s * side * (w / 2 + 0.07),
+          width: 0.14,
+          height: h + 0.14,
+          depth: 0.1,
+          yaw: yaw,
+          color: band,
+        );
+      }
+      _addBox(
+        mesh,
+        fx,
+        y + h / 2 + 0.08,
+        fz,
+        width: w + 0.34,
+        height: 0.16,
         depth: 0.12,
-        color: opening,
-        emissive: y < top - 2 ? _warmWindow : null,
+        yaw: yaw,
+        color: band,
+      );
+      _addBox(
+        mesh,
+        fx,
+        y - h / 2 - 0.06,
+        fz,
+        width: w + 0.24,
+        height: 0.1,
+        depth: 0.14,
+        yaw: yaw,
+        color: band,
       );
     }
-    _shadows.add(_TreeShadow(x: x, z: z, radius: 1.8, height: 3.2));
+
+    // Toward the house, and toward the path to the village.
+    for (final a in const [1.2, 1.9, 0.4]) {
+      opening(a, ground + 2.0, 0.12, 0.62);
+      opening(a + 0.3, ground + 4.3, 0.12, 0.62);
+    }
+    opening(1.55, ground + 6.3, 0.42, 0.72, lit: true);
+    opening(0.8, ground + 6.3, 0.42, 0.72, lit: true);
+
+    // An arched plank door facing the village path, up a stone step.
+    const doorAngle = 0.45;
+    final dr = bottomRadius + 0.06;
+    final dc = math.cos(-doorAngle + math.pi / 2);
+    final ds = math.sin(-doorAngle + math.pi / 2);
+    final dx = x + math.cos(doorAngle) * dr;
+    final dz = z + math.sin(doorAngle) * dr;
+    final doorBottom = ground + 0.75;
+    _paintedQuad(
+      (dx - dc * 0.42, doorBottom, dz + ds * 0.42),
+      (dx + dc * 0.42, doorBottom, dz - ds * 0.42),
+      (dx + dc * 0.42, doorBottom + 1.35, dz - ds * 0.42),
+      (dx - dc * 0.42, doorBottom + 1.35, dz + ds * 0.42),
+      (math.cos(doorAngle), 0, math.sin(doorAngle)),
+      _BuildingAtlas.wood,
+      timber,
+      random,
+    );
+    // Voussoirs round the arch.
+    for (var k = 0; k <= 6; k += 1) {
+      final t = k / 6 * math.pi;
+      final ox = math.cos(t) * 0.52;
+      final oy = math.sin(t) * 0.4;
+      _addBox(
+        mesh,
+        dx + dc * ox + math.cos(doorAngle) * 0.04,
+        doorBottom + 1.25 + oy,
+        dz - ds * ox + math.sin(doorAngle) * 0.04,
+        width: 0.2,
+        height: 0.18,
+        depth: 0.14,
+        yaw: -doorAngle + math.pi / 2 + t,
+        color: band,
+      );
+    }
+    _addBox(
+      mesh,
+      dx + math.cos(doorAngle) * 0.3,
+      ground + 0.6,
+      dz + math.sin(doorAngle) * 0.3,
+      width: 1.1,
+      height: 0.2,
+      depth: 0.5,
+      yaw: -doorAngle + math.pi / 2,
+      color: footingStone,
+    );
+
+    // Ivy climbing the side toward the house, thinning out as it climbs.
+    for (var i = 0; i < 46; i += 1) {
+      final a = 1.6 + (random.nextDouble() - 0.5) * 2.2;
+      final rise = math.pow(random.nextDouble(), 1.8) * 5.2;
+      final y = ground + 0.4 + rise;
+      final r = radiusAt(y) + 0.1;
+      _addLeafCard(
+        random,
+        x + math.cos(a) * r,
+        y,
+        z + math.sin(a) * r,
+        0.32 + random.nextDouble() * 0.12,
+        const _Rgb.hex(0x3E7A32),
+        center: (x, y, z),
+        reach: r,
+        bottom: ground,
+        top: ground + 6,
+        atlasCell: i.isEven ? _LeafAtlas.denseA : _LeafAtlas.loose,
+      );
+    }
+    _shadows.add(_TreeShadow(x: x, z: z, radius: 1.9, height: 3.4));
   }
 }

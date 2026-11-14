@@ -12,6 +12,8 @@ import 'room_placement.dart';
 import 'room_state.dart';
 import 'sky_dome.dart';
 import 'sky_moon.dart';
+import 'sky_stars.dart';
+import 'sky_sun.dart';
 
 enum _RoomTapTarget { desk, bed, radio, window }
 
@@ -220,7 +222,8 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   // Built once and relit in place; only the sky group rebuilds on refresh.
   OutdoorScene? _landscape;
   OutdoorEnvironment? _landscapeEnvironment;
-  three.Group? _skySun;
+  SkySun? _skySun;
+  SkyStars? _skyStars;
   SkyMoon? _skyMoon;
   final three.Vector3 _moonFacing = three.Vector3();
   _SkyLook? _activeSkyLook;
@@ -1524,6 +1527,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       previous.dispose(); // free the old group's geometries/materials
     }
     _skySun = null;
+    _skyStars = null;
     _skyMoon = null;
     _activeSkyLook = null;
     _skyCloudGroups.clear();
@@ -1590,6 +1594,7 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     if (_skyGroup == null || !widget.isActive) {
       return;
     }
+    _skyStars?.advance(dt);
 
     for (var index = 0; index < _skyCloudGroups.length; index += 1) {
       final cloud = _skyCloudGroups[index];
@@ -1654,31 +1659,48 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     );
 
     if (look.isNight) {
-      // Few stars survive the glow of a city.
-      final starCount = widget.outdoorEnvironment == OutdoorEnvironment.city
-          ? 14
-          : 96;
-      for (final star in seededSkyStars(starCount)) {
-        final sx = backdropCenterX + (star.x - 0.5) * 190 * skyScale;
-        final sy = 2.1 + star.y * 17.5 * skyScale;
-        group.add(
-          _skyDisc(
-            radius: star.radius * skyScale,
-            color: 0xF2F4FA,
-            x: sx,
-            y: sy,
-            z: backdropZ + 0.45,
-            opacity: star.opacity,
-          ),
-        );
+      // Few stars survive the glow of a city; elsewhere a faint band of many
+      // small ones crosses the sky as well.
+      final city = widget.outdoorEnvironment == OutdoorEnvironment.city;
+      final stars = <({double x, double y, double size, double brightness})>[];
+      for (final star in seededSkyStars(city ? 26 : 340)) {
+        // Spread from the horizon well up overhead, thinning as they climb.
+        final y = 2.1 + math.pow(star.y, 1.25) * 44 * skyScale;
+        // Thicker air near the horizon dims them.
+        final clear = ((star.y - 0.02) / 0.25).clamp(0.25, 1.0);
+        stars.add((
+          x: backdropCenterX + (star.x - 0.5) * 190 * skyScale,
+          y: y,
+          size: star.radius * 3.4 * skyScale,
+          brightness: star.opacity * clear * (city ? 0.7 : 1.0),
+        ));
       }
+      if (!city) {
+        final band = math.Random(0x3117);
+        for (var i = 0; i < 520; i += 1) {
+          final along = band.nextDouble();
+          final spread = (band.nextDouble() + band.nextDouble() - 1) * 0.09;
+          final bx = along;
+          final by = 0.05 + along * 0.9 + spread;
+          if (by < 0 || by > 1) {
+            continue;
+          }
+          stars.add((
+            x: backdropCenterX + (bx - 0.5) * 190 * skyScale,
+            y: 2.1 + by * 44 * skyScale,
+            size: (0.12 + band.nextDouble() * 0.1) * skyScale,
+            brightness: 0.3 + band.nextDouble() * 0.4,
+          ));
+        }
+      }
+      _skyStars = SkyStars(stars: stars, opacity: 1)
+        ..position.z = backdropZ + 0.45;
+      group.add(_skyStars!);
     }
 
-    _skySun = _buildCelestialBody(
-      coreColor: look.sun,
-      haloColor: look.sun,
-      coreRadius: 1.25 * skyScale,
-      haloRadius: 3.8 * skyScale,
+    _skySun = SkySun(
+      radius: 1.0 * skyScale,
+      color: look.sun,
       opacity: look.celestialOpacity,
     )..position.z = celestialZ;
     _skyMoon = SkyMoon(
@@ -1753,31 +1775,6 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     return windowCenterX * (z / wallZ);
   }
 
-  three.Group _buildCelestialBody({
-    required int coreColor,
-    required int haloColor,
-    required double coreRadius,
-    required double haloRadius,
-    required double opacity,
-  }) {
-    final body = three.Group();
-    body.add(
-      _skyDisc(radius: haloRadius, color: haloColor, opacity: opacity * 0.14),
-    );
-    body.add(
-      _skyDisc(
-        radius: haloRadius * 0.58,
-        color: haloColor,
-        z: 0.08,
-        opacity: opacity * 0.24,
-      ),
-    );
-    body.add(
-      _skyDisc(radius: coreRadius, color: coreColor, z: 0.16, opacity: opacity),
-    );
-    return body;
-  }
-
   void _positionCelestialBodies(double time) {
     final look = _activeSkyLook;
     final sun = _skySun;
@@ -1800,7 +1797,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     sun
       ..visible = look.celestialOpacity > 0.01 && sunArc.altitude > -0.055
       ..position.x = centerX + sunArc.horizontal * horizontalRadius
-      ..position.y = horizonY + sunArc.altitude * verticalRadius;
+      ..position.y = horizonY + sunArc.altitude * verticalRadius
+      ..setAltitude(sunArc.altitude)
+      ..lookAt(_moonFacing.setValues(1, _eyeHeight, wallZ + 0.6));
 
     final moonArc = skyCelestialArc(time, moon: true);
     moon
@@ -2017,24 +2016,6 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   }) {
     return three.Mesh(
       three.BoxGeometry(width, height, depth),
-      three.MeshBasicMaterial.fromMap({
-        'color': color & 0x00ffffff,
-        if (opacity < 1.0) 'transparent': true,
-        if (opacity < 1.0) 'opacity': opacity,
-      }),
-    )..position.setValues(x, y, z);
-  }
-
-  three.Mesh _skyDisc({
-    required double radius,
-    required int color,
-    double x = 0,
-    double y = 0,
-    double z = 0,
-    double opacity = 1.0,
-  }) {
-    return three.Mesh(
-      three.SphereGeometry(radius, 18, 18),
       three.MeshBasicMaterial.fromMap({
         'color': color & 0x00ffffff,
         if (opacity < 1.0) 'transparent': true,
