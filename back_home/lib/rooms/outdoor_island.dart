@@ -226,10 +226,102 @@ class IslandScene extends OutdoorScene {
     return false;
   }
 
-  static const _structureFootprints = [
-    (u: 9.0, v: 15.5, r: 4.2),
+  static const _houses = [
+    (
+      u: 9.0,
+      v: 15.5,
+      yaw: -0.35,
+      width: 3.6,
+      depth: 2.6,
+      storeys: 1,
+      wall: _Rgb.hex(0xF4EEE2),
+      roof: _Rgb.hex(0xD8642A),
+      fence: true,
+    ),
+    (
+      u: -7.0,
+      v: 13.0,
+      yaw: 0.5,
+      width: 3.0,
+      depth: 2.3,
+      storeys: 1,
+      wall: _Rgb.hex(0xF0DDB0),
+      roof: _Rgb.hex(0xC0532C),
+      fence: false,
+    ),
+    (
+      u: -12.0,
+      v: 13.0,
+      yaw: 0.7,
+      width: 3.0,
+      depth: 2.4,
+      storeys: 2,
+      wall: _Rgb.hex(0xF3E6C4),
+      roof: _Rgb.hex(0x5E6872),
+      fence: false,
+    ),
+    (
+      u: 0.0,
+      v: 25.5,
+      yaw: 0.4,
+      width: 3.2,
+      depth: 2.4,
+      storeys: 1,
+      wall: _Rgb.hex(0xEFCDBF),
+      roof: _Rgb.hex(0xD8642A),
+      fence: true,
+    ),
+    (
+      u: 8.0,
+      v: 27.0,
+      yaw: -0.4,
+      width: 3.4,
+      depth: 2.5,
+      storeys: 1,
+      wall: _Rgb.hex(0xDCE6DC),
+      roof: _Rgb.hex(0xA8432C),
+      fence: false,
+    ),
+    (
+      u: -4.5,
+      v: 29.0,
+      yaw: 0.3,
+      width: 3.2,
+      depth: 2.5,
+      storeys: 2,
+      wall: _Rgb.hex(0xF4EEE2),
+      roof: _Rgb.hex(0x7A6455),
+      fence: false,
+    ),
+    (
+      u: 16.0,
+      v: 13.5,
+      yaw: -0.6,
+      width: 3.0,
+      depth: 2.4,
+      storeys: 1,
+      wall: _Rgb.hex(0xF0D49A),
+      roof: _Rgb.hex(0xD06A30),
+      fence: false,
+    ),
+    (
+      u: -10.0,
+      v: 18.0,
+      yaw: 0.6,
+      width: 3.2,
+      depth: 2.5,
+      storeys: 2,
+      wall: _Rgb.hex(0xEDEAE4),
+      roof: _Rgb.hex(0x56616B),
+      fence: false,
+    ),
+  ];
+
+  static final _structureFootprints = [
+    for (final house in _houses)
+      (u: house.u, v: house.v, r: math.max(house.width, house.depth) / 2 + 1.9),
     (u: -7.5, v: 23.0, r: 3.4),
-    (u: -17.0, v: 31.0, r: 3.2),
+    (u: 1.6, v: 21.6, r: 1.8),
   ];
 
   void _buildTrees(_LitMesh foliage, _LitMesh solids) {
@@ -356,10 +448,34 @@ class IslandScene extends OutdoorScene {
   }
 
   void _buildStructures(_LitMesh solids) {
-    // Cottage: white walls under a terracotta roof, beside the path.
-    _addCottage(solids, u: 9.0, v: 15.5, yaw: -0.35, width: 3.6, depth: 2.6);
-    _addCottage(solids, u: -17.0, v: 31.0, yaw: 0.5, width: 3.0, depth: 2.4);
+    // A little village strung along the path: cottages in lime-wash and
+    // pastel plaster under clay or slate roofs, a well on a small square,
+    // and lanterns lighting the way after dark.
+    for (final house in _houses) {
+      _addCottage(
+        solids,
+        u: house.u,
+        v: house.v,
+        yaw: house.yaw,
+        width: house.width,
+        depth: house.depth,
+        storeys: house.storeys,
+        wallColor: house.wall,
+        roofColor: house.roof,
+        fence: house.fence,
+      );
+    }
     _addTower(solids, u: -7.5, v: 23.0);
+    _addWell(solids, u: 1.6, v: 21.6);
+    for (final (v, side) in const [
+      (11.0, 1.0),
+      (15.5, -1.0),
+      (20.0, 1.0),
+      (24.5, -1.0),
+      (29.0, 1.0),
+    ]) {
+      _addLantern(solids, u: _pathU(v) + side * 1.7, v: v);
+    }
 
     // Low dry-stone walls bordering the meadow and the path.
     final random = math.Random(0x5701);
@@ -415,15 +531,32 @@ class IslandScene extends OutdoorScene {
     required double yaw,
     required double width,
     required double depth,
+    int storeys = 1,
+    _Rgb wallColor = const _Rgb.hex(0xF4EEE2),
+    _Rgb roofColor = const _Rgb.hex(0xD8642A),
+    bool fence = false,
   }) {
     final random = math.Random((u * 31 + v * 7).round());
     final x = _worldX(u);
     final z = _worldZ(v);
-    final ground = height(u, v);
+    // The floor sits at the highest corner; the footing reaches down to the
+    // lowest, so a house on a slope never floats.
+    var ground = height(u, v);
+    var lowest = ground;
+    for (final (du, dv) in [
+      (width / 2, depth / 2),
+      (-width / 2, depth / 2),
+      (width / 2, -depth / 2),
+      (-width / 2, -depth / 2),
+    ]) {
+      final cu = u + du * math.cos(yaw) + dv * math.sin(yaw);
+      final cv = v + du * math.sin(yaw) - dv * math.cos(yaw);
+      final h = height(cu, cv);
+      ground = math.max(ground, h);
+      lowest = math.min(lowest, h);
+    }
     final painted = _masonry;
-    const wallHeight = 2.0;
-    const wallColor = _Rgb.hex(0xF4EEE2);
-    const roofColor = _Rgb.hex(0xD8642A);
+    final wallHeight = storeys == 2 ? 3.35 : 2.0;
     const stoneColor = _Rgb.hex(0xC2B49C);
     const timber = _Rgb.hex(0x7A5636);
     const trim = _Rgb.hex(0xF7F3EA);
@@ -519,12 +652,14 @@ class IslandScene extends OutdoorScene {
 
     // Stone footing, then the walls standing on it.
     const footing = 0.45;
+    final footingLow = lowest - 0.3;
+    final footingTop = ground + footing + 0.05;
     box(
       0,
-      ground - 0.35 + footing / 2 + 0.17,
+      (footingLow + footingTop) / 2,
       0,
       width + 0.12,
-      footing + 0.7,
+      footingTop - footingLow,
       depth + 0.12,
       _BuildingAtlas.stone,
       stoneColor,
@@ -788,12 +923,18 @@ class IslandScene extends OutdoorScene {
       }
     }
 
-    final windowY = ground + 1.25;
-    window(-width * 0.29, windowY, depth / 2, 1);
-    window(width * 0.29, windowY, depth / 2, 1);
-    window(0, windowY, -depth / 2, -1);
-    window(width / 2, windowY, 0, 2);
-    window(-width / 2, windowY, 0, -2);
+    for (var storey = 0; storey < storeys; storey += 1) {
+      final windowY = ground + 1.25 + storey * 1.35;
+      final front = storey == 0
+          ? [-width * 0.29, width * 0.29]
+          : [-width * 0.3, 0.0, width * 0.3];
+      for (final lx in front) {
+        window(lx, windowY, depth / 2, 1);
+      }
+      window(0, windowY, -depth / 2, -1);
+      window(width / 2, windowY, 0, 2);
+      window(-width / 2, windowY, 0, -2);
+    }
 
     // Plank door in a frame, a stone step, and a little hood above it.
     face(
@@ -881,6 +1022,47 @@ class IslandScene extends OutdoorScene {
       stoneColor.scale(0.8),
     );
 
+    if (fence) {
+      // A white picket fence across the front garden, open at the gate.
+      final reach = depth / 2 + 1.5;
+      for (var lx = -width / 2 - 0.3; lx <= width / 2 + 0.3; lx += 0.2) {
+        if (lx.abs() < 0.45) {
+          continue;
+        }
+        final p = local(lx, 0, reach);
+        final foot = height(p.$1 - 1, _wallZ - p.$3);
+        _addBox(
+          mesh,
+          p.$1,
+          foot + 0.28,
+          p.$3,
+          width: 0.07,
+          height: 0.62,
+          depth: 0.05,
+          yaw: yaw,
+          color: trim,
+        );
+      }
+      for (final side in const [-1.0, 1.0]) {
+        final mid = side * (width / 4 + 0.32);
+        final p = local(mid, 0, reach - 0.04);
+        final foot = height(p.$1 - 1, _wallZ - p.$3);
+        for (final rail in const [0.18, 0.42]) {
+          _addBox(
+            mesh,
+            p.$1,
+            foot + rail,
+            p.$3,
+            width: width / 2 - 0.05,
+            height: 0.05,
+            depth: 0.03,
+            yaw: yaw,
+            color: trim.scale(0.92),
+          );
+        }
+      }
+    }
+
     // Shrubs growing against the walls.
     for (var i = 0; i < 5; i += 1) {
       final along = (random.nextDouble() - 0.5) * width;
@@ -899,6 +1081,132 @@ class IslandScene extends OutdoorScene {
         const _Rgb.hex(0x5E9A3C),
       );
     }
+  }
+
+  /// A round stone well under a little tiled roof on two posts.
+  void _addWell(_LitMesh mesh, {required double u, required double v}) {
+    final x = _worldX(u);
+    final z = _worldZ(v);
+    final ground = height(u, v);
+    const stone = _Rgb.hex(0xB7AA92);
+    const timber = _Rgb.hex(0x7A5636);
+    _addPrism(
+      mesh,
+      x,
+      ground - 0.3,
+      z,
+      bottomRadius: 0.62,
+      topRadius: 0.6,
+      height: 1.05,
+      sides: 12,
+      color: stone,
+    );
+    _addPrism(
+      mesh,
+      x,
+      ground + 0.72,
+      z,
+      bottomRadius: 0.66,
+      topRadius: 0.66,
+      height: 0.08,
+      sides: 12,
+      color: stone.scale(0.9),
+    );
+    _addPrism(
+      mesh,
+      x,
+      ground + 0.7,
+      z,
+      bottomRadius: 0.48,
+      topRadius: 0.48,
+      height: 0.05,
+      sides: 12,
+      color: const _Rgb.hex(0x24343E),
+    );
+    for (final side in const [-1.0, 1.0]) {
+      _addBox(
+        mesh,
+        x + side * 0.55,
+        ground + 1.25,
+        z,
+        width: 0.1,
+        height: 1.3,
+        depth: 0.1,
+        color: timber,
+      );
+    }
+    _addBox(
+      mesh,
+      x,
+      ground + 1.75,
+      z,
+      width: 1.25,
+      height: 0.08,
+      depth: 0.08,
+      color: timber,
+    );
+    // Roof: two sloped planes and the bucket hanging under it.
+    const roof = _Rgb.hex(0xC85F2E);
+    for (final side in const [-1.0, 1.0]) {
+      _addQuad(
+        mesh,
+        (x - 0.8, ground + 2.15, z),
+        (x + 0.8, ground + 2.15, z),
+        (x + 0.8, ground + 1.72, z + side * 0.62),
+        (x - 0.8, ground + 1.72, z + side * 0.62),
+        side > 0 ? roof : roof.scale(0.9),
+        doubleSided: true,
+      );
+    }
+    _addBox(
+      mesh,
+      x + 0.1,
+      ground + 1.35,
+      z,
+      width: 0.18,
+      height: 0.2,
+      depth: 0.18,
+      color: const _Rgb.hex(0x6B4A33),
+    );
+  }
+
+  /// A lantern post along the path, alight at night.
+  void _addLantern(_LitMesh mesh, {required double u, required double v}) {
+    final x = _worldX(u);
+    final z = _worldZ(v);
+    final ground = height(u, v);
+    const iron = _Rgb.hex(0x2F2D2B);
+    _addBox(
+      mesh,
+      x,
+      ground + 0.75,
+      z,
+      width: 0.08,
+      height: 1.6,
+      depth: 0.08,
+      color: iron,
+    );
+    _addBox(
+      mesh,
+      x,
+      ground + 1.62,
+      z,
+      width: 0.2,
+      height: 0.24,
+      depth: 0.2,
+      color: const _Rgb.hex(0x9C8A62),
+      emissive: _warmWindow,
+    );
+    _addBox(
+      mesh,
+      x,
+      ground + 1.78,
+      z,
+      width: 0.26,
+      height: 0.05,
+      depth: 0.26,
+      color: iron,
+    );
   }
 
   void _addTower(_LitMesh mesh, {required double u, required double v}) {

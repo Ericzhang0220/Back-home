@@ -53,7 +53,7 @@ extension _TreeKit on OutdoorScene {
     final barkLight = birch
         ? const _Rgb.hex(0xF2EFE6)
         : const _Rgb.hex(0x8A6A54);
-    final fork = _addTrunk(
+    final (fork, rise) = _addTrunk(
       solids,
       random,
       x,
@@ -73,6 +73,8 @@ extension _TreeKit on OutdoorScene {
       random,
       center: center,
       fork: fork,
+      rise: rise,
+      trunkRadius: scale * 0.115,
       radius: radius,
       stretch: stretch,
       bottom: bottom,
@@ -97,6 +99,8 @@ extension _TreeKit on OutdoorScene {
     math.Random random, {
     required (double, double, double) center,
     required (double, double, double) fork,
+    required (double, double, double) rise,
+    required double trunkRadius,
     required double radius,
     required double stretch,
     required double bottom,
@@ -108,33 +112,83 @@ extension _TreeKit on OutdoorScene {
     required int detail,
   }) {
     final (x, centerY, z) = center;
-    final limbs = switch (detail) {
+    // The trunk carries on up through the crown as a tapering leader; the
+    // main limbs leave it at staggered heights and curve up and out, and
+    // twigs leave the limbs partway along. Every branch starts inside its
+    // parent at a matching thickness, so the wood reads as one piece.
+    final limbCount = switch (detail) {
       2 => 6,
       1 => 4,
       _ => 0,
     };
     final spin = random.nextDouble() * math.pi * 2;
-    final elbows = <(double, double, double)>[];
-    for (var i = 0; i < limbs; i += 1) {
-      final a =
-          spin + i / limbs * math.pi * 2 + (random.nextDouble() - 0.5) * 0.5;
-      final out = radius * (0.34 + random.nextDouble() * 0.14);
-      final elbow = (
-        fork.$1 + math.cos(a) * out,
-        fork.$2 + (centerY - fork.$2) * (0.7 + random.nextDouble() * 0.5),
-        fork.$3 + math.sin(a) * out,
+    final limbs =
+        <
+          (
+            (double, double, double),
+            (double, double, double),
+            (double, double, double),
+            double,
+            double,
+          )
+        >[];
+    if (detail > 0) {
+      final leaderLength = centerY + radius * stretch * 0.45 - fork.$2;
+      final leaderEnd = (
+        x + (random.nextDouble() - 0.5) * radius * 0.2,
+        centerY + radius * stretch * 0.45,
+        z + (random.nextDouble() - 0.5) * radius * 0.2,
       );
-      elbows.add(elbow);
-      _addLimb(
-        solids,
+      final leaderBend = (
+        fork.$1 + rise.$1 * leaderLength * 0.45,
+        fork.$2 + rise.$2 * leaderLength * 0.45,
+        fork.$3 + rise.$3 * leaderLength * 0.45,
+      );
+      final leaderTip = scale * 0.025;
+      _addBranch(
         fork,
-        elbow,
-        scale * 0.1,
-        scale * 0.055,
-        bark,
-        sides: detail == 2 ? 7 : 5,
+        leaderBend,
+        leaderEnd,
+        trunkRadius,
+        leaderTip,
+        color: bark,
         barkCell: barkCell,
+        sides: detail == 2 ? 12 : 8,
+        rings: detail == 2 ? 7 : 4,
       );
+      for (var k = 0; k < limbCount; k += 1) {
+        final along = 0.06 + 0.6 * k / math.max(1, limbCount - 1);
+        final start = _curvePoint(fork, leaderBend, leaderEnd, along);
+        final parent = trunkRadius + (leaderTip - trunkRadius) * along;
+        final a = spin + k * 2.39996 + (random.nextDouble() - 0.5) * 0.4;
+        final length = radius * (0.62 + random.nextDouble() * 0.2);
+        final lift = length * (0.3 + random.nextDouble() * 0.25) * stretch;
+        final end = (
+          start.$1 + math.cos(a) * length * 0.9,
+          start.$2 + lift,
+          start.$3 + math.sin(a) * length * 0.9,
+        );
+        // Leaves the leader fairly flat, then sweeps upward.
+        final bend = (
+          start.$1 + math.cos(a) * length * 0.5,
+          start.$2 + lift * 0.15,
+          start.$3 + math.sin(a) * length * 0.5,
+        );
+        final r0 = parent * 0.72;
+        final r1 = scale * 0.022;
+        limbs.add((start, bend, end, r0, r1));
+        _addBranch(
+          start,
+          bend,
+          end,
+          r0,
+          r1,
+          color: bark,
+          barkCell: barkCell,
+          sides: detail == 2 ? 8 : 6,
+          rings: detail == 2 ? 6 : 3,
+        );
+      }
     }
 
     // Farther crowns take fewer, larger cards painted with smaller leaves, so
@@ -163,32 +217,43 @@ extension _TreeKit on OutdoorScene {
         centerY + rise * radius * stretch * (0.8 + random.nextDouble() * 0.2),
         z + math.sin(a) * out,
       );
-      if (elbows.isNotEmpty) {
-        // Carried on a branch from the nearest limb.
-        var best = elbows.first;
+      if (limbs.isNotEmpty && (detail == 2 || i.isEven)) {
+        // Carried on a twig from the nearest point along a limb.
+        var best = limbs.first;
+        var bestAlong = 1.0;
         var bestDistance = double.infinity;
-        for (final elbow in elbows) {
-          final dx = elbow.$1 - tip.$1;
-          final dy = elbow.$2 - tip.$2;
-          final dz = elbow.$3 - tip.$3;
-          final d = dx * dx + dy * dy + dz * dz;
-          if (d < bestDistance) {
-            bestDistance = d;
-            best = elbow;
+        for (final limb in limbs) {
+          for (final along in const [0.45, 0.65, 0.85, 1.0]) {
+            final p = _curvePoint(limb.$1, limb.$2, limb.$3, along);
+            final dx = p.$1 - tip.$1;
+            final dy = p.$2 - tip.$2;
+            final dz = p.$3 - tip.$3;
+            final d = dx * dx + dy * dy + dz * dz;
+            if (d < bestDistance) {
+              bestDistance = d;
+              best = limb;
+              bestAlong = along;
+            }
           }
         }
-        if (detail == 2 || i.isEven) {
-          _addLimb(
-            solids,
-            best,
-            tip,
-            scale * 0.045,
-            scale * 0.016,
-            bark,
-            sides: 5,
-            barkCell: barkCell,
-          );
-        }
+        final start = _curvePoint(best.$1, best.$2, best.$3, bestAlong);
+        final parent = best.$4 + (best.$5 - best.$4) * bestAlong;
+        final sag = math.sqrt(bestDistance) * 0.12;
+        _addBranch(
+          start,
+          (
+            (start.$1 + tip.$1) / 2,
+            (start.$2 + tip.$2) / 2 + sag,
+            (start.$3 + tip.$3) / 2,
+          ),
+          tip,
+          math.max(parent * 0.8, scale * 0.014),
+          scale * 0.008,
+          color: bark,
+          barkCell: barkCell,
+          sides: detail == 2 ? 5 : 4,
+          rings: detail == 2 ? 3 : 2,
+        );
       }
       for (var c = 0; c < sprays; c += 1) {
         final cx = tip.$1 + (random.nextDouble() - 0.5) * 2 * spread;
@@ -229,6 +294,124 @@ extension _TreeKit on OutdoorScene {
         top: top + 1,
         atlasCell: cells.last,
       );
+    }
+  }
+
+  (double, double, double) _curvePoint(
+    (double, double, double) a,
+    (double, double, double) b,
+    (double, double, double) c,
+    double t,
+  ) {
+    final u = 1 - t;
+    return (
+      u * u * a.$1 + 2 * u * t * b.$1 + t * t * c.$1,
+      u * u * a.$2 + 2 * u * t * b.$2 + t * t * c.$2,
+      u * u * a.$3 + 2 * u * t * b.$3 + t * t * c.$3,
+    );
+  }
+
+  /// A branch as one smooth, tapering tube along a curve from [from] past
+  /// [bend] to [to], wrapped in bark. Its rings turn with the curve, so a
+  /// branch bends rather than kinking from one straight piece to the next.
+  void _addBranch(
+    (double, double, double) from,
+    (double, double, double) bend,
+    (double, double, double) to,
+    double fromRadius,
+    double toRadius, {
+    required _Rgb color,
+    required int barkCell,
+    required int sides,
+    required int rings,
+  }) {
+    final (u0, v0, u1, v1) = _LeafAtlas.instance.cell(barkCell);
+    var length = 0.0;
+    var last = from;
+    for (var i = 1; i <= 8; i += 1) {
+      final p = _curvePoint(from, bend, to, i / 8);
+      final dx = p.$1 - last.$1;
+      final dy = p.$2 - last.$2;
+      final dz = p.$3 - last.$3;
+      length += math.sqrt(dx * dx + dy * dy + dz * dz);
+      last = p;
+    }
+    if (length < 1e-4) {
+      return;
+    }
+    final vSpan = math.min(length / 2.4, 0.96);
+    final tint = color.scale(1.25);
+    // A frame carried along the curve without twisting.
+    var nx = 0.0;
+    var ny = 0.0;
+    var nz = 0.0;
+    final base = _leaves.count;
+    for (var i = 0; i <= rings; i += 1) {
+      final t = i / rings;
+      final c = _curvePoint(from, bend, to, t);
+      // Tangent of the curve at t.
+      var tx = 2 * (1 - t) * (bend.$1 - from.$1) + 2 * t * (to.$1 - bend.$1);
+      var ty = 2 * (1 - t) * (bend.$2 - from.$2) + 2 * t * (to.$2 - bend.$2);
+      var tz = 2 * (1 - t) * (bend.$3 - from.$3) + 2 * t * (to.$3 - bend.$3);
+      final tl = math.sqrt(tx * tx + ty * ty + tz * tz) + 1e-9;
+      tx /= tl;
+      ty /= tl;
+      tz /= tl;
+      if (i == 0) {
+        final (ax, ay, az) = ty.abs() < 0.9 ? (0.0, 1.0, 0.0) : (1.0, 0.0, 0.0);
+        nx = ay * tz - az * ty;
+        ny = az * tx - ax * tz;
+        nz = ax * ty - ay * tx;
+      } else {
+        final along = nx * tx + ny * ty + nz * tz;
+        nx -= tx * along;
+        ny -= ty * along;
+        nz -= tz * along;
+      }
+      final nl = math.sqrt(nx * nx + ny * ny + nz * nz) + 1e-9;
+      nx /= nl;
+      ny /= nl;
+      nz /= nl;
+      final bx = ty * nz - tz * ny;
+      final by = tz * nx - tx * nz;
+      final bz = tx * ny - ty * nx;
+      final r = fromRadius + (toRadius - fromRadius) * math.pow(t, 0.85);
+      for (var j = 0; j <= sides; j += 1) {
+        final a = j / sides * math.pi * 2;
+        final ca = math.cos(a);
+        final sa = math.sin(a);
+        final ox = nx * ca + bx * sa;
+        final oy = ny * ca + by * sa;
+        final oz = nz * ca + bz * sa;
+        _leaves.vertex(
+          c.$1 + ox * r,
+          c.$2 + oy * r,
+          c.$3 + oz * r,
+          ox,
+          oy,
+          oz,
+          tint,
+          ao: 0.7 + 0.3 * t,
+        );
+        _leaves._uvs.addAll([
+          u0 + (u1 - u0) * j / sides,
+          v0 + (v1 - v0) * (0.02 + vSpan * t),
+        ]);
+      }
+    }
+    final stride = sides + 1;
+    for (var i = 0; i < rings; i += 1) {
+      for (var j = 0; j < sides; j += 1) {
+        final a = base + i * stride + j;
+        _leaves.indices!.addAll([
+          a,
+          a + 1,
+          a + stride + 1,
+          a,
+          a + stride + 1,
+          a + stride,
+        ]);
+      }
     }
   }
 
@@ -396,7 +579,7 @@ extension _TreeKit on OutdoorScene {
   /// get a gently bent trunk with ridged, furrowed bark, a buttressed foot,
   /// moss on the shady side and spreading roots; birches get their dark
   /// lenticel dashes and blackened foot. Far ones stay a simple tapered post.
-  (double, double, double) _addTrunk(
+  ((double, double, double), (double, double, double)) _addTrunk(
     _LitMesh mesh,
     math.Random random,
     double x,
@@ -421,7 +604,7 @@ extension _TreeKit on OutdoorScene {
         sides: 6,
         barkCell: barkCell,
       );
-      return (x, baseY + trunkHeight * 0.82, z);
+      return ((x, baseY + trunkHeight * 0.82, z), (0.0, 1.0, 0.0));
     }
     final rings = detail == 2 ? 14 : 6;
     final sides = detail == 2 ? 16 : 9;
@@ -553,48 +736,55 @@ extension _TreeKit on OutdoorScene {
           baseY - 0.14,
           z + math.sin(a) * reach,
         );
-        _addLimb(
-          mesh,
+        _addBranch(
           start,
           knee,
-          scale * 0.1,
-          scale * 0.055,
-          barkLight,
-          sides: 6,
-          barkCell: barkCell,
-        );
-        _addLimb(
-          mesh,
-          knee,
           end,
-          scale * 0.055,
-          scale * 0.015,
-          barkLight,
-          sides: 6,
+          scale * 0.11,
+          scale * 0.012,
+          color: barkLight,
           barkCell: barkCell,
+          sides: 7,
+          rings: 4,
         );
       }
       // Now and then, the stub of a lost branch.
       if (random.nextDouble() < 0.5) {
         final from = spine(0.45 + random.nextDouble() * 0.3);
         final a = random.nextDouble() * math.pi * 2;
-        _addLimb(
-          mesh,
-          from,
+        final end = (
+          from.$1 + math.cos(a) * scale * 0.32,
+          from.$2 + scale * 0.12,
+          from.$3 + math.sin(a) * scale * 0.32,
+        );
+        _addBranch(
           (
-            from.$1 + math.cos(a) * scale * 0.32,
-            from.$2 + scale * 0.12,
-            from.$3 + math.sin(a) * scale * 0.32,
+            from.$1 - math.cos(a) * scale * 0.08,
+            from.$2 - scale * 0.03,
+            from.$3 - math.sin(a) * scale * 0.08,
           ),
-          scale * 0.06,
-          scale * 0.035,
-          bark.scale(0.9),
-          sides: 6,
+          (
+            (from.$1 + end.$1) / 2,
+            (from.$2 + end.$2) / 2 - scale * 0.02,
+            (from.$3 + end.$3) / 2,
+          ),
+          end,
+          scale * 0.07,
+          scale * 0.04,
+          color: bark.scale(0.9),
           barkCell: barkCell,
+          sides: 7,
+          rings: 3,
         );
       }
     }
-    return spine(1);
+    final top = spine(1);
+    final below = spine(0.85);
+    final dx = top.$1 - below.$1;
+    final dy = top.$2 - below.$2;
+    final dz = top.$3 - below.$3;
+    final dl = math.sqrt(dx * dx + dy * dy + dz * dz);
+    return (top, (dx / dl, dy / dl, dz / dl));
   }
 
   /// A tapered, faceted branch from one point to another.
