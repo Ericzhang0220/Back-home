@@ -111,36 +111,47 @@ class _ForestScene extends OutdoorScene {
     _buildBirds();
   }
 
+  /// One sheet of water for the river and the pond. The river runs toward
+  /// the house, faster and whiter where it is shallow; the pond lies still.
   void _buildRiver() {
-    final river = _FlowMesh(
-      speed: 1.4,
-      alongFrequency: 0.5,
-      acrossFrequency: 1.6,
-      foamThreshold: 0.64,
+    final water = _MirrorWater(level: _riverLevel, waveStrength: 0.9);
+    water.sheet(
+      uMin: -18,
+      uMax: 18,
+      vMin: 0,
+      vMax: 44,
+      step: 0.5,
+      worldX: _worldX,
+      worldZ: _worldZ,
+      ground: height,
+      at: (u, v, depth) {
+        final half = _riverHalfWidth(v);
+        final channel =
+            (1 - _smoothstep(half, half + 1.6, _riverDistance(u, v))) *
+            (1 - _smoothstep(26, 44, v));
+        final slope = 7 * 0.12 * math.cos(v * 0.12 + 0.6) + 0.12;
+        final length = math.sqrt(slope * slope + 1);
+        final speed = 1.3 * channel * (1 - _pond(u, v));
+        final shallow = 1 - _smoothstep(0.05, 0.55, depth);
+        return (
+          flowX: -slope / length * speed,
+          flowZ: 1 / length * speed,
+          foam: channel * (0.32 + 0.5 * shallow),
+          tint: _Rgb.lerp(
+            const _Rgb.hex(0x2F6577),
+            const _Rgb.hex(0x6C9A86),
+            shallow,
+          ),
+        );
+      },
     );
-    river.ribbon(90, 9, (s, t) {
-      final v = 2 + s * 40;
-      final half = _riverHalfWidth(v) + 0.6;
-      final u = _riverU(v) + (t - 0.5) * 2 * half;
-      final edge = math.min(t, 1 - t);
-      return (
-        x: _worldX(u),
-        y: _riverLevel,
-        z: _worldZ(v),
-        // Flows toward the house (foam travels toward increasing along).
-        along: -v,
-        across: u,
-        base: _Rgb.lerp(
-          const _Rgb.hex(0x6F98AC),
-          const _Rgb.hex(0x4D7C92),
-          _smoothstep(0, 0.4, edge),
-        ),
-        foam: const _Rgb.hex(0xD8E8EE),
-        foamBias: (1 - _smoothstep(0, 0.12, edge)) * 0.35,
-      );
-    });
-    _addFlow(river);
+    _addWater(water);
   }
+
+  @override
+  List<three.Object3D> get _reflectionMovers => [
+    for (final bird in _birds) bird.body,
+  ];
 
   void _buildForest(_LitMesh foliage, _LitMesh solids) {
     final random = math.Random(0xF0E5);

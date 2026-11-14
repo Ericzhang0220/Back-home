@@ -6,12 +6,14 @@ class _LitMesh {
   _LitMesh({
     required this.wrap,
     bool indexed = false,
-    this.water = false,
     this.cutout,
+    this.ground = false,
   }) : indices = indexed ? <int>[] : null;
 
   final double wrap;
-  final bool water;
+
+  /// Terrain: drawn with painted grass and rock detail over its colours.
+  final bool ground;
 
   /// Alpha-tested texture for meshes of cards, such as leaf clusters.
   final three.Texture? cutout;
@@ -64,6 +66,14 @@ class _LitMesh {
       geometry.setIndex(indices!);
     }
     _colorAttribute = colors;
+    if (ground) {
+      geometry.setAttributeFromString(
+        'normal',
+        three.Float32BufferAttribute.fromList(_normals, 3),
+      );
+      return three.Mesh(geometry, _GroundDetail.material())
+        ..frustumCulled = false;
+    }
     final map = cutout;
     if (map != null) {
       geometry.setAttributeFromString(
@@ -118,46 +128,26 @@ class _LitMesh {
       double g;
       double b;
       double haze;
-      if (water) {
-        // Turquoise shallows, deepening to a crisp blue sea line that stands
-        // out against the pale horizon, as in the reference.
-        final shallow = 1 - _smoothstep(10, 30, distance);
-        final deep = _Rgb.lerp(
-          _Rgb.lerp(
-            const _Rgb.hex(0x1D5F92),
-            const _Rgb.hex(0x2A73A8),
-            _hash2(i, 7),
-          ),
-          const _Rgb.hex(0x3AA2B4),
-          shallow,
-        );
-        final lit = light.ambientStrength + light.sunStrength * 0.75;
-        r = (deep.r + (sky.r - deep.r) * 0.12) * lit;
-        g = (deep.g + (sky.g - deep.g) * 0.12) * lit;
-        b = (deep.b + (sky.b - deep.b) * 0.12) * lit;
-        haze = _smoothstep(35, 72, distance) * 0.38 * light.fogAmount;
-      } else {
-        final nx = _normals[i3];
-        final ny = _normals[i3 + 1];
-        final nz = _normals[i3 + 2];
-        final ndl = nx * light.sunX + ny * light.sunY + nz * light.sunZ;
-        var diffuse = ((ndl + wrap) / (1 + wrap)).clamp(0.0, 1.0);
-        if (shadow != null) {
-          diffuse *= shadow[i];
-        }
-        final ao = _ao[i];
-        final hemi = ny * 0.5 + 0.5;
-        final ambient = light.ambientStrength * ao;
-        final ar = (ground.r + (sky.r - ground.r) * hemi) * ambient;
-        final ag = (ground.g + (sky.g - ground.g) * hemi) * ambient;
-        final ab = (ground.b + (sky.b - ground.b) * hemi) * ambient;
-        final direct = diffuse * (0.55 + 0.45 * ao);
-        r = _albedo[i3] * (ar + sunR * direct);
-        g = _albedo[i3 + 1] * (ag + sunG * direct);
-        b = _albedo[i3 + 2] * (ab + sunB * direct);
-        final far = math.max(0.0, distance - 9) / 46;
-        haze = (1 - math.exp(-far * far * 1.6)) * light.fogAmount;
+      final nx = _normals[i3];
+      final ny = _normals[i3 + 1];
+      final nz = _normals[i3 + 2];
+      final ndl = nx * light.sunX + ny * light.sunY + nz * light.sunZ;
+      var diffuse = ((ndl + wrap) / (1 + wrap)).clamp(0.0, 1.0);
+      if (shadow != null) {
+        diffuse *= shadow[i];
       }
+      final ao = _ao[i];
+      final hemi = ny * 0.5 + 0.5;
+      final ambient = light.ambientStrength * ao;
+      final ar = (ground.r + (sky.r - ground.r) * hemi) * ambient;
+      final ag = (ground.g + (sky.g - ground.g) * hemi) * ambient;
+      final ab = (ground.b + (sky.b - ground.b) * hemi) * ambient;
+      final direct = diffuse * (0.55 + 0.45 * ao);
+      r = _albedo[i3] * (ar + sunR * direct);
+      g = _albedo[i3 + 1] * (ag + sunG * direct);
+      b = _albedo[i3 + 2] * (ab + sunB * direct);
+      final far = math.max(0.0, distance - 9) / 46;
+      haze = (1 - math.exp(-far * far * 1.6)) * light.fogAmount;
       if (sat < 1) {
         final grey = r * 0.3 + g * 0.55 + b * 0.15;
         r = grey + (r - grey) * sat;
@@ -637,4 +627,173 @@ double _fbm(double x, double y) {
     frequency *= 2.03;
   }
   return sum / norm;
+}
+
+// --- Ground detail -------------------------------------------------------------
+
+/// Painted texture laid over the terrain's baked colours: short strokes of
+/// grass on level ground and cracked, speckled stone on slopes and cliffs.
+/// It only shades the colour up and down around it, so the baked lighting and
+/// haze stay as they are, and it fades out with distance.
+class _GroundDetail {
+  static const int _size = 512;
+  static three.DataTexture? _texture;
+
+  static three.ShaderMaterial material() {
+    final texture = _texture ??=
+        three.DataTexture(
+            _paint(),
+            _size,
+            _size,
+            three.RGBAFormat,
+            three.UnsignedByteType,
+          )
+          ..wrapS = three.RepeatWrapping
+          ..wrapT = three.RepeatWrapping
+          ..magFilter = three.LinearFilter
+          ..minFilter = three.LinearMipmapLinearFilter
+          ..generateMipmaps = true
+          ..anisotropy = 8
+          ..needsUpdate = true;
+    return three.ShaderMaterial.fromMap({
+      'uniforms': <String, dynamic>{
+        'uDetail': <String, dynamic>{'value': texture},
+      },
+      'vertexColors': true,
+      'vertexShader': '''
+varying vec3 vColor;
+varying vec3 vWorld;
+varying vec3 vNormal;
+void main() {
+  vColor = color;
+  vNormal = normal;
+  vec4 world = modelMatrix * vec4(position, 1.0);
+  vWorld = world.xyz;
+  gl_Position = projectionMatrix * viewMatrix * world;
+}
+''',
+      'fragmentShader': '''
+uniform sampler2D uDetail;
+varying vec3 vColor;
+varying vec3 vWorld;
+varying vec3 vNormal;
+
+// The colours are linear, as for the other meshes; the screen wants sRGB.
+vec3 toScreen(vec3 c) {
+  vec3 low = c * 12.92;
+  vec3 high = 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055;
+  return mix(low, high, step(vec3(0.0031308), c));
+}
+
+void main() {
+  vec3 n = normalize(vNormal);
+  float dist = length(cameraPosition - vWorld);
+  // Two scales, turned against each other, so the tile never repeats visibly.
+  vec2 ground = vWorld.xz;
+  vec2 turned = vec2(0.8 * ground.x - 0.6 * ground.y, 0.6 * ground.x + 0.8 * ground.y);
+  float grass = texture2D(uDetail, ground / 2.6).r * 0.6
+              + texture2D(uDetail, turned / 9.0).r * 0.4;
+  // Cliffs take the stone from the side, so it doesn't smear down the face.
+  vec2 side = abs(n.x) > abs(n.z) ? vWorld.zy : vWorld.xy;
+  float stone = texture2D(uDetail, side / 3.4).g * 0.6
+              + texture2D(uDetail, turned / 8.0).g * 0.4;
+  float rock = smoothstep(0.82, 0.58, n.y);
+  float detail = mix(grass, stone, rock) - 0.5;
+  float strength = mix(0.75, 0.95, rock) * smoothstep(60.0, 5.0, dist);
+  vec3 c = vColor * (1.0 + detail * strength);
+  gl_FragColor = vec4(toScreen(max(c, 0.0)), 1.0);
+}
+''',
+    });
+  }
+
+  static double _hash(int x, int y, int seed) {
+    var h = (x * 374761393 + y * 668265263 + seed * 224682251) & 0x7FFFFFFF;
+    h = ((h ^ (h >> 13)) * 1274126177) & 0x7FFFFFFF;
+    return ((h ^ (h >> 16)) & 0xFFFF) / 0xFFFF;
+  }
+
+  /// Smooth noise that tiles every [period] cells.
+  static double _noise(double x, double y, int period, int seed) {
+    final xi = x.floor();
+    final yi = y.floor();
+    final fx = x - xi;
+    final fy = y - yi;
+    final sx = fx * fx * (3 - 2 * fx);
+    final sy = fy * fy * (3 - 2 * fy);
+    double at(int i, int j) => _hash(i % period, j % period, seed);
+    final a = at(xi, yi);
+    final b = at(xi + 1, yi);
+    final c = at(xi, yi + 1);
+    final d = at(xi + 1, yi + 1);
+    return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
+  }
+
+  static three.Uint8Array _paint() {
+    const n = _size;
+    final random = math.Random(0x6A55);
+    final grass = Float64List(n * n);
+    final stone = Float64List(n * n);
+    for (var y = 0; y < n; y += 1) {
+      for (var x = 0; x < n; x += 1) {
+        final u = x / n;
+        final v = y / n;
+        // Clumpy patches under the blades.
+        grass[y * n + x] =
+            0.42 +
+            (_noise(u * 8, v * 8, 8, 1) - 0.5) * 0.22 +
+            (_noise(u * 32, v * 32, 32, 2) - 0.5) * 0.12;
+        // Stone: broad mottling with sharp cracks where the noise crosses 0.5.
+        final broad = _noise(u * 6, v * 6, 6, 3);
+        final crack = (_noise(u * 14, v * 14, 14, 4) - 0.5).abs();
+        stone[y * n + x] =
+            0.4 +
+            (broad - 0.5) * 0.4 +
+            (_noise(u * 64, v * 64, 64, 5) - 0.5) * 0.18 -
+            (1 - (crack / 0.04).clamp(0.0, 1.0)) * 0.3;
+      }
+    }
+    // Blades of grass: short tapered strokes, lit at the tip.
+    for (var i = 0; i < 9000; i += 1) {
+      final x0 = random.nextDouble() * n;
+      final y0 = random.nextDouble() * n;
+      final angle = random.nextDouble() * math.pi * 2;
+      final length = 6 + random.nextDouble() * 9;
+      final bright = 0.45 + random.nextDouble() * 0.55;
+      for (var s = 0.0; s <= 1; s += 1 / length) {
+        final x = (x0 + math.cos(angle) * length * s).round() % n;
+        final y = (y0 + math.sin(angle) * length * s).round() % n;
+        final value = 0.25 + bright * (0.35 + 0.65 * s);
+        grass[y * n + x] = grass[y * n + x] * 0.25 + value * 0.75;
+      }
+    }
+    // Pebbles and grit on the stone.
+    for (var i = 0; i < 2600; i += 1) {
+      final x0 = random.nextInt(n);
+      final y0 = random.nextInt(n);
+      final r = 1 + random.nextInt(3);
+      final value = 0.25 + random.nextDouble() * 0.6;
+      for (var dy = -r; dy <= r; dy += 1) {
+        for (var dx = -r; dx <= r; dx += 1) {
+          if (dx * dx + dy * dy <= r * r) {
+            stone[((y0 + dy) % n) * n + (x0 + dx) % n] = value;
+          }
+        }
+      }
+    }
+    // Centre both around a half, so the detail never shifts the colour.
+    double mean(Float64List list) =>
+        list.fold<double>(0, (sum, value) => sum + value) / list.length;
+    final grassShift = 0.5 - mean(grass);
+    final stoneShift = 0.5 - mean(stone);
+    final bytes = three.Uint8Array(n * n * 4);
+    final out = bytes.toDartList();
+    for (var i = 0; i < n * n; i += 1) {
+      out[i * 4] = ((grass[i] + grassShift).clamp(0.0, 1.0) * 255).round();
+      out[i * 4 + 1] = ((stone[i] + stoneShift).clamp(0.0, 1.0) * 255).round();
+      out[i * 4 + 2] = 128;
+      out[i * 4 + 3] = 255;
+    }
+    return bytes;
+  }
 }

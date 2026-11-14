@@ -7,15 +7,17 @@ part of 'outdoor_landscape.dart';
 /// It only redraws while the camera moves, and now and then to pick up drifting
 /// clouds. Anything that moves quickly is left out rather than stuttering.
 class _PlanarReflection {
-  _PlanarReflection({required this.level});
+  _PlanarReflection({required this.level, this.refreshSeconds = 0.5});
 
   final double level;
+
+  /// How often a still view redraws, to pick up drifting clouds and the like.
+  final double refreshSeconds;
 
   static const int _width = 768;
   static const int _height = 1536;
   // Wider than the real view, so ripples have something to pull in at the edge.
   static const double _margin = 1.2;
-  static const double _refreshSeconds = 0.5;
 
   final three.PerspectiveCamera _mirror = three.PerspectiveCamera(
     60,
@@ -65,7 +67,7 @@ class _PlanarReflection {
     for (var i = 0; i < 16 && !moved; i += 1) {
       moved = (world[i] - _lastPose[i]).abs() > 1e-5;
     }
-    if (!moved && _sinceDraw < _refreshSeconds && _renderTarget != null) {
+    if (!moved && _sinceDraw < refreshSeconds && _renderTarget != null) {
       return _renderTarget!.texture;
     }
     for (var i = 0; i < 16; i += 1) {

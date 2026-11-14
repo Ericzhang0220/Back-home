@@ -53,7 +53,7 @@ extension _TreeKit on OutdoorScene {
     final barkLight = birch
         ? const _Rgb.hex(0xF2EFE6)
         : const _Rgb.hex(0x8A6A54);
-    _addTrunk(
+    final fork = _addTrunk(
       solids,
       random,
       x,
@@ -64,6 +64,7 @@ extension _TreeKit on OutdoorScene {
       bark,
       barkLight,
       detail,
+      birch: birch,
     );
 
     _addCrown(
@@ -71,7 +72,7 @@ extension _TreeKit on OutdoorScene {
       solids,
       random,
       center: center,
-      fork: (x, baseY + trunkHeight * 0.82, z),
+      fork: fork,
       radius: radius,
       stretch: stretch,
       bottom: bottom,
@@ -79,6 +80,7 @@ extension _TreeKit on OutdoorScene {
       scale: scale,
       color: color,
       bark: bark,
+      barkCell: birch ? _LeafAtlas.birchBark : _LeafAtlas.bark,
       detail: detail,
     );
     _shadows.add(
@@ -102,6 +104,7 @@ extension _TreeKit on OutdoorScene {
     required double scale,
     required _Rgb color,
     required _Rgb bark,
+    required int barkCell,
     required int detail,
   }) {
     final (x, centerY, z) = center;
@@ -129,25 +132,25 @@ extension _TreeKit on OutdoorScene {
         scale * 0.1,
         scale * 0.055,
         bark,
-        sides: detail == 2 ? 6 : 4,
+        sides: detail == 2 ? 7 : 5,
+        barkCell: barkCell,
       );
     }
 
-    final tips = switch (detail) {
-      2 => 20,
-      1 => 11,
-      _ => 6,
+    // Farther crowns take fewer, larger cards painted with smaller leaves, so
+    // a leaf is the same size on every tree.
+    final cells = switch (detail) {
+      2 => const [_LeafAtlas.loose, _LeafAtlas.denseA, _LeafAtlas.denseB],
+      1 => const [_LeafAtlas.middle],
+      _ => const [_LeafAtlas.far],
     };
-    final sprays = switch (detail) {
-      2 => 9,
-      1 => 5,
-      _ => 3,
-    };
-    final sprayHalf = switch (detail) {
-      2 => 0.27,
-      1 => 0.4,
-      _ => 0.6,
-    };
+    final cardHalf = _LeafAtlas.cardHalf(cells.last);
+    final coverage = radius / cardHalf;
+    final tips = (coverage * coverage * 2.4).round().clamp(4, 26);
+    final spread = radius * (detail == 2 ? 0.34 : 0.42);
+    final sprays = ((spread / cardHalf) * (spread / cardHalf) * 5)
+        .round()
+        .clamp(2, 9);
     for (var i = 0; i < tips; i += 1) {
       // Spiral over the crown from just below its waist up to the very top.
       final t = (i + 0.5) / tips;
@@ -182,12 +185,12 @@ extension _TreeKit on OutdoorScene {
             scale * 0.045,
             scale * 0.016,
             bark,
-            sides: 4,
+            sides: 5,
+            barkCell: barkCell,
           );
         }
       }
       for (var c = 0; c < sprays; c += 1) {
-        final spread = radius * sprayHalf * 1.15;
         final cx = tip.$1 + (random.nextDouble() - 0.5) * 2 * spread;
         final cy =
             tip.$2 + (random.nextDouble() - 0.5) * 1.3 * spread * stretch;
@@ -197,32 +200,36 @@ extension _TreeKit on OutdoorScene {
           cx,
           cy,
           cz,
-          radius * sprayHalf * (0.8 + random.nextDouble() * 0.4),
+          cardHalf * (0.85 + random.nextDouble() * 0.3),
           color,
           center: center,
           reach: radius,
           bottom: bottom,
           top: top,
-          atlasCell: c == 0
-              ? _LeafAtlas.loose
-              : (c.isEven ? _LeafAtlas.denseA : _LeafAtlas.denseB),
+          atlasCell: cells[c % cells.length],
         );
       }
     }
-    // A dim core blocks the sky through the middle of the crown.
-    _addLeafChunk(
-      foliage,
-      random,
-      x,
-      centerY + radius * stretch * 0.1,
-      z,
-      radius * 0.5,
-      _leafShade(color).scale(0.6),
-      center: center,
-      bottom: top,
-      top: top + 1,
-      detail: 0,
-    );
+    // Shaded sprays deep inside the crown, so it reads full rather than
+    // hollow where the outer boughs part.
+    final inner = (tips / 3).round();
+    for (var i = 0; i < inner; i += 1) {
+      final a = random.nextDouble() * math.pi * 2;
+      final out = radius * 0.38 * math.sqrt(random.nextDouble());
+      _addLeafCard(
+        random,
+        x + math.cos(a) * out,
+        centerY + (random.nextDouble() - 0.35) * radius * stretch * 0.6,
+        z + math.sin(a) * out,
+        cardHalf,
+        _leafShade(color).scale(0.85),
+        center: center,
+        reach: radius,
+        bottom: top,
+        top: top + 1,
+        atlasCell: cells.last,
+      );
+    }
   }
 
   /// One spray of leaves. The window is the only place the scenery is seen
@@ -385,7 +392,11 @@ extension _TreeKit on OutdoorScene {
     ]);
   }
 
-  void _addTrunk(
+  /// The trunk, returning the point where it forks into the crown. Near trees
+  /// get a gently bent trunk with ridged, furrowed bark, a buttressed foot,
+  /// moss on the shady side and spreading roots; birches get their dark
+  /// lenticel dashes and blackened foot. Far ones stay a simple tapered post.
+  (double, double, double) _addTrunk(
     _LitMesh mesh,
     math.Random random,
     double x,
@@ -395,62 +406,195 @@ extension _TreeKit on OutdoorScene {
     double trunkHeight,
     _Rgb bark,
     _Rgb barkLight,
-    int detail,
-  ) {
-    final sides = detail == 0 ? 5 : 8;
-    final foot = (x, baseY - 0.12, z);
+    int detail, {
+    bool birch = false,
+  }) {
+    final barkCell = birch ? _LeafAtlas.birchBark : _LeafAtlas.bark;
     if (detail == 0) {
       _addLimb(
         mesh,
-        foot,
+        (x, baseY - 0.12, z),
         (x, baseY + trunkHeight * 0.95, z),
         scale * 0.17,
         scale * 0.09,
         bark,
-        sides: sides,
+        sides: 6,
+        barkCell: barkCell,
       );
-      return;
+      return (x, baseY + trunkHeight * 0.82, z);
     }
-    // A flared, lighter foot that narrows into the main stem, with a lean.
-    final leanX = (random.nextDouble() - 0.5) * scale * 0.18;
-    final leanZ = (random.nextDouble() - 0.5) * scale * 0.18;
-    final waist = (x + leanX * 0.4, baseY + trunkHeight * 0.3, z + leanZ * 0.4);
-    final forkPoint = (x + leanX, baseY + trunkHeight * 0.85, z + leanZ);
-    _addLimb(
-      mesh,
-      foot,
-      waist,
-      scale * 0.31,
-      scale * 0.17,
-      barkLight,
-      sides: sides,
-    );
-    _addLimb(
-      mesh,
-      waist,
-      forkPoint,
-      scale * 0.17,
-      scale * 0.13,
-      bark,
-      sides: sides,
-    );
+    final rings = detail == 2 ? 14 : 6;
+    final sides = detail == 2 ? 16 : 9;
+    final leanX = (random.nextDouble() - 0.5) * scale * 0.3;
+    final leanZ = (random.nextDouble() - 0.5) * scale * 0.3;
+    final wobble = random.nextDouble() * math.pi * 2;
+    final bottomY = baseY - 0.12;
+    final topY = baseY + trunkHeight * 0.86;
+    (double, double, double) spine(double t) {
+      final bend = math.pow(t, 1.4);
+      return (
+        x + leanX * bend + math.sin(t * math.pi * 1.3 + wobble) * scale * 0.035,
+        bottomY + (topY - bottomY) * t,
+        z + leanZ * bend + math.cos(t * math.pi * 1.1 + wobble) * scale * 0.03,
+      );
+    }
+
+    // Ridges run the length of the trunk; a few strong ones flare into
+    // buttresses at the foot.
+    final ridges = [
+      for (var j = 0; j < sides; j += 1) random.nextDouble(),
+      0.0,
+    ];
+    ridges[sides] = ridges[0];
+    final buttressPhase = random.nextDouble() * math.pi * 2;
+    final mossFacing = random.nextDouble() * math.pi * 2;
+    const moss = _Rgb.hex(0x5C7A30);
+    const birchMark = _Rgb.hex(0x37322C);
+    final ridgeDepth = detail == 2 ? 0.16 : 0.1;
+    final points = <(double, double, double)>[];
+    final normals = <(double, double, double)>[];
+    final colors = <_Rgb>[];
+    for (var i = 0; i <= rings; i += 1) {
+      final t = i / rings;
+      final c = spine(t);
+      final flare = math.exp(-t * 7);
+      final radius = scale * (0.165 - 0.05 * t) + scale * 0.15 * flare;
+      for (var j = 0; j <= sides; j += 1) {
+        final a = j / sides * math.pi * 2;
+        final ridge = ridges[j];
+        final buttress =
+            math.pow(math.max(0.0, math.cos(a * 2.5 + buttressPhase)), 3) *
+            flare;
+        final r = radius * (1 + (ridge - 0.5) * ridgeDepth + buttress * 0.55);
+        points.add((c.$1 + math.cos(a) * r, c.$2, c.$3 + math.sin(a) * r));
+        normals.add((math.cos(a), 0.12, math.sin(a)));
+        // Furrows dark, ridges catching the light, paler toward the foot.
+        var color = _Rgb.lerp(
+          barkLight,
+          bark,
+          _smoothstep(0, 0.35, t),
+        ).scale(0.74 + 0.36 * ridge + (random.nextDouble() - 0.5) * 0.08);
+        if (birch) {
+          if (t < 0.12) {
+            color = _Rgb.lerp(color, birchMark, 0.75);
+          } else if (random.nextDouble() < 0.22) {
+            color = _Rgb.lerp(color, birchMark, 0.85);
+          }
+        } else {
+          final shady = math.cos(a - mossFacing);
+          color = _Rgb.lerp(
+            color,
+            moss,
+            _smoothstep(0.2, 0.8, shady) *
+                (1 - _smoothstep(0.1, 0.45, t)) *
+                0.7,
+          );
+        }
+        colors.add(color);
+      }
+    }
+    // The seam column repeats the first, so the bark joins up.
+    final stride = sides + 1;
+    for (var i = 0; i <= rings; i += 1) {
+      colors[i * stride + sides] = colors[i * stride];
+    }
+    final (u0, v0, u1, v1) = _LeafAtlas.instance.cell(barkCell);
+    final base = _leaves.count;
+    for (var k = 0; k < points.length; k += 1) {
+      final p = points[k];
+      final n = normals[k];
+      final ring = k ~/ stride;
+      _leaves.vertex(
+        p.$1,
+        p.$2,
+        p.$3,
+        n.$1,
+        n.$2,
+        n.$3,
+        colors[k].scale(1.25),
+        ao: 0.55 + 0.45 * ring / rings,
+      );
+      _leaves._uvs.addAll([
+        u0 + (u1 - u0) * (k % stride) / sides,
+        v0 + (v1 - v0) * (0.02 + 0.96 * ring / rings),
+      ]);
+    }
+    for (var i = 0; i < rings; i += 1) {
+      for (var j = 0; j < sides; j += 1) {
+        final a = base + i * stride + j;
+        final b = a + 1;
+        final c = a + stride + 1;
+        final d = a + stride;
+        // Wound to face outward.
+        _leaves.indices!.addAll([a, d, c, a, c, b]);
+      }
+    }
     if (detail == 2) {
-      // Roots spreading into the ground.
+      // Roots arch out of the buttresses and dive into the ground.
       final roots = 4 + random.nextInt(2);
       for (var i = 0; i < roots; i += 1) {
-        final a = i / roots * math.pi * 2 + random.nextDouble() * 0.6;
-        final reach = scale * (0.42 + random.nextDouble() * 0.28);
+        final a =
+            i / roots * math.pi * 2 +
+            buttressPhase / 2.5 +
+            random.nextDouble() * 0.4;
+        final reach = scale * (0.55 + random.nextDouble() * 0.3);
+        final start = (
+          x + math.cos(a) * scale * 0.18,
+          baseY + scale * 0.22,
+          z + math.sin(a) * scale * 0.18,
+        );
+        final knee = (
+          x + math.cos(a) * reach * 0.55,
+          baseY + scale * 0.05,
+          z + math.sin(a) * reach * 0.55,
+        );
+        final end = (
+          x + math.cos(a) * reach,
+          baseY - 0.14,
+          z + math.sin(a) * reach,
+        );
         _addLimb(
           mesh,
-          (x, baseY + scale * 0.2, z),
-          (x + math.cos(a) * reach, baseY - 0.14, z + math.sin(a) * reach),
-          scale * 0.11,
-          scale * 0.025,
+          start,
+          knee,
+          scale * 0.1,
+          scale * 0.055,
           barkLight,
-          sides: 5,
+          sides: 6,
+          barkCell: barkCell,
+        );
+        _addLimb(
+          mesh,
+          knee,
+          end,
+          scale * 0.055,
+          scale * 0.015,
+          barkLight,
+          sides: 6,
+          barkCell: barkCell,
+        );
+      }
+      // Now and then, the stub of a lost branch.
+      if (random.nextDouble() < 0.5) {
+        final from = spine(0.45 + random.nextDouble() * 0.3);
+        final a = random.nextDouble() * math.pi * 2;
+        _addLimb(
+          mesh,
+          from,
+          (
+            from.$1 + math.cos(a) * scale * 0.32,
+            from.$2 + scale * 0.12,
+            from.$3 + math.sin(a) * scale * 0.32,
+          ),
+          scale * 0.06,
+          scale * 0.035,
+          bark.scale(0.9),
+          sides: 6,
+          barkCell: barkCell,
         );
       }
     }
+    return spine(1);
   }
 
   /// A tapered, faceted branch from one point to another.
@@ -462,6 +606,7 @@ extension _TreeKit on OutdoorScene {
     double toRadius,
     _Rgb color, {
     required int sides,
+    int? barkCell,
   }) {
     var dx = to.$1 - from.$1;
     var dy = to.$2 - from.$2;
@@ -498,6 +643,45 @@ extension _TreeKit on OutdoorScene {
       );
     }
 
+    if (barkCell != null) {
+      // Painted bark, wrapped once around and run along the limb.
+      final (u0, v0, u1, v1) = _LeafAtlas.instance.cell(barkCell);
+      final along = (length / 2.4).clamp(0.08, 1.0);
+      final base = _leaves.count;
+      final tint = color.scale(1.25);
+      for (var end = 0; end < 2; end += 1) {
+        final o = end == 0 ? from : to;
+        final r = end == 0 ? fromRadius : toRadius;
+        for (var i = 0; i <= sides; i += 1) {
+          final a = i / sides * math.pi * 2;
+          final c = math.cos(a);
+          final s = math.sin(a);
+          final p = ring(o, r, a);
+          _leaves.vertex(
+            p.$1,
+            p.$2,
+            p.$3,
+            px * c + qx * s,
+            py * c + qy * s,
+            pz * c + qz * s,
+            tint,
+            ao: 0.85,
+          );
+          _leaves._uvs.addAll([
+            u0 + (u1 - u0) * i / sides,
+            v0 + (v1 - v0) * (end == 0 ? 0.02 : 0.02 + along * 0.96),
+          ]);
+        }
+      }
+      for (var i = 0; i < sides; i += 1) {
+        final a = base + i;
+        final b = a + 1;
+        final c = base + sides + 1 + i + 1;
+        final d = base + sides + 1 + i;
+        _leaves.indices!.addAll([a, b, c, a, c, d]);
+      }
+      return;
+    }
     for (var i = 0; i < sides; i += 1) {
       final a0 = i / sides * math.pi * 2;
       final a1 = (i + 1) / sides * math.pi * 2;
@@ -512,98 +696,8 @@ extension _TreeKit on OutdoorScene {
     }
   }
 
-  /// One faceted clump of leaves: an irregular, turned polyhedron with crisp
-  /// flat faces, brightening with its height in the crown.
-  void _addLeafChunk(
-    _LitMesh mesh,
-    math.Random random,
-    double cx,
-    double cy,
-    double cz,
-    double size,
-    _Rgb color, {
-    required (double, double, double) center,
-    required double bottom,
-    required double top,
-    required int detail,
-  }) {
-    final unit = _unitIcosahedron(0);
-    final yaw = random.nextDouble() * math.pi * 2;
-    final tilt = (random.nextDouble() - 0.5) * 0.7;
-    final cy0 = math.cos(yaw);
-    final sy0 = math.sin(yaw);
-    final ct = math.cos(tilt);
-    final st = math.sin(tilt);
-    // Broader than tall, so top faces catch the light like the reference.
-    final sx = size * (1.0 + random.nextDouble() * 0.25);
-    final sy = size * (0.8 + random.nextDouble() * 0.25);
-    final sz = size * (0.9 + random.nextDouble() * 0.25);
-    final seed = random.nextInt(1 << 20);
-    final heightT = ((cy - bottom) / (top - bottom)).clamp(0.0, 1.0);
-    // Each chunk gets its own step along the shade-to-sunlit ramp.
-    final ramp = (heightT * 0.85 + random.nextDouble() * 0.3).clamp(0.0, 1.0);
-    final base = _Rgb.lerp(
-      _leafShade(color),
-      color,
-      (ramp * 2).clamp(0.0, 1.0),
-    );
-    final chunkColor = ramp > 0.5
-        ? _Rgb.lerp(color, _leafLight(color), (ramp - 0.5) * 2)
-        : base;
-    for (var i = 0; i < unit.length; i += 9) {
-      final p = List<double>.filled(9, 0);
-      for (var k = 0; k < 3; k += 1) {
-        final ux = unit[i + k * 3];
-        final uy = unit[i + k * 3 + 1];
-        final uz = unit[i + k * 3 + 2];
-        // Shared corners displace identically, so the chunk stays closed.
-        final bump =
-            0.66 +
-            0.66 *
-                _hash3(
-                  (ux * 991).round() + seed,
-                  (uy * 991).round(),
-                  (uz * 991).round() + seed * 3,
-                );
-        final lx = ux * sx * bump;
-        final ly0 = uy * sy * bump;
-        final lz0 = uz * sz * bump;
-        // Tilt about x, then yaw about y: a rotation, so winding holds.
-        final ly = ly0 * ct - lz0 * st;
-        final lz = ly0 * st + lz0 * ct;
-        p[k * 3] = cx + lx * cy0 + lz * sy0;
-        p[k * 3 + 1] = cy + ly;
-        p[k * 3 + 2] = cz - lx * sy0 + lz * cy0;
-      }
-      final n = _faceNormal(p);
-      final faceColor = chunkColor.scale(0.96 + random.nextDouble() * 0.08);
-      for (var k = 0; k < 3; k += 1) {
-        final x = p[k * 3];
-        final y = p[k * 3 + 1];
-        final z = p[k * 3 + 2];
-        // Half faceted, half round, so chunks read as clumps of leaves and
-        // not as cut blocks with hard shaded sides.
-        var nx = n.$1 * 0.5 + (x - cx) / size * 0.5;
-        var ny = n.$2 * 0.5 + (y - cy) / size * 0.5;
-        var nz = n.$3 * 0.5 + (z - cz) / size * 0.5;
-        final nl = math.sqrt(nx * nx + ny * ny + nz * nz);
-        nx /= nl;
-        ny /= nl;
-        nz /= nl;
-        // Self-shadow toward the middle of the crown and its underside.
-        final ox = x - center.$1;
-        final oy = y - center.$2;
-        final oz = z - center.$3;
-        final out = math.sqrt(ox * ox + oy * oy + oz * oz);
-        final reach = (top - center.$2).abs() + 0.001;
-        final depth = (out / reach).clamp(0.0, 1.0);
-        final ao = 0.42 + 0.33 * depth + 0.25 * ramp;
-        mesh.vertex(x, y, z, nx, ny, nz, faceColor, ao: ao);
-      }
-    }
-  }
-
-  /// Low undergrowth: a mound of leaf sprays.
+  /// Low undergrowth: a mound of leaf sprays, with leaves the size of the
+  /// trees' leaves.
   void _addShrub(
     _LitMesh foliage,
     math.Random random,
@@ -613,10 +707,14 @@ extension _TreeKit on OutdoorScene {
     double size,
     _Rgb color,
   ) {
-    final near = _distanceToWindow(x, y, z) < 16;
-    final count = near ? 9 : 4;
+    final distance = _distanceToWindow(x, y, z);
+    final cells = distance < 17
+        ? const [_LeafAtlas.loose, _LeafAtlas.denseA, _LeafAtlas.denseB]
+        : (distance < 27 ? const [_LeafAtlas.middle] : const [_LeafAtlas.far]);
+    final half = _LeafAtlas.cardHalf(cells.last);
+    final cover = size / half;
+    final count = (cover * cover * 4).round().clamp(2, 10);
     final center = (x, y, z);
-    final half = size * (near ? 0.5 : 0.72);
     for (var i = 0; i < count; i += 1) {
       final a = random.nextDouble() * math.pi * 2;
       final spread = size * 0.62 * math.sqrt(random.nextDouble());
@@ -625,15 +723,14 @@ extension _TreeKit on OutdoorScene {
         x + math.cos(a) * spread,
         y + size * (0.12 + random.nextDouble() * 0.62),
         z + math.sin(a) * spread,
-        half * (0.8 + random.nextDouble() * 0.4),
+        // A card never spills far outside the shrub it belongs to.
+        math.min(half, size * 0.9) * (0.85 + random.nextDouble() * 0.3),
         color,
         center: center,
         reach: size,
         bottom: y - size * 0.2,
         top: y + size,
-        atlasCell: i == 0
-            ? _LeafAtlas.loose
-            : (i.isEven ? _LeafAtlas.denseA : _LeafAtlas.denseB),
+        atlasCell: cells[i % cells.length],
       );
     }
   }
@@ -654,98 +751,61 @@ extension _TreeKit on OutdoorScene {
     bool castShadow = true,
   }) {
     final distance = _distanceToWindow(x, baseY, z);
-    // Jagged boughs near the window; plain cones only where they can't be read.
-    final jagged = distance < 48;
+    // Every pine is built from needled boughs, near or far; distant ones
+    // simply get fewer of them.
     final near = distance < 26;
-    final tierCount = near ? tiers + 2 : tiers;
-    final teeth = near ? 9 : (jagged ? 6 : sides);
+    final middle = distance < 48;
+    final whorls = near ? 17 : (middle ? 9 : 6);
+    final perWhorl = near ? 8 : (middle ? 5 : 4);
+    // Up close long boughs are split so needles keep their size; farther
+    // away nobody can tell, and the vertices go further as whole boughs.
+    final maxPieces = near ? 4 : (middle ? 2 : 1);
     final total = (3.6 + random.nextDouble() * 1.6) * scale * slender;
+    final topY = baseY + total;
     _addLimb(
       solids,
       (x, baseY - 0.1, z),
-      (x, baseY + total * 0.55, z),
+      (x, baseY + total * 0.9, z),
       scale * 0.14,
-      scale * 0.05,
+      scale * 0.03,
       const _Rgb.hex(0x5A4638),
-      sides: near ? 5 : 4,
+      sides: near ? 8 : 5,
+      barkCell: _LeafAtlas.bark,
     );
     final hue = random.nextDouble();
-    if (jagged) {
-      // A dark inner cone keeps the tree solid; boughs give it its outline.
-      _addConeTier(
-        foliage,
-        random,
-        x,
-        baseY + total * 0.2,
-        z,
-        scale * 0.62,
-        total * 0.8,
-        _Rgb.lerp(dark, const _Rgb(0, 0, 0), 0.4),
-        dark,
-        teeth: 7,
-        jagged: false,
-        aoBase: 0.45,
-      );
-      final whorls = near ? 15 : 8;
-      final perWhorl = near ? 7 : 5;
-      for (var w = 0; w < whorls; w += 1) {
-        final t = w / whorls;
-        final y = baseY + total * (0.2 + t * 0.78);
-        final twist = random.nextDouble() * math.pi * 2;
-        for (var i = 0; i < perWhorl; i += 1) {
-          final a = twist + i / perWhorl * math.pi * 2;
-          final length =
-              scale * (1.5 - 1.3 * t) * (0.85 + random.nextDouble() * 0.3);
-          final droop = 0.2 + (1 - t) * 0.42 + random.nextDouble() * 0.15;
-          final tip = (
-            x + math.cos(a) * math.cos(droop) * length,
-            y - math.sin(droop) * length,
-            z + math.sin(a) * math.cos(droop) * length,
-          );
-          final tone = _Rgb.lerp(
-            _Rgb.lerp(dark, light, 0.35 + t * 0.5 + hue * 0.15),
-            _sunlit,
-            0.05 + t * 0.1,
-          ).scale(1.35 + random.nextDouble() * 0.3);
-          _addBough(
-            (x, y, z),
-            tip,
-            length * 0.72,
-            tone,
-            rootShade: 0.42,
-            tipShade: 0.72 + t * 0.28,
-          );
-        }
-      }
-    } else {
-      for (var tier = 0; tier < tierCount; tier += 1) {
-        final t = tier / tierCount;
-        final tierBase = baseY + total * (0.2 + t * 0.56);
-        final tierHeight = total * (0.46 - t * 0.14);
-        final radius = scale * (1.22 - t * 0.86);
-        // Tiers brighten toward the tip, where the light reaches.
-        final tierDark = _Rgb.lerp(dark, light, t * 0.45 + hue * 0.2);
-        final tierLight = _Rgb.lerp(
-          light,
-          _sunlit,
-          0.1 + t * 0.14,
-        ).scale(0.95 + hue * 0.15);
-        _addConeTier(
-          foliage,
-          random,
-          x,
-          tierBase,
-          z,
-          radius,
-          tierHeight,
-          tierDark,
-          tierLight,
-          teeth: teeth,
-          jagged: false,
-          aoBase: 0.5 + t * 0.28,
+    _Rgb toneAt(double t) => _Rgb.lerp(
+      _Rgb.lerp(dark, light, 0.35 + t * 0.5 + hue * 0.15),
+      _sunlit,
+      0.05 + t * 0.1,
+    ).scale(1.35 + random.nextDouble() * 0.3);
+    for (var w = 0; w < whorls; w += 1) {
+      final t = w / whorls;
+      final y = baseY + total * (0.2 + t * 0.76);
+      final twist = random.nextDouble() * math.pi * 2;
+      // Lower whorls hold more boughs, so the skirt stays full without a core.
+      final count = perWhorl + (t < 0.5 ? (near ? 2 : 1) : 0);
+      for (var i = 0; i < count; i += 1) {
+        final a = twist + (i + random.nextDouble() * 0.4) / count * math.pi * 2;
+        final length =
+            scale * (1.5 - 1.3 * t) * (0.85 + random.nextDouble() * 0.3);
+        final droop = 0.2 + (1 - t) * 0.42 + random.nextDouble() * 0.15;
+        final tip = (
+          x + math.cos(a) * math.cos(droop) * length,
+          y - math.sin(droop) * length,
+          z + math.sin(a) * math.cos(droop) * length,
         );
+        _addBoughRun((x, y, z), tip, length, toneAt(t), t, maxPieces);
       }
     }
+    // A leader at the very top, pointing up.
+    _addBoughRun(
+      (x, baseY + total * 0.9, z),
+      (x, topY, z),
+      total * 0.1,
+      toneAt(1),
+      1,
+      1,
+    );
     if (castShadow) {
       _shadows.add(
         _TreeShadow(x: x, z: z, radius: scale * 1.05, height: total * 0.55),
@@ -753,57 +813,33 @@ extension _TreeKit on OutdoorScene {
     }
   }
 
-  /// A skirt of boughs. Jagged tiers alternate long drooping tips with short
-  /// notches around the rim, each facet shaded on its own.
-  void _addConeTier(
-    _LitMesh mesh,
-    math.Random random,
-    double x,
-    double baseY,
-    double z,
-    double radius,
-    double height,
-    _Rgb dark,
-    _Rgb light, {
-    required int teeth,
-    required bool jagged,
-    required double aoBase,
-  }) {
-    final twist = random.nextDouble() * math.pi * 2;
-    final count = jagged ? teeth * 2 : teeth;
-    final apex = (x, baseY + height, z);
-    (double, double, double) rim(int i) {
-      final a = twist + i / count * math.pi * 2;
-      final tip = !jagged || i.isEven;
-      final r = radius * (tip ? 1.0 : 0.68);
-      final y =
-          baseY -
-          (jagged && tip ? height * 0.12 : 0) +
-          (tip ? 0 : height * 0.1);
-      return (x + math.cos(a) * r, y, z + math.sin(a) * r);
-    }
-
-    for (var i = 0; i < count; i += 1) {
-      final a = rim(i);
-      final b = rim((i + 1) % count);
-      final n = _faceNormal([
-        a.$1,
-        a.$2,
-        a.$3,
-        apex.$1,
-        apex.$2,
-        apex.$3,
-        b.$1,
-        b.$2,
-        b.$3,
-      ]);
-      final face = _Rgb.lerp(dark, light, random.nextDouble() * 0.35 + 0.3);
-      final tipColor = i.isEven ? light : face;
-      final notchColor = i.isEven ? face : light;
-      mesh
-        ..vertex(a.$1, a.$2, a.$3, n.$1, n.$2, n.$3, tipColor, ao: aoBase)
-        ..vertex(apex.$1, apex.$2, apex.$3, n.$1, n.$2, n.$3, dark, ao: 1)
-        ..vertex(b.$1, b.$2, b.$3, n.$1, n.$2, n.$3, notchColor, ao: aoBase);
+  /// A bough from [root] to [tip], laid as several shorter cards end to end
+  /// when it is long, so the needles keep one size all over the tree.
+  void _addBoughRun(
+    (double, double, double) root,
+    (double, double, double) tip,
+    double length,
+    _Rgb tone,
+    double t,
+    int maxPieces,
+  ) {
+    final pieces = (length / 0.75).round().clamp(1, maxPieces);
+    (double, double, double) at(double f) => (
+      root.$1 + (tip.$1 - root.$1) * f,
+      root.$2 + (tip.$2 - root.$2) * f,
+      root.$3 + (tip.$3 - root.$3) * f,
+    );
+    for (var k = 0; k < pieces; k += 1) {
+      final k0 = k / pieces;
+      final k1 = (k + 1) / pieces;
+      _addBough(
+        at(math.max(0, k0 - 0.08)),
+        at(k1),
+        length / pieces * 0.85 * (1.15 - 0.4 * k0),
+        tone,
+        rootShade: 0.4 + 0.3 * k0,
+        tipShade: 0.62 + 0.38 * k1 + t * 0.1,
+      );
     }
   }
 }

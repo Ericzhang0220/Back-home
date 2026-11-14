@@ -10,6 +10,13 @@ class IslandScene extends OutdoorScene {
 
   static const double seaLevel = -4.4;
 
+  // Textured walls, roofs and stonework of the buildings.
+  late final _LitMesh _masonry = _LitMesh(
+    wrap: 0.15,
+    indexed: true,
+    cutout: _BuildingAtlas.instance.texture,
+  );
+
   @override
   void _populate() {
     _buildSea();
@@ -20,6 +27,7 @@ class IslandScene extends OutdoorScene {
     _buildTrees(foliage, solids);
     _addMesh(solids);
     _addMesh(foliage);
+    _addMesh(_masonry);
   }
 
   double _pathU(double v) => math.sin(v * 0.11) * 3.2 + v * 0.1;
@@ -126,41 +134,57 @@ class IslandScene extends OutdoorScene {
   }
 
   void _buildSea() {
-    final mesh = _LitMesh(wrap: 0, indexed: true, water: true);
-    const rings = 22;
-    const segments = 72;
+    // Larger waves than a river's, and kept from mirroring the sky outright at
+    // a distance, so the sea line stays a crisp, deeper blue than the horizon.
+    final sea = _MirrorWater(
+      level: seaLevel,
+      waveScale: 1.8,
+      waveStrength: 1.15,
+      maxFresnel: 0.72,
+    );
+    const rings = 26;
+    const segments = 96;
     const radius = 72.0;
     final cx = OutdoorScene._eyeX;
     final cz = _eyeZ;
-    mesh.vertex(cx, seaLevel, cz, 0, 1, 0, const _Rgb.hex(0x2E7FA6), ao: 1);
+    int point(double x, double z) {
+      final depth = seaLevel - height(x - 1, _wallZ - z);
+      final shallow = 1 - _smoothstep(0.1, 2.6, depth);
+      return sea.vertex(
+        x,
+        z,
+        flowX: 0.06,
+        flowZ: 0.03,
+        // Surf breaking along the beaches.
+        foam: (1 - _smoothstep(0.02, 0.4, depth)) * 0.8,
+        tint: _Rgb.lerp(
+          const _Rgb.hex(0x1D5F92),
+          const _Rgb.hex(0x3AA2B4),
+          shallow,
+        ),
+      );
+    }
+
+    final center = point(cx, cz);
     for (var ring = 1; ring <= rings; ring += 1) {
-      // Rings bunch up near the window so haze interpolates smoothly.
+      // Rings bunch up near the window, where the shore needs the detail.
       final t = ring / rings;
       final r = radius * t * t;
       for (var s = 0; s < segments; s += 1) {
         final a = s / segments * math.pi * 2;
-        mesh.vertex(
-          cx + math.cos(a) * r,
-          seaLevel,
-          cz + math.sin(a) * r,
-          0,
-          1,
-          0,
-          const _Rgb.hex(0x2E7FA6),
-          ao: 1,
-        );
+        point(cx + math.cos(a) * r, cz + math.sin(a) * r);
       }
     }
     for (var s = 0; s < segments; s += 1) {
       final next = (s + 1) % segments;
-      mesh.indices!.addAll([0, 1 + next, 1 + s]);
+      sea.indices.addAll([center, center + 1 + next, center + 1 + s]);
     }
     for (var ring = 1; ring < rings; ring += 1) {
-      final inner = 1 + (ring - 1) * segments;
-      final outer = 1 + ring * segments;
+      final inner = center + 1 + (ring - 1) * segments;
+      final outer = center + 1 + ring * segments;
       for (var s = 0; s < segments; s += 1) {
         final next = (s + 1) % segments;
-        mesh.indices!.addAll([
+        sea.indices.addAll([
           inner + s,
           inner + next,
           outer + s,
@@ -170,7 +194,7 @@ class IslandScene extends OutdoorScene {
         ]);
       }
     }
-    _addMesh(mesh);
+    _addWater(sea);
   }
 
   // --- Trees ---------------------------------------------------------------
@@ -380,6 +404,10 @@ class IslandScene extends OutdoorScene {
     wall(-22, 12, -14, 6);
   }
 
+  /// A stone-footed cottage: lime-washed walls, a tiled roof with deep eaves,
+  /// fascia boards and a ridge cap, framed and shuttered windows with flower
+  /// boxes, a plank door under a little hood, a stone chimney, and shrubs
+  /// growing against the walls.
   void _addCottage(
     _LitMesh mesh, {
     required double u,
@@ -388,107 +416,489 @@ class IslandScene extends OutdoorScene {
     required double width,
     required double depth,
   }) {
+    final random = math.Random((u * 31 + v * 7).round());
     final x = _worldX(u);
     final z = _worldZ(v);
     final ground = height(u, v);
+    final painted = _masonry;
     const wallHeight = 2.0;
-    const wallColor = _Rgb.hex(0xEEE8DC);
-    const roofColor = _Rgb.hex(0xDD6A2A);
-    _addBox(
-      mesh,
-      x,
-      ground + wallHeight / 2 - 0.3,
-      z,
-      width: width,
-      height: wallHeight + 0.6,
-      depth: depth,
-      yaw: yaw,
-      color: wallColor,
-    );
-    // Gable roof as two sloped slabs.
+    const wallColor = _Rgb.hex(0xF4EEE2);
+    const roofColor = _Rgb.hex(0xD8642A);
+    const stoneColor = _Rgb.hex(0xC2B49C);
+    const timber = _Rgb.hex(0x7A5636);
+    const trim = _Rgb.hex(0xF7F3EA);
+    final shutter = random.nextBool()
+        ? const _Rgb.hex(0x4F7E8C)
+        : const _Rgb.hex(0x5E8A4E);
     final c = math.cos(yaw);
     final s = math.sin(yaw);
-    const roofRise = 1.25;
-    final roofBase = ground + wallHeight;
-    final halfW = width / 2 + 0.22;
-    final halfD = depth / 2 + 0.25;
     (double, double, double) local(double lx, double ly, double lz) =>
         (x + lx * c + lz * s, ly, z - lx * s + lz * c);
-    void quad(
+    (double, double, double) turn(double lx, double ly, double lz) =>
+        (lx * c + lz * s, ly, -lx * s + lz * c);
+
+    /// A quad with its painting laid on in world units along [ua] and [va].
+    void face(
       (double, double, double) a,
       (double, double, double) b,
       (double, double, double) cc,
       (double, double, double) d,
-      _Rgb color,
-    ) {
-      _addQuad(mesh, a, b, cc, d, color);
+      int cell,
+      _Rgb color, {
+      double shade = 1,
+    }) {
+      final n = _faceNormal([
+        a.$1,
+        a.$2,
+        a.$3,
+        b.$1,
+        b.$2,
+        b.$3,
+        cc.$1,
+        cc.$2,
+        cc.$3,
+      ]);
+      final span = _BuildingAtlas.span(cell);
+      final (u0, v0, u1, v1) = _BuildingAtlas.instance.cell(cell);
+      // Texture axes: along a->b, and along a->d.
+      final ex = (b.$1 - a.$1, b.$2 - a.$2, b.$3 - a.$3);
+      final ey = (d.$1 - a.$1, d.$2 - a.$2, d.$3 - a.$3);
+      final lx = math.sqrt(ex.$1 * ex.$1 + ex.$2 * ex.$2 + ex.$3 * ex.$3);
+      final ly = math.sqrt(ey.$1 * ey.$1 + ey.$2 * ey.$2 + ey.$3 * ey.$3);
+      final offset = random.nextDouble() * 0.3;
+      final base = painted.count;
+      for (final (p, fu, fv) in [
+        (a, 0.0, 0.0),
+        (b, 1.0, 0.0),
+        (cc, 1.0, 1.0),
+        (d, 0.0, 1.0),
+      ]) {
+        painted.vertex(
+          p.$1,
+          p.$2,
+          p.$3,
+          n.$1,
+          n.$2,
+          n.$3,
+          color.scale(1.18 * shade),
+          ao: 1,
+        );
+        final tu = ((offset + fu * lx / span) % 1.0001).clamp(0.01, 0.99);
+        final tv = (fv * ly / span).clamp(0.01, 0.99);
+        painted._uvs.addAll([u0 + (u1 - u0) * tu, v0 + (v1 - v0) * tv]);
+      }
+      painted.indices!.addAll([
+        base,
+        base + 1,
+        base + 2,
+        base,
+        base + 2,
+        base + 3,
+      ]);
     }
 
-    final ridgeY = roofBase + roofRise;
-    // Front and back slopes.
-    quad(
-      local(-halfW, roofBase, halfD),
-      local(halfW, roofBase, halfD),
-      local(halfW, ridgeY, 0),
-      local(-halfW, ridgeY, 0),
-      roofColor,
-    );
-    quad(
-      local(halfW, roofBase, -halfD),
-      local(-halfW, roofBase, -halfD),
-      local(-halfW, ridgeY, 0),
-      local(halfW, ridgeY, 0),
-      roofColor.scale(0.92),
-    );
-    // Gable ends.
-    for (final side in const [-1.0, 1.0]) {
-      final lx = side * (width / 2);
-      final a = local(lx, roofBase, side * (depth / 2));
-      final b = local(lx, roofBase, -side * (depth / 2));
-      final apex = local(lx, ridgeY - 0.05, 0);
-      _addTriangle(mesh, a, b, apex, wallColor);
+    /// A box in the cottage's frame, centred at (cx, cy, cz).
+    void box(
+      double cx,
+      double cy,
+      double cz,
+      double w,
+      double h,
+      double d,
+      int cell,
+      _Rgb color,
+    ) {
+      (double, double, double) p(double sx, double sy, double sz) =>
+          local(cx + sx * w / 2, cy + sy * h / 2, cz + sz * d / 2);
+      face(p(-1, -1, 1), p(1, -1, 1), p(1, 1, 1), p(-1, 1, 1), cell, color);
+      face(p(1, -1, -1), p(-1, -1, -1), p(-1, 1, -1), p(1, 1, -1), cell, color);
+      face(p(1, -1, 1), p(1, -1, -1), p(1, 1, -1), p(1, 1, 1), cell, color);
+      face(p(-1, -1, -1), p(-1, -1, 1), p(-1, 1, 1), p(-1, 1, -1), cell, color);
+      face(p(-1, 1, 1), p(1, 1, 1), p(1, 1, -1), p(-1, 1, -1), cell, color);
     }
-    // Windows and door on the front face.
-    const windowColor = _Rgb.hex(0x3E4E5C);
-    for (final lx in [-width * 0.28, width * 0.28]) {
-      final p = local(lx, ground + 1.25, depth / 2 + 0.03);
+
+    // Stone footing, then the walls standing on it.
+    const footing = 0.45;
+    box(
+      0,
+      ground - 0.35 + footing / 2 + 0.17,
+      0,
+      width + 0.12,
+      footing + 0.7,
+      depth + 0.12,
+      _BuildingAtlas.stone,
+      stoneColor,
+    );
+    final wallBase = ground + footing;
+    final wallTop = ground + wallHeight;
+    box(
+      0,
+      (wallBase + wallTop) / 2,
+      0,
+      width,
+      wallTop - wallBase,
+      depth,
+      _BuildingAtlas.plaster,
+      wallColor,
+    );
+    // Timber corner posts.
+    for (final sx in const [-1.0, 1.0]) {
+      for (final sz in const [-1.0, 1.0]) {
+        box(
+          sx * (width / 2 - 0.04),
+          (wallBase + wallTop) / 2,
+          sz * (depth / 2 - 0.04),
+          0.14,
+          wallTop - wallBase,
+          0.14,
+          _BuildingAtlas.wood,
+          timber,
+        );
+      }
+    }
+    // Gable ends, plastered.
+    const roofRise = 1.3;
+    final ridgeY = wallTop + roofRise;
+    for (final side in const [-1.0, 1.0]) {
+      final lx = side * width / 2;
+      final a = local(lx, wallTop, side * depth / 2);
+      final b = local(lx, wallTop, -side * depth / 2);
+      final apex = local(lx, ridgeY - 0.06, 0);
+      face(a, b, apex, apex, _BuildingAtlas.plaster, wallColor);
+      // A round attic vent in each gable.
+      final vent = local(lx + side * 0.02, wallTop + roofRise * 0.42, 0);
       _addBox(
         mesh,
-        p.$1,
-        p.$2,
-        p.$3,
-        width: 0.5,
-        height: 0.55,
-        depth: 0.06,
+        vent.$1,
+        vent.$2,
+        vent.$3,
+        width: 0.06,
+        height: 0.3,
+        depth: 0.3,
         yaw: yaw,
-        color: windowColor,
-        emissive: _warmWindow,
+        color: const _Rgb.hex(0x3A3430),
+        emissive: _warmWindow.scale(0.6),
       );
     }
-    final door = local(0, ground + 0.5, depth / 2 + 0.03);
+
+    // Roof: two thick tiled slabs with deep eaves, boards along the edges and
+    // a ridge cap.
+    final eaveOut = 0.32;
+    final halfW = width / 2 + 0.28;
+    final halfD = depth / 2 + eaveOut;
+    final drop = roofRise * eaveOut / (depth / 2);
+    for (final side in const [1.0, -1.0]) {
+      final eaveY = wallTop - drop;
+      final low = side * halfD;
+      final shade = side > 0 ? 1.0 : 0.9;
+      // Tiles, from ridge to eave.
+      face(
+        local(halfW * side, ridgeY + 0.12, 0),
+        local(-halfW * side, ridgeY + 0.12, 0),
+        local(-halfW * side, eaveY + 0.12, low),
+        local(halfW * side, eaveY + 0.12, low),
+        _BuildingAtlas.tiles,
+        roofColor,
+        shade: shade,
+      );
+      // Underside of the eaves, in shadow.
+      face(
+        local(-halfW * side, eaveY, low),
+        local(-halfW * side, ridgeY - 0.02, 0),
+        local(halfW * side, ridgeY - 0.02, 0),
+        local(halfW * side, eaveY, low),
+        _BuildingAtlas.wood,
+        timber,
+        shade: 0.55,
+      );
+      // Fascia along the eave.
+      face(
+        local(-halfW * side, eaveY - 0.02, low + side * 0.01),
+        local(halfW * side, eaveY - 0.02, low + side * 0.01),
+        local(halfW * side, eaveY + 0.16, low + side * 0.01),
+        local(-halfW * side, eaveY + 0.16, low + side * 0.01),
+        _BuildingAtlas.wood,
+        timber,
+      );
+      // Barge boards up each gable edge.
+      for (final end in const [-1.0, 1.0]) {
+        final ex = end * (halfW + 0.01);
+        final a = local(ex, eaveY - 0.02, low);
+        final b = local(ex, ridgeY - 0.02, 0);
+        final up = turn(0, 0.18, 0);
+        final first = end * side > 0 ? a : b;
+        final second = end * side > 0 ? b : a;
+        face(
+          first,
+          second,
+          (second.$1 + up.$1, second.$2 + up.$2, second.$3 + up.$3),
+          (first.$1 + up.$1, first.$2 + up.$2, first.$3 + up.$3),
+          _BuildingAtlas.wood,
+          timber,
+        );
+      }
+    }
+    box(
+      0,
+      ridgeY + 0.14,
+      0,
+      halfW * 2 + 0.04,
+      0.12,
+      0.2,
+      _BuildingAtlas.tiles,
+      roofColor.scale(0.85),
+    );
+
+    // Windows: recessed glass with a crossbar, a white frame and sill,
+    // shutters open to either side, and a box of flowers.
+    void window(double lx, double ly, double lz, double facing) {
+      (double, double, double) at(double ax, double ay, double out) {
+        // Along the wall, up, and out from it, for a wall facing +z or -z
+        // (facing = ±1) or +x / -x (facing = ±2).
+        return switch (facing) {
+          1.0 => local(lx + ax, ly + ay, lz + out),
+          -1.0 => local(lx - ax, ly + ay, lz - out),
+          2.0 => local(lx + out, ly + ay, lz - ax),
+          _ => local(lx - out, ly + ay, lz + ax),
+        };
+      }
+
+      final wallYaw =
+          yaw +
+          switch (facing) {
+            1.0 => 0.0,
+            -1.0 => math.pi,
+            2.0 => math.pi / 2,
+            _ => -math.pi / 2,
+          };
+      final glass = at(0, 0, 0.01);
+      _addBox(
+        mesh,
+        glass.$1,
+        glass.$2,
+        glass.$3,
+        width: 0.48,
+        height: 0.58,
+        depth: 0.04,
+        yaw: wallYaw,
+        color: const _Rgb.hex(0x33424F),
+        emissive: _warmWindow,
+      );
+      for (final bar in [(0.0, 0.0, 0.035, 0.58), (0.0, 0.03, 0.48, 0.035)]) {
+        final p = at(bar.$1, bar.$2, 0.04);
+        _addBox(
+          mesh,
+          p.$1,
+          p.$2,
+          p.$3,
+          width: bar.$3,
+          height: bar.$4,
+          depth: 0.03,
+          yaw: wallYaw,
+          color: trim,
+        );
+      }
+      for (final edge in [
+        (-0.27, 0.0, 0.06, 0.7),
+        (0.27, 0.0, 0.06, 0.7),
+        (0.0, 0.32, 0.6, 0.06),
+      ]) {
+        final p = at(edge.$1, edge.$2, 0.05);
+        _addBox(
+          mesh,
+          p.$1,
+          p.$2,
+          p.$3,
+          width: edge.$3,
+          height: edge.$4,
+          depth: 0.08,
+          yaw: wallYaw,
+          color: trim,
+        );
+      }
+      final sill = at(0, -0.34, 0.08);
+      _addBox(
+        mesh,
+        sill.$1,
+        sill.$2,
+        sill.$3,
+        width: 0.7,
+        height: 0.07,
+        depth: 0.18,
+        yaw: wallYaw,
+        color: trim,
+      );
+      for (final side in const [-1.0, 1.0]) {
+        final p = at(side * 0.5, 0, 0.06);
+        _addBox(
+          mesh,
+          p.$1,
+          p.$2,
+          p.$3,
+          width: 0.24,
+          height: 0.66,
+          depth: 0.04,
+          yaw: wallYaw,
+          color: shutter,
+        );
+        for (final slat in const [-0.2, 0.0, 0.2]) {
+          final q = at(side * 0.5, slat, 0.09);
+          _addBox(
+            mesh,
+            q.$1,
+            q.$2,
+            q.$3,
+            width: 0.2,
+            height: 0.03,
+            depth: 0.02,
+            yaw: wallYaw,
+            color: shutter.scale(0.75),
+          );
+        }
+      }
+      final planter = at(0, -0.45, 0.14);
+      _addBox(
+        mesh,
+        planter.$1,
+        planter.$2,
+        planter.$3,
+        width: 0.62,
+        height: 0.14,
+        depth: 0.16,
+        yaw: wallYaw,
+        color: timber,
+      );
+      for (var f = 0; f < 7; f += 1) {
+        final p = at(
+          -0.26 + f * 0.087,
+          -0.34 + random.nextDouble() * 0.04,
+          0.15,
+        );
+        _addBox(
+          mesh,
+          p.$1,
+          p.$2,
+          p.$3,
+          width: 0.07,
+          height: 0.07,
+          depth: 0.07,
+          yaw: wallYaw + f,
+          color: f.isEven ? const _Rgb.hex(0xD8344A) : const _Rgb.hex(0x4E8A34),
+        );
+      }
+    }
+
+    final windowY = ground + 1.25;
+    window(-width * 0.29, windowY, depth / 2, 1);
+    window(width * 0.29, windowY, depth / 2, 1);
+    window(0, windowY, -depth / 2, -1);
+    window(width / 2, windowY, 0, 2);
+    window(-width / 2, windowY, 0, -2);
+
+    // Plank door in a frame, a stone step, and a little hood above it.
+    face(
+      local(-0.29, ground + footing, depth / 2 + 0.02),
+      local(0.29, ground + footing, depth / 2 + 0.02),
+      local(0.29, ground + 1.55, depth / 2 + 0.02),
+      local(-0.29, ground + 1.55, depth / 2 + 0.02),
+      _BuildingAtlas.wood,
+      const _Rgb.hex(0x6B4A33),
+    );
+    for (final edge in [(-0.33, 0.07, 1.15), (0.33, 0.07, 1.15)]) {
+      box(
+        edge.$1,
+        ground + footing + 0.55,
+        depth / 2 + 0.03,
+        edge.$2,
+        edge.$3,
+        0.06,
+        _BuildingAtlas.wood,
+        timber,
+      );
+    }
+    box(
+      0,
+      ground + 1.6,
+      depth / 2 + 0.03,
+      0.74,
+      0.08,
+      0.06,
+      _BuildingAtlas.wood,
+      timber,
+    );
+    box(
+      0,
+      ground + footing - 0.05,
+      depth / 2 + 0.22,
+      0.9,
+      0.12,
+      0.36,
+      _BuildingAtlas.stone,
+      stoneColor.scale(0.9),
+    );
+    box(
+      0,
+      ground + 1.82,
+      depth / 2 + 0.18,
+      0.9,
+      0.06,
+      0.4,
+      _BuildingAtlas.tiles,
+      roofColor,
+    );
+    final handle = local(0.18, ground + 1.0, depth / 2 + 0.05);
     _addBox(
       mesh,
-      door.$1,
-      door.$2,
-      door.$3,
-      width: 0.55,
-      height: 1.1,
-      depth: 0.06,
+      handle.$1,
+      handle.$2,
+      handle.$3,
+      width: 0.05,
+      height: 0.05,
+      depth: 0.04,
       yaw: yaw,
-      color: const _Rgb.hex(0x6B4A33),
+      color: const _Rgb.hex(0x2E2A26),
     );
-    final chimney = local(-width * 0.3, ridgeY - 0.1, -depth * 0.15);
-    _addBox(
-      mesh,
-      chimney.$1,
-      chimney.$2,
-      chimney.$3,
-      width: 0.4,
-      height: 1.0,
-      depth: 0.4,
-      yaw: yaw,
-      color: const _Rgb.hex(0x9A8F82),
+
+    // A stone chimney with a cap.
+    box(
+      -width * 0.3,
+      ridgeY + 0.1,
+      -depth * 0.18,
+      0.46,
+      1.4,
+      0.46,
+      _BuildingAtlas.stone,
+      stoneColor,
     );
+    box(
+      -width * 0.3,
+      ridgeY + 0.84,
+      -depth * 0.18,
+      0.56,
+      0.08,
+      0.56,
+      _BuildingAtlas.stone,
+      stoneColor.scale(0.8),
+    );
+
+    // Shrubs growing against the walls.
+    for (var i = 0; i < 5; i += 1) {
+      final along = (random.nextDouble() - 0.5) * width;
+      if (along.abs() < 0.5) {
+        continue;
+      }
+      final p = local(along, 0, depth / 2 + 0.35);
+      final bush = height(p.$1 - 1, _wallZ - p.$3);
+      _addShrub(
+        mesh,
+        random,
+        p.$1,
+        bush,
+        p.$3,
+        0.45 + random.nextDouble() * 0.25,
+        const _Rgb.hex(0x5E9A3C),
+      );
+    }
   }
 
   void _addTower(_LitMesh mesh, {required double u, required double v}) {

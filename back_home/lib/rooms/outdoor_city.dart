@@ -13,14 +13,6 @@ class CityScene extends OutdoorScene {
 
   final _FacadeMesh _facades = _FacadeMesh();
   final _CityRoad _road = _CityRoad();
-  late final _CityWater _river = _CityWater(
-    level: _water,
-    minU: -92,
-    maxU: 92,
-    nearV: 10.0,
-    farV: 36.5,
-    wallZ: _wallZ,
-  );
   final _GlowMesh _halos = _GlowMesh();
   final _GlowMesh _beacons = _GlowMesh();
   final List<(double, double)> _towerTops = []; // (v, top y)
@@ -48,7 +40,6 @@ class CityScene extends OutdoorScene {
   @override
   void dispose() {
     _facades.dispose();
-    _river.dispose();
     super.dispose();
   }
 
@@ -140,9 +131,8 @@ class CityScene extends OutdoorScene {
     _buildBridge(solids);
     _buildRoad(solids);
     _buildTrees(foliage, solids);
-    group
-      ..add(_facades.createMesh())
-      ..add(_river.createMesh());
+    group.add(_facades.createMesh());
+    _buildRiver();
     _addMesh(solids);
     _addMesh(foliage);
     group
@@ -1204,29 +1194,28 @@ class CityScene extends OutdoorScene {
   }
 
   @override
-  void updateReflection(
-    double dt,
-    three.WebGLRenderer renderer,
-    three.Scene scene,
-    three.Camera camera,
-    List<three.Object3D> outdoors,
-  ) {
-    if (camera is! three.PerspectiveCamera) {
-      return;
-    }
-    _river.updateReflection(
-      dt,
-      renderer,
-      scene,
-      camera,
-      [group, ...outdoors],
-      [for (final car in _cars) car.mesh],
-    );
-  }
+  List<three.Object3D> get _reflectionMovers => [
+    for (final car in _cars) car.mesh,
+  ];
 
-  @override
-  void setKeyLightPosition(double x, double y, double z) {
-    _river.setKeyLightPosition(x, y, z);
+  /// A glossy river spanning the view; banks and bluffs hide its edges.
+  void _buildRiver() {
+    final river = _MirrorWater(level: _water);
+    const tint = _Rgb.hex(0x124268);
+    final corners = [
+      for (final (u, v) in const [
+        (-92.0, 10.0),
+        (92.0, 10.0),
+        (-92.0, 36.5),
+        (92.0, 36.5),
+      ])
+        river.vertex(_worldX(u), _worldZ(v), flowX: 0.12, tint: tint),
+    ];
+    river.indices.addAll([
+      corners[0], corners[1], corners[2], //
+      corners[1], corners[3], corners[2],
+    ]);
+    _addWater(river);
   }
 
   @override
@@ -1237,7 +1226,6 @@ class CityScene extends OutdoorScene {
       // Car models sit at their own origin; light them as if near the house.
       car.body.relight(light, 0, 1, 6);
     }
-    _river.relight(light);
     _halos.intensity = _night;
     _beacons.intensity = _night;
   }
@@ -1251,7 +1239,6 @@ class CityScene extends OutdoorScene {
       car.distance = (moved % _road.length + _road.length) % _road.length;
     }
     _placeCars();
-    _river.animate(dt);
     if (_night > 0) {
       // Aviation lights breathe slowly rather than flash.
       _beacons.intensity =

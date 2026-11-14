@@ -105,36 +105,53 @@ class _WaterfallScene extends OutdoorScene {
 
   void _buildPool() {
     // One sheet across the gorge floor; the terrain hides it wherever the
-    // ground rises above the waterline. It drifts gently toward the house.
-    final pool = _FlowMesh(
-      speed: 0.35,
-      alongFrequency: 0.55,
-      acrossFrequency: 0.9,
-      foamThreshold: 0.72,
+    // ground rises above the waterline. It churns white at the foot of the
+    // falls and drifts out toward the house. The mirror image refreshes often,
+    // so the falls keep pouring in their reflection.
+    final pool = _MirrorWater(
+      level: _water,
+      waveStrength: 1.1,
+      refreshSeconds: 0.08,
     );
-    pool.ribbon(48, 40, (s, t) {
-      final v = 3 + s * (_lipV - 2);
-      final u = -16 + t * 32;
-      // Churned white water at the foot of the falls.
-      final churn =
-          _smoothstep(_lipV - 8, _lipV - 1.5, v) *
-          (1 - _smoothstep(1, 5, math.max(0, (u + 0.5).abs() - 6)));
-      return (
-        x: _worldX(u),
-        y: _water,
-        z: _worldZ(v),
-        along: -v,
-        across: u,
-        base: _Rgb.lerp(
-          const _Rgb.hex(0x2E9C98),
-          const _Rgb.hex(0x1F6F78),
-          _smoothstep(10, 24, v),
-        ),
-        foam: const _Rgb.hex(0xE6F4F2),
-        foamBias: churn * 0.55,
-      );
-    });
-    _addFlow(pool);
+    const footU = (_fallLeft + _fallRight) / 2;
+    const footV = _lipV - 1.5;
+    pool.sheet(
+      uMin: -18,
+      uMax: 18,
+      vMin: 2,
+      vMax: _lipV + 1,
+      step: 0.5,
+      worldX: _worldX,
+      worldZ: _worldZ,
+      ground: height,
+      at: (u, v, depth) {
+        final churn =
+            _smoothstep(_lipV - 8, _lipV - 1.5, v) *
+            (1 - _smoothstep(1, 5, math.max(0, (u - footU).abs() - 6)));
+        // Pushed out from the foot of the falls, then a slow drift downstream.
+        final du = u - footU;
+        final dv = footV - v;
+        final away = math.sqrt(du * du + dv * dv) + 0.001;
+        // Eased off right at the foot, where the directions all meet.
+        final push = 1.4 * churn * _smoothstep(0.5, 4, away);
+        final shallow = 1 - _smoothstep(0.05, 0.6, depth);
+        return (
+          flowX: du / away * push,
+          flowZ: dv / away * push + 0.3,
+          foam: churn * 0.95 + shallow * 0.35,
+          tint: _Rgb.lerp(
+            _Rgb.lerp(
+              const _Rgb.hex(0x2E9C98),
+              const _Rgb.hex(0x1F6F78),
+              _smoothstep(10, 24, v),
+            ),
+            const _Rgb.hex(0x6DBCA8),
+            shallow,
+          ),
+        );
+      },
+    );
+    _addWater(pool);
   }
 
   void _buildFalls() {

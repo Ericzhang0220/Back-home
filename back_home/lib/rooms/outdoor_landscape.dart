@@ -6,16 +6,17 @@ import 'package:three_js/three_js.dart' as three;
 
 import 'room_state.dart' show OutdoorEnvironment;
 
+part 'outdoor_building_atlas.dart';
 part 'outdoor_city.dart';
 part 'outdoor_city_bridge.dart';
 part 'outdoor_city_facades.dart';
-part 'outdoor_city_water.dart';
 part 'outdoor_forest.dart';
 part 'outdoor_island.dart';
 part 'outdoor_kit.dart';
 part 'outdoor_leaf_atlas.dart';
 part 'outdoor_reflection.dart';
 part 'outdoor_trees.dart';
+part 'outdoor_water.dart';
 part 'outdoor_waterfall.dart';
 
 /// Lighting for the baked outdoor scene. Every outdoor surface is unlit
@@ -126,6 +127,7 @@ abstract class OutdoorScene {
   final three.Group group = three.Group();
   final List<_LitMesh> _meshes = [];
   final List<_FlowMesh> _flows = [];
+  final List<_MirrorWater> _waters = [];
   final List<_TreeShadow> _shadows = [];
   _LitMesh? _groundMesh;
   // Leaf clusters of every tree, in one draw call.
@@ -161,6 +163,9 @@ abstract class OutdoorScene {
 
   /// Frees the scene's geometry and materials.
   void dispose() {
+    for (final water in _waters) {
+      water.dispose();
+    }
     group.dispose();
   }
 
@@ -205,6 +210,9 @@ abstract class OutdoorScene {
     for (final flow in _flows) {
       flow.relight(light, _eyeX, _eyeY, _eyeZ);
     }
+    for (final water in _waters) {
+      water.relight(light);
+    }
     _onRelight(light);
   }
 
@@ -238,6 +246,9 @@ abstract class OutdoorScene {
     for (final flow in _flows) {
       flow.animate(dt);
     }
+    for (final water in _waters) {
+      water.animate(dt);
+    }
     _onAnimate(dt);
   }
 
@@ -251,10 +262,28 @@ abstract class OutdoorScene {
     three.Scene scene,
     three.Camera camera,
     List<three.Object3D> outdoors,
-  ) {}
+  ) {
+    if (camera is! three.PerspectiveCamera) {
+      return;
+    }
+    for (final water in _waters) {
+      water.updateReflection(dt, renderer, scene, camera, [
+        group,
+        ...outdoors,
+      ], _reflectionMovers);
+    }
+  }
+
+  /// Things that move too quickly to leave in a mirror image that only
+  /// refreshes now and then.
+  List<three.Object3D> get _reflectionMovers => const [];
 
   /// Where the sun or moon currently hangs, for highlights that track it.
-  void setKeyLightPosition(double x, double y, double z) {}
+  void setKeyLightPosition(double x, double y, double z) {
+    for (final water in _waters) {
+      water.setKeyLightPosition(x, y, z);
+    }
+  }
 
   void _addMesh(_LitMesh mesh) {
     if (mesh.count == 0) {
@@ -262,6 +291,14 @@ abstract class OutdoorScene {
     }
     _meshes.add(mesh);
     group.add(mesh.createMesh());
+  }
+
+  void _addWater(_MirrorWater water) {
+    if (water.count == 0) {
+      return;
+    }
+    _waters.add(water);
+    group.add(water.createMesh());
   }
 
   void _addFlow(_FlowMesh flow) {
@@ -279,7 +316,7 @@ abstract class OutdoorScene {
     _groundMinV = _groundVMin;
     _groundCols = (_groundUSpan / _groundStep).round() + 1;
     _groundRows = (_groundVSpan / _groundStep).round() + 1;
-    final mesh = _LitMesh(wrap: 0.1, indexed: true);
+    final mesh = _LitMesh(wrap: 0.1, indexed: true, ground: true);
     final heights = Float64List(_groundCols * _groundRows);
     for (var row = 0; row < _groundRows; row += 1) {
       for (var col = 0; col < _groundCols; col += 1) {
