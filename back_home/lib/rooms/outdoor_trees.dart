@@ -1066,46 +1066,131 @@ extension _TreeKit on OutdoorScene {
     // away nobody can tell, and the vertices go further as whole boughs.
     final maxPieces = near ? 4 : (middle ? 2 : 1);
     final total = (3.6 + random.nextDouble() * 1.6) * scale * slender;
-    final topY = baseY + total;
-    _addLimb(
-      solids,
+    // No two pines alike: the trunk leans and bends a little, one side
+    // reaches further toward the light, whorls come at uneven heights with
+    // the odd gap, and every bough has its own length, sag and curl.
+    final leanX = (random.nextDouble() - 0.5) * total * 0.08;
+    final leanZ = (random.nextDouble() - 0.5) * total * 0.08;
+    final wobble = random.nextDouble() * math.pi * 2;
+    (double, double, double) axis(double t) {
+      final lean = math.pow(t, 1.5);
+      return (
+        x + leanX * lean + math.sin(t * 4 + wobble) * scale * 0.04 * t,
+        baseY + total * t,
+        z + leanZ * lean + math.cos(t * 3.4 + wobble) * scale * 0.04 * t,
+      );
+    }
+
+    _addBranch(
       (x, baseY - 0.1, z),
-      (x, baseY + total * 0.9, z),
+      axis(0.45),
+      axis(0.9),
       scale * 0.14,
       scale * 0.03,
-      const _Rgb.hex(0x5A4638),
-      sides: near ? 8 : 5,
+      color: const _Rgb.hex(0x5A4638),
       barkCell: _LeafAtlas.bark,
+      sides: near ? 8 : 5,
+      rings: near ? 5 : 2,
     );
     final hue = random.nextDouble();
+    final reachToward = random.nextDouble() * math.pi * 2;
+    final reachBias = 0.1 + random.nextDouble() * 0.25;
     _Rgb toneAt(double t) => _Rgb.lerp(
       _Rgb.lerp(dark, light, 0.35 + t * 0.5 + hue * 0.15),
       _sunlit,
       0.05 + t * 0.1,
-    ).scale(1.35 + random.nextDouble() * 0.3);
-    for (var w = 0; w < whorls; w += 1) {
-      final t = w / whorls;
-      final y = baseY + total * (0.2 + t * 0.76);
-      final twist = random.nextDouble() * math.pi * 2;
-      // Lower whorls hold more boughs, so the skirt stays full without a core.
-      final count = perWhorl + (t < 0.5 ? (near ? 2 : 1) : 0);
-      for (var i = 0; i < count; i += 1) {
-        final a = twist + (i + random.nextDouble() * 0.4) / count * math.pi * 2;
-        final length =
-            scale * (1.5 - 1.3 * t) * (0.85 + random.nextDouble() * 0.3);
-        final droop = 0.2 + (1 - t) * 0.42 + random.nextDouble() * 0.15;
-        final tip = (
-          x + math.cos(a) * math.cos(droop) * length,
-          y - math.sin(droop) * length,
-          z + math.sin(a) * math.cos(droop) * length,
+    ).scale(1.2 + random.nextDouble() * 0.45);
+    if (near) {
+      // A few dead twigs low on the trunk, where the shade killed them.
+      for (var k = 0; k < 2 + random.nextInt(3); k += 1) {
+        final t = 0.1 + random.nextDouble() * 0.14;
+        final from = axis(t);
+        final a = random.nextDouble() * math.pi * 2;
+        final reach = scale * (0.3 + random.nextDouble() * 0.4);
+        _addBranch(
+          from,
+          (
+            from.$1 + math.cos(a) * reach * 0.5,
+            from.$2 - reach * 0.05,
+            from.$3 + math.sin(a) * reach * 0.5,
+          ),
+          (
+            from.$1 + math.cos(a) * reach,
+            from.$2 - reach * 0.25,
+            from.$3 + math.sin(a) * reach,
+          ),
+          scale * 0.025,
+          scale * 0.006,
+          color: const _Rgb.hex(0x6A5646),
+          barkCell: _LeafAtlas.bark,
+          sides: 4,
+          rings: 2,
         );
-        _addBoughRun((x, y, z), tip, length, toneAt(t), t, maxPieces);
       }
     }
-    // A leader at the very top, pointing up.
+    for (var w = 0; w < whorls; w += 1) {
+      final t = ((w + (random.nextDouble() - 0.5) * 0.7) / whorls).clamp(
+        0.0,
+        0.97,
+      );
+      // Now and then a whorl is missing, leaving a gap in the skirt.
+      if (t > 0.08 && t < 0.85 && random.nextDouble() < 0.12) {
+        continue;
+      }
+      final root = axis(0.2 + t * 0.76);
+      final twist = random.nextDouble() * math.pi * 2;
+      // Lower whorls hold more boughs, so the skirt stays full without a core.
+      final count = math.max(
+        2,
+        perWhorl + (t < 0.5 ? (near ? 2 : 1) : 0) + random.nextInt(3) - 1,
+      );
+      for (var i = 0; i < count; i += 1) {
+        final a =
+            twist +
+            (i + (random.nextDouble() - 0.5) * 0.8) / count * math.pi * 2;
+        final toward = 1 + reachBias * math.cos(a - reachToward);
+        final length =
+            scale *
+            (1.5 - 1.3 * t) *
+            (0.65 + random.nextDouble() * 0.6) *
+            toward;
+        // Mostly sagging, more so low down; a few reach upward instead.
+        final droop = random.nextDouble() < 0.08
+            ? -0.15 - random.nextDouble() * 0.2
+            : 0.12 + (1 - t) * 0.42 + (random.nextDouble() - 0.4) * 0.3;
+        final tip = (
+          root.$1 + math.cos(a) * math.cos(droop) * length,
+          root.$2 - math.sin(droop) * length,
+          root.$3 + math.sin(a) * math.cos(droop) * length,
+        );
+        // Sags from the trunk, then the tip curls back up.
+        final sag = length * (0.06 + random.nextDouble() * 0.14);
+        final bend = (
+          (root.$1 + tip.$1) / 2,
+          (root.$2 + tip.$2) / 2 - sag,
+          (root.$3 + tip.$3) / 2,
+        );
+        final curl = length * random.nextDouble() * 0.12;
+        _addBoughRun(
+          root,
+          (tip.$1, tip.$2 + curl, tip.$3),
+          length,
+          toneAt(t),
+          t,
+          maxPieces,
+          bend: bend,
+        );
+      }
+    }
+    // A leader at the very top, rarely quite straight.
+    final crown = axis(0.9);
     _addBoughRun(
-      (x, baseY + total * 0.9, z),
-      (x, topY, z),
+      crown,
+      (
+        crown.$1 + (random.nextDouble() - 0.5) * total * 0.05,
+        baseY + total,
+        crown.$3 + (random.nextDouble() - 0.5) * total * 0.05,
+      ),
       total * 0.1,
       toneAt(1),
       1,
@@ -1126,14 +1211,22 @@ extension _TreeKit on OutdoorScene {
     double length,
     _Rgb tone,
     double t,
-    int maxPieces,
-  ) {
-    final pieces = (length / 0.75).round().clamp(1, maxPieces);
-    (double, double, double) at(double f) => (
-      root.$1 + (tip.$1 - root.$1) * f,
-      root.$2 + (tip.$2 - root.$2) * f,
-      root.$3 + (tip.$3 - root.$3) * f,
+    int maxPieces, {
+    (double, double, double)? bend,
+  }) {
+    // Curved boughs need at least two cards to show the curve.
+    final pieces = (length / 0.75).round().clamp(
+      bend == null ? 1 : math.min(2, maxPieces),
+      maxPieces,
     );
+    final middle =
+        bend ??
+        (
+          (root.$1 + tip.$1) / 2,
+          (root.$2 + tip.$2) / 2,
+          (root.$3 + tip.$3) / 2,
+        );
+    (double, double, double) at(double f) => _curvePoint(root, middle, tip, f);
     for (var k = 0; k < pieces; k += 1) {
       final k0 = k / pieces;
       final k1 = (k + 1) / pieces;

@@ -462,13 +462,18 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   void _applyViewPose(RoomViewPose pose) {
     _cameraPanOffset.setValues(pose.x, pose.y - _eyeHeight, pose.z);
     _cameraYaw = _currentCameraYaw = normalizeRoomCameraYaw(pose.yaw);
-    _cameraPitch = _currentCameraPitch = pose.pitch.clamp(_minLookPitch, _maxLookPitch).toDouble();
+    _cameraPitch = _currentCameraPitch = pose.pitch
+        .clamp(_minLookPitch, _maxLookPitch)
+        .toDouble();
   }
 
   void _rememberViewPose() {
     widget.controller.viewPose = (
-      x: _camera.position.x, y: _camera.position.y, z: _camera.position.z,
-      yaw: _currentCameraYaw, pitch: _currentCameraPitch,
+      x: _camera.position.x,
+      y: _camera.position.y,
+      z: _camera.position.z,
+      yaw: _currentCameraYaw,
+      pitch: _currentCameraPitch,
     );
   }
 
@@ -2306,7 +2311,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     final placed = widget.controller.placedItemById(sceneFurniture.itemId);
     if (!widget.canMoveFurniture) {
       if (placed != null) {
-        _pendingTapTarget = _tapTargetForDefinition(widget.controller.definitionFor(placed.definitionId));
+        _pendingTapTarget = _tapTargetForDefinition(
+          widget.controller.definitionFor(placed.definitionId),
+        );
         _pendingTapAnchor = hit?.point?.clone();
         _pendingFocusIdentity = sceneFurniture.itemId;
       }
@@ -2315,7 +2322,8 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     }
 
     _pendingFurnitureTapItemId = sceneFurniture.itemId;
-    if (placed == null || widget.controller.selectedItemId != sceneFurniture.itemId) {
+    if (placed == null ||
+        widget.controller.selectedItemId != sceneFurniture.itemId) {
       _beginCameraTiltCandidate(event);
       return;
     }
@@ -2332,7 +2340,8 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
       three.Vector3(0, 1, 0),
       three.Vector3(0, placed.elevation, 0),
     );
-    if (_raycaster.ray.intersectPlane(_dragPlane, _dragIntersection) == null) return;
+    if (_raycaster.ray.intersectPlane(_dragPlane, _dragIntersection) == null)
+      return;
     _activeDragItemId = sceneFurniture.itemId;
     _dragPreviewValid = true;
     _dragOffset
@@ -2451,15 +2460,20 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         ? _pendingFurnitureTapItemId
         : null;
 
-    final isTap = _pointerTravel <= 10 &&
-        _pointerClock.elapsed - _pointerDownTime < const Duration(milliseconds: 500);
+    final isTap =
+        _pointerTravel <= 10 &&
+        _pointerClock.elapsed - _pointerDownTime <
+            const Duration(milliseconds: 500);
     if (_activeRotationItemId != null) {
       _activeRotationItemId = null;
     } else if (_activeDragItemId != null) {
       if (!isTap && _pointerTravel > 10) {
         if (event != null) _updateDragPreview(event);
         if (_dragPreviewOrigin != null && _dragPreviewValid) {
-          widget.controller.movePlacedItem(_activeDragItemId!, _dragPreviewOrigin!);
+          widget.controller.movePlacedItem(
+            _activeDragItemId!,
+            _dragPreviewOrigin!,
+          );
         }
       }
       _activeDragItemId = null;
@@ -2643,7 +2657,9 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   /// Whether the camera sphere at world (x, y, z) overlaps furniture.
   bool _isEyeBlocked(double x, double y, double z) {
     for (final item in widget.controller.placedItems) {
-      if (widget.controller.placementBox(item).blocksEye(x, y, z, _cameraColliderRadius)) {
+      if (widget.controller
+          .placementBox(item)
+          .blocksEye(x, y, z, _cameraColliderRadius)) {
         return true;
       }
     }
@@ -2838,7 +2854,11 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
         box.z - RoomEditorController.roomDepth / 2,
       )
       ..rotation.y = box.heading
-      ..scale.setValues(box.halfWidth * 2, box.top - box.bottom, box.halfDepth * 2)
+      ..scale.setValues(
+        box.halfWidth * 2,
+        box.top - box.bottom,
+        box.halfDepth * 2,
+      )
       ..visible = widget.showFurnitureColliders;
   }
 
@@ -2899,8 +2919,18 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
 
     _camera.updateMatrixWorld(true);
     final projected = sceneFurniture.root.position.clone()
-      ..y = (widget.controller.placementBox(widget.controller.placedItemById(selectedItemId!)!).bottom +
-          widget.controller.placementBox(widget.controller.placedItemById(selectedItemId)!).top) / 2
+      ..y =
+          (widget.controller
+                  .placementBox(
+                    widget.controller.placedItemById(selectedItemId!)!,
+                  )
+                  .bottom +
+              widget.controller
+                  .placementBox(
+                    widget.controller.placedItemById(selectedItemId)!,
+                  )
+                  .top) /
+          2
       ..project(_camera);
     if (projected.z < -1 || projected.z > 1) {
       _notifySelectedScreenPosition(null);
@@ -3194,9 +3224,12 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
   }) {
     final definition = widget.controller.definitionFor(definitionId);
     return widget.controller.clampOrigin(
-      definitionId, 0,
-      GridPoint(x + RoomEditorController.roomWidth / 2 - definition.width / 2,
-        z + RoomEditorController.roomDepth / 2 - definition.depth / 2),
+      definitionId,
+      0,
+      GridPoint(
+        x + RoomEditorController.roomWidth / 2 - definition.width / 2,
+        z + RoomEditorController.roomDepth / 2 - definition.depth / 2,
+      ),
       rotationDegrees: rotationDegrees,
     );
   }

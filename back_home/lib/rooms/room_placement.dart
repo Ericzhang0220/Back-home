@@ -5,14 +5,42 @@ import 'package:three_js/three_js.dart' as three;
 import 'furniture_models.dart';
 import 'room_state.dart';
 
-typedef RoomViewPose = ({double x, double y, double z, double yaw, double pitch});
+typedef RoomViewPose = ({
+  double x,
+  double y,
+  double z,
+  double yaw,
+  double pitch,
+});
 
-const RoomViewPose defaultRoomViewPose = (x: 0, y: 1.9, z: 0, yaw: 0, pitch: -.22);
+const RoomViewPose defaultRoomViewPose = (
+  x: 0,
+  y: 1.9,
+  z: 0,
+  yaw: 0,
+  pitch: -.22,
+);
 
 /// Local model bounds from the same geometry that the room renders.
-final _modelBounds = <RoomItemDefinition, ({double x, double z, double bottom, double top, double halfWidth, double halfDepth})>{};
+final _modelBounds =
+    <
+      RoomItemDefinition,
+      ({
+        double x,
+        double z,
+        double bottom,
+        double top,
+        double halfWidth,
+        double halfDepth,
+      })
+    >{};
 
-RoomPlacementBox roomPlacementBox(RoomItemDefinition definition, GridPoint origin, double degrees, double elevation) {
+RoomPlacementBox roomPlacementBox(
+  RoomItemDefinition definition,
+  GridPoint origin,
+  double degrees,
+  double elevation,
+) {
   final bounds = _modelBounds.putIfAbsent(definition, () {
     final model = buildFurnitureVisualFor(definition);
     final box = three.BoundingBox().setFromObject(model);
@@ -43,8 +71,13 @@ RoomPlacementBox roomPlacementBox(RoomItemDefinition definition, GridPoint origi
 
 class RoomPlacementBox {
   const RoomPlacementBox({
-    required this.x, required this.z, required this.bottom, required this.top,
-    required this.halfWidth, required this.halfDepth, required this.heading,
+    required this.x,
+    required this.z,
+    required this.bottom,
+    required this.top,
+    required this.halfWidth,
+    required this.halfDepth,
+    required this.heading,
   });
   final double x, z, bottom, top, halfWidth, halfDepth, heading;
   double get extentX => _extent(1, 0);
@@ -59,12 +92,20 @@ class RoomPlacementBox {
 
   bool overlaps(RoomPlacementBox other) {
     const tolerance = .001;
-    if (top <= other.bottom + tolerance || bottom >= other.top - tolerance) return false;
-    for (final angle in [heading, heading + math.pi / 2, other.heading, other.heading + math.pi / 2]) {
+    if (top <= other.bottom + tolerance || bottom >= other.top - tolerance)
+      return false;
+    for (final angle in [
+      heading,
+      heading + math.pi / 2,
+      other.heading,
+      other.heading + math.pi / 2,
+    ]) {
       final axisX = math.cos(angle);
       final axisZ = -math.sin(angle);
       final distance = ((x - other.x) * axisX + (z - other.z) * axisZ).abs();
-      if (distance >= _extent(axisX, axisZ) + other._extent(axisX, axisZ) - tolerance) return false;
+      if (distance >=
+          _extent(axisX, axisZ) + other._extent(axisX, axisZ) - tolerance)
+        return false;
     }
     return true;
   }

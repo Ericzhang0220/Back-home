@@ -12,6 +12,8 @@ class _ForestScene extends OutdoorScene {
 
   final _GlowMesh _beams = _GlowMesh();
   final List<(double, double, double, double)> _beamSpots = [];
+  // Where the sun disc hangs in the sky; the shafts point back at it.
+  (double, double, double)? _sunPosition;
   final List<_Bird> _birds = [];
   three.MeshBasicMaterial? _birdMaterial;
   double _time = 0;
@@ -289,17 +291,38 @@ class _ForestScene extends OutdoorScene {
     group.add(_beams.createMesh());
   }
 
-  void _orientBeams(OutdoorLight light) {
+  @override
+  void setKeyLightPosition(double x, double y, double z) {
+    super.setKeyLightPosition(x, y, z);
+    final last = _sunPosition;
+    if (last != null &&
+        (last.$1 - x).abs() + (last.$2 - y).abs() + (last.$3 - z).abs() <
+            0.05) {
+      return;
+    }
+    _sunPosition = (x, y, z);
+    _orientBeams();
+  }
+
+  void _orientBeams([OutdoorLight? light]) {
+    // Until the sky reports where the disc is, aim along the light.
+    final sun =
+        _sunPosition ??
+        (
+          OutdoorScene._eyeX + (light?.sunX ?? 0) * 50,
+          OutdoorScene._eyeY + (light?.sunY ?? 1) * 50,
+          _eyeZ + (light?.sunZ ?? -1) * 50,
+        );
     final positions = <double>[];
     for (final (u, v, width, length) in _beamSpots) {
       final gx = _worldX(u);
       final gz = _worldZ(v);
       final gy = height(u, v);
-      // Beam axis runs from the ground up toward the sun, kept steep so the
-      // shafts fall from above even when the sun is low.
-      final dx = light.sunX * 0.6;
-      final dy = math.max(light.sunY, 0.6);
-      final dz = light.sunZ * 0.6;
+      // Each shaft runs from the ground straight back toward the sun disc,
+      // so together they fan out from it as real sunbeams do.
+      final dx = sun.$1 - gx;
+      final dy = math.max(sun.$2 - gy, 0.5);
+      final dz = sun.$3 - gz;
       final dl = math.sqrt(dx * dx + dy * dy + dz * dz);
       final ax = dx / dl;
       final ay = dy / dl;
@@ -317,11 +340,12 @@ class _ForestScene extends OutdoorScene {
       final tx = gx + ax * length;
       final ty = gy + ay * length;
       final tz = gz + az * length;
-      // The shaft widens toward the canopy above.
+      // Light spreads as it leaves the sun: narrower up toward it, wider
+      // where it reaches the ground.
       (double, double, double) ground(double side) =>
-          (gx + wx * side, gy + wy * side, gz + wz * side);
+          (gx + wx * side * 1.4, gy + wy * side * 1.4, gz + wz * side * 1.4);
       (double, double, double) top(double side) =>
-          (tx + wx * side * 1.8, ty + wy * side * 1.8, tz + wz * side * 1.8);
+          (tx + wx * side * 0.8, ty + wy * side * 0.8, tz + wz * side * 0.8);
       // Left half: (left edge, centre) on the ground, then up; right half.
       for (final quad in [
         [ground(-1), ground(0), top(0), top(-1)],
