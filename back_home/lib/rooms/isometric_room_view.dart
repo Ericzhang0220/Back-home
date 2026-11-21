@@ -2979,7 +2979,6 @@ class _IsometricRoomViewState extends State<IsometricRoomView> {
     final activeOrigin = previewOrigin ?? item.origin;
     final position = _gridOriginToWorld(
       definitionId: item.definitionId,
-      quarterTurns: item.rotationQuarterTurns,
       origin: activeOrigin,
     );
 

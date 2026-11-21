@@ -744,8 +744,6 @@ class RoomEditorController extends ChangeNotifier {
       origin: clampedOrigin,
       rotationQuarterTurns: item.rotationQuarterTurns,
       rotationDegrees: item.rotationDegrees,
-      elevation: item.elevation,
-      rotationDegrees: item.rotationDegrees,
       elevation: height,
       ignoringInstanceId: instanceId,
     )) {
